@@ -7,7 +7,7 @@ import type {
 } from "@recipejar/shared";
 
 const BASE_URL = __DEV__
-  ? "http://localhost:3000"
+  ? "http://10.0.2.2:3000"
   : "https://api.recipejar.app";
 
 async function request<T>(

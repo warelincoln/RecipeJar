@@ -14,24 +14,6 @@ const config = {
     extraNodeModules: {
       "@recipejar/shared": path.resolve(monorepoRoot, "shared", "src"),
     },
-    resolveRequest(context, moduleName, platform) {
-      if (
-        moduleName === "react-native-screens" ||
-        moduleName.startsWith("react-native-screens/")
-      ) {
-        const subpath = moduleName.replace("react-native-screens", "");
-        const resolved = path.resolve(
-          monorepoRoot,
-          "node_modules",
-          "react-native-screens",
-          "lib",
-          "commonjs",
-          subpath || "index.js",
-        );
-        return { type: "sourceFile", filePath: resolved };
-      }
-      return context.resolveRequest(context, moduleName, platform);
-    },
   },
 };
 

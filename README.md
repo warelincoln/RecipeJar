@@ -61,11 +61,20 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | API integration | 16 tests | All 11 draft endpoints + 2 recipe endpoints, full parse-edit-save flow |
 | XState machine | 8 tests | Resume routing, retake escalation, warning gate, guided correction |
 
+### Proven on Android Emulator
+
+| What | Evidence |
+|---|---|
+| Android native build | Gradle compiles all native modules, APK installs on emulator |
+| Metro JS bundle | ~9 MB bundle loads, hot reload works |
+| App startup + navigation | HomeScreen renders, navigation to RecipeDetail and ImportFlow works |
+| Camera permission | Declared in AndroidManifest.xml, Android permission dialog appears |
+
 ### Not Yet Proven
 
 | What | Why |
 |---|---|
-| Mobile app on device/emulator | Requires Android Studio or Xcode. Metro bundler verified (9.2 MB bundle compiles). Native build not executed. |
+| iOS build (Simulator or device) | Requires macOS with Xcode. `ios/` directory and Podfile exist but `pod install` and `run-ios` not yet executed. |
 | Camera capture flow | Requires physical device with camera or emulator with camera simulation |
 | Multi-page image ordering UX | Screens exist but no device runtime test |
 | Real cookbook photo parsing quality | GPT-4o API works, but accuracy on real handwritten/printed cookbook pages is untested |
@@ -436,6 +445,9 @@ java -version
 ```
 
 If `adb` is not found, `ANDROID_HOME` is not set. See Section 4.
+If `java` is not found, set `JAVA_HOME` to Android Studio's bundled JDK:
+- **Windows:** `$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"` (PowerShell, per-session) or set it permanently via System Properties → Environment Variables.
+- **macOS:** `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
 
 #### Step 1: Start an Android emulator
 
@@ -453,9 +465,11 @@ Wait until the emulator fully boots to the home screen.
 
 #### Step 2: Start Metro bundler
 
+In **Terminal 1**:
+
 ```bash
 cd mobile
-npx react-native start
+npx react-native start --reset-cache
 ```
 
 Expected output:
@@ -470,11 +484,11 @@ Fast - Scalable - Integrated
 info Dev server ready
 ```
 
-Leave this terminal running.
+Leave this terminal running. **Do NOT press `a` to launch the app** — use the manual Gradle command below instead (see "Windows Gradle workaround").
 
-#### Step 3: Build and run
+#### Step 3: Build and install
 
-In a **second terminal**:
+In **Terminal 2**:
 
 ```bash
 cd mobile
@@ -483,51 +497,115 @@ npx react-native run-android
 
 This compiles the native Android project and installs the app on the emulator. First build takes 3-8 minutes. Subsequent builds are faster.
 
-Expected success output:
+##### Windows Gradle workaround
+
+On Windows, Gradle 8.x has a known file-locking bug in `.gradle/` cache directories. If you see:
 
 ```
-info Installing the app...
-info Launching the app...
+Could not move temporary workspace (...) to immutable location
 ```
 
-#### Step 4: Configure server URL for Android emulator
+Use this command instead of `npx react-native run-android`:
 
-The Android emulator cannot reach `localhost`. Edit `mobile/src/services/api.ts`:
-
-Change the `BASE_URL` line:
-
-```typescript
-const BASE_URL = __DEV__
-  ? "http://10.0.2.2:3000"    // 10.0.2.2 = host machine from Android emulator
-  : "https://api.recipejar.app";
+```powershell
+cd mobile\android
+Remove-Item -Recurse -Force .\.gradle -ErrorAction SilentlyContinue
+.\gradlew.bat app:installDebug --no-daemon --no-build-cache --project-cache-dir C:\tmp\rj-gradle -PreactNativeDevServerPort=8081
 ```
 
-After saving, Metro hot-reloads the change.
+This bypasses the problematic default cache location. Metro (running in Terminal 1) will serve the JavaScript bundle once the native app is installed.
+
+#### Step 4: Server URL for Android emulator
+
+The Android emulator cannot reach `localhost`. The API client is already configured for this — in dev mode it uses `http://10.0.2.2:3000` which maps to the host machine's `localhost:3000`. No code change needed.
+
+If you change the server port, update `mobile/src/services/api.ts` accordingly.
 
 ### iOS (macOS only)
+
+#### Prerequisites
+
+- Xcode 15+ (App Store)
+- CocoaPods: `gem install cocoapods` (or `brew install cocoapods`)
+- Xcode Command Line Tools: `xcode-select --install`
+
+#### Step 1: Install iOS dependencies
 
 ```bash
 cd mobile/ios
 pod install
 cd ..
-npx react-native start          # Terminal 1
-npx react-native run-ios        # Terminal 2
 ```
 
-iOS simulator uses `localhost`, so no URL change needed.
+If `pod install` fails with version conflicts, try:
+
+```bash
+cd mobile/ios
+pod install --repo-update
+cd ..
+```
+
+#### Step 2: Start Metro bundler
+
+In **Terminal 1**:
+
+```bash
+cd mobile
+npx react-native start --reset-cache
+```
+
+Leave this running.
+
+#### Step 3: Build and run on iOS Simulator
+
+In **Terminal 2**:
+
+```bash
+cd mobile
+npx react-native run-ios
+```
+
+This builds the Xcode project and launches the app in the iOS Simulator. First build takes 5-10 minutes.
+
+To target a specific simulator:
+
+```bash
+npx react-native run-ios --simulator="iPhone 16"
+```
+
+To list available simulators: `xcrun simctl list devices available`
+
+#### Step 4: Build and run on a physical iPhone
+
+1. Open `mobile/ios/RecipeJar.xcworkspace` in Xcode (use `.xcworkspace`, NOT `.xcodeproj`)
+2. Select your Apple Developer team: Project Navigator → RecipeJar target → Signing & Capabilities → Team
+3. Change the Bundle Identifier to something unique (e.g., `com.yourname.recipejar`)
+4. Connect your iPhone via USB or Wi-Fi, select it as the build target in the Xcode toolbar
+5. Press **Cmd+R** to build and run
+6. On first install, you may need to trust the developer certificate on the device: Settings → General → VPN & Device Management → trust your profile
+
+#### iOS-specific notes
+
+- iOS Simulator uses `localhost`, so the default API URL (`http://localhost:3000`) works without changes.
+- For a **physical iPhone**, change `BASE_URL` in `mobile/src/services/api.ts` to your Mac's LAN IP: `http://192.168.x.x:3000`. Find your LAN IP with `ifconfig | grep "inet " | grep -v 127.0.0.1`.
+- Camera is **not available** in the iOS Simulator. Use a physical device to test camera capture flows.
+- The app requires camera permission. The `Info.plist` should contain `NSCameraUsageDescription`. If missing, add it in Xcode: Info tab → add `Privacy - Camera Usage Description` with value `RecipeJar needs camera access to photograph cookbook pages`.
 
 ### Common mobile build errors
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `SDK location not found` | `ANDROID_HOME` not set | Set env var to your Android SDK path |
-| `No connected devices` or `No emulators running` | Emulator not started | Start an AVD from Android Studio Device Manager |
-| `Could not determine the dependencies of task ':app:compileDebugJavaWithJavac'` | Wrong JDK version | Android Studio bundles JDK 17. Set `JAVA_HOME` to the Android Studio JDK path |
-| `listen EADDRINUSE :::8081` | Another Metro instance running | Kill it: find the PID on port 8081 and terminate, or close all terminals and retry |
-| `Unable to resolve module` | Metro cache stale | Run `npx react-native start --reset-cache` |
-| `react-native-screens` codegen error | Fabric codegen spec issue | The `metro.config.js` resolver override handles this. If it recurs, clear Metro cache. |
+| `SDK location not found` | `ANDROID_HOME` not set | Set env var to your Android SDK path. Create `mobile/android/local.properties` with `sdk.dir=C:\\Users\\YOU\\AppData\\Local\\Android\\Sdk` |
+| `JAVA_HOME is not set` | JDK path not configured | Set `JAVA_HOME` to Android Studio's bundled JBR (see prerequisites above) |
+| `No connected devices` | Emulator not started | Start an AVD from Android Studio Device Manager before running the build |
+| `Could not move temporary workspace` | Gradle file-locking on Windows | Use the `--project-cache-dir C:\tmp\rj-gradle` workaround above |
+| `ViewManagerWithGeneratedInterface` errors | Library requires New Architecture | Ensure `newArchEnabled=false` in `mobile/android/gradle.properties` |
+| `listen EADDRINUSE :::8081` | Another Metro instance running | Kill it: `Get-NetTCPConnection -LocalPort 8081 \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` (PowerShell) |
+| `Unable to resolve module` or SHA-1 error | Metro cache stale | Run `npx react-native start --reset-cache` |
+| `pod install` fails (iOS) | CocoaPods not installed or outdated | `gem install cocoapods` then `cd mobile/ios && pod install --repo-update` |
+| `No bundle URL present` (iOS) | Metro not running | Start Metro in a separate terminal first |
 
-### Physical device
+### Physical device (Android)
 
 For a USB-connected Android device:
 
@@ -536,7 +614,7 @@ For a USB-connected Android device:
 3. `adb devices` should list the device
 4. `npx react-native run-android` targets the physical device
 
-For physical device networking, change `BASE_URL` to your machine's LAN IP:
+For physical device networking, change `BASE_URL` in `mobile/src/services/api.ts` to your machine's LAN IP:
 
 ```typescript
 const BASE_URL = __DEV__
@@ -832,7 +910,7 @@ RecipeJar/
     ├── index.js                         # app entry point
     ├── App.tsx                          # root component, NavigationContainer, stack navigator
     ├── babel.config.js                  # RN babel preset + reanimated plugin
-    ├── metro.config.js                  # monorepo watch folders, shared alias, screens codegen fix
+    ├── metro.config.js                  # monorepo watch folders, shared alias
     ├── react-native.config.js           # CLI project source dirs
     ├── Gemfile                          # Ruby deps for CocoaPods (iOS)
     ├── .gitignore
@@ -910,13 +988,21 @@ RecipeJar/
 
 **Workaround:** Use recipe sites that serve JSON-LD (BBC Good Food, most WordPress recipe blogs). This is a known MVP limitation.
 
-### react-native-screens Codegen Error
+### react-native-screens / react-native-gesture-handler Build Error
 
-**Problem:** Metro bundler fails with `Unknown prop type for "..." : "undefined"` in `react-native-screens/src/fabric/`.
+**Problem:** Android native build fails with `ViewManagerWithGeneratedInterface` unresolved supertype errors.
 
-**Cause:** The library's fabric TypeScript codegen specs are incompatible with RN 0.76's codegen parser.
+**Cause:** The v4.x `react-native-screens` and v2.21+ `react-native-gesture-handler` require React Native's New Architecture (Fabric). With `newArchEnabled=false`, the generated interfaces don't exist.
 
-**Fix:** The `metro.config.js` contains a custom `resolveRequest` that redirects `react-native-screens` to its pre-compiled `lib/commonjs/` output, bypassing the fabric source files. If the error recurs, run `npx react-native start --reset-cache`.
+**Fix:** The project pins `react-native-screens@~3.35.0` and `react-native-gesture-handler@~2.20.2`, which are the last versions compatible with the old architecture. If you upgrade these packages, verify `newArchEnabled` in `mobile/android/gradle.properties`.
+
+### Gradle File-Locking on Windows
+
+**Problem:** `Could not move temporary workspace (...) to immutable location` during Android build.
+
+**Cause:** Gradle 8.x on Windows has a known bug where cache files get locked by the daemon or other processes.
+
+**Fix:** Run the build with `--no-daemon --no-build-cache --project-cache-dir C:\tmp\rj-gradle`. See Section 8 for the full command. Also ensure Android Studio is closed when building from the command line.
 
 ---
 
@@ -958,11 +1044,11 @@ RecipeJar/
 
 ### Mobile runtime validation
 
-The Metro bundler produces a valid 9.2 MB JS bundle. Native `android/` and `ios/` directories exist. But no device/emulator build has been executed. The first `run-android` or `run-ios` may surface native linking issues with `react-native-vision-camera` or `react-native-reanimated` that require native configuration (permissions, Gradle plugin setup, Podfile adjustments).
+The Android build is proven — the app compiles, installs on an emulator, and runs successfully with navigation working across all screens. The iOS build has not yet been executed. The first `pod install` + `run-ios` may surface CocoaPods linking issues with `react-native-vision-camera` or `react-native-reanimated` that require Podfile adjustments or Xcode build settings changes.
 
 ### Camera integration
 
-`react-native-vision-camera` is declared as a dependency but the `CaptureView.tsx` component has not been tested on a real camera. Camera permissions must be declared in `AndroidManifest.xml` and `Info.plist`. The library requires a physical device or an emulator with camera simulation configured.
+`react-native-vision-camera` is declared as a dependency but the `CaptureView.tsx` component has not been tested on a real camera. Camera permission is declared in `AndroidManifest.xml`. For iOS, add `NSCameraUsageDescription` to `Info.plist` (see Section 8). The iOS Simulator does not support camera — use a physical device for camera testing.
 
 ### Image parsing quality
 

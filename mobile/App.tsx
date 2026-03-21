@@ -17,7 +17,6 @@ export default function App() {
           initialRouteName="Home"
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: "#f9fafb" },
           }}
         >
           <Stack.Screen name="Home" component={HomeScreen} />

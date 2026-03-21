@@ -56,13 +56,13 @@ export function RecipeDetailScreen({ route }: Props) {
       )}
 
       <Text style={styles.sectionTitle}>Ingredients</Text>
-      {recipe.ingredients.map((ing) =>
+      {(recipe.ingredients ?? []).map((ing, i) =>
         ing.isHeader ? (
-          <Text key={ing.id} style={styles.ingredientHeader}>
+          <Text key={ing.id ?? `ing-${i}`} style={styles.ingredientHeader}>
             {ing.text}
           </Text>
         ) : (
-          <View key={ing.id} style={styles.ingredientRow}>
+          <View key={ing.id ?? `ing-${i}`} style={styles.ingredientRow}>
             <Text style={styles.bullet}>•</Text>
             <Text style={styles.ingredientText}>{ing.text}</Text>
           </View>
@@ -70,20 +70,24 @@ export function RecipeDetailScreen({ route }: Props) {
       )}
 
       <Text style={styles.sectionTitle}>Steps</Text>
-      {recipe.steps.map((step, i) => (
-        <View key={step.id} style={styles.stepRow}>
+      {(recipe.steps ?? []).map((step, i) => (
+        <View key={step.id ?? `step-${i}`} style={styles.stepRow}>
           <Text style={styles.stepNumber}>{i + 1}</Text>
           <Text style={styles.stepText}>{step.text}</Text>
         </View>
       ))}
 
       <View style={styles.meta}>
-        <Text style={styles.metaText}>
-          Source: {recipe.sourceContext.sourceType}
-        </Text>
-        <Text style={styles.metaText}>
-          Save state: {recipe.saveState}
-        </Text>
+        {recipe.sourceContext?.sourceType && (
+          <Text style={styles.metaText}>
+            Source: {recipe.sourceContext.sourceType}
+          </Text>
+        )}
+        {recipe.saveState && (
+          <Text style={styles.metaText}>
+            Save state: {recipe.saveState}
+          </Text>
+        )}
       </View>
     </ScrollView>
   );

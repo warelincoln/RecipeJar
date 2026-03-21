@@ -32,6 +32,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>RecipeJar needs camera access to photograph cookbook pages</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>RecipeJar needs photo library access to select recipe images</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>UILaunchStoryboardName</key>

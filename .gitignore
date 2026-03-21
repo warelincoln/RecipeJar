@@ -3,3 +3,18 @@ dist/
 .env
 .env.local
 *.tsbuildinfo
+
+# Android
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+
+# iOS
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/ios/*.xcworkspace/xcuserdata/
+mobile/ios/*.xcodeproj/xcuserdata/
+
+# Metro
+.metro-health-check*
