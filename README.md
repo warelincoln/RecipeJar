@@ -13,7 +13,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
 - Drizzle ORM schema with 7 PostgreSQL tables, indexes, cascade deletes
 - Supabase Storage integration for recipe page images
-- XState v5 state machine for mobile import flow (11 states, all transitions defined)
+- XState v5 state machine for mobile import flow (13 states, including uploading and URL draft creation)
 - React Native mobile app shell with navigation, screens, Zustand store, API client
 - 74 automated tests (validation, parsing, save-decision, API integration, state machine)
 
@@ -70,15 +70,25 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | App startup + navigation | HomeScreen renders, navigation to RecipeDetail and ImportFlow works |
 | Camera permission | Declared in AndroidManifest.xml, Android permission dialog appears |
 
+### Proven on Physical iPhone (iOS)
+
+| What | Evidence |
+|---|---|
+| iOS native build | Xcode 26.3 compiles all native modules and CocoaPods dependencies, installs on physical iPhone |
+| Camera capture flow | Photo taken of cookbook page via `react-native-vision-camera`, uploaded to Supabase Storage, sent to GPT-4o Vision |
+| GPT-4o Vision image parsing (real cookbook) | Soy Sauce Marinade recipe: extracted title, 8 ingredients, 1 step from a real cookbook photo. Minor OCR issue: "1/3 cup sake" misread as "1/2 cup sake" |
+| Full import flow on device | capture → reorder → upload → parse → preview → warning gate → save — all working end-to-end |
+| Validation warning gate | `DESCRIPTION_DETECTED` FLAG surfaced, user proceeded via "Save Anyway", recipe saved as `SAVE_USER_VERIFIED` |
+| Recipe list + detail views | HomeScreen displays saved recipes, RecipeDetailScreen shows full recipe content |
+
 ### Not Yet Proven
 
 | What | Why |
 |---|---|
-| iOS build (Simulator or device) | Requires macOS with Xcode. `ios/` directory and Podfile exist but `pod install` and `run-ios` not yet executed. |
-| Camera capture flow | Requires physical device with camera or emulator with camera simulation |
-| Multi-page image ordering UX | Screens exist but no device runtime test |
-| Real cookbook photo parsing quality | GPT-4o API works, but accuracy on real handwritten/printed cookbook pages is untested |
+| Multi-page image ordering UX | Single-page capture tested; multi-page reorder not yet tested on device |
+| Real cookbook photo parsing quality at scale | Single recipe tested with good results; accuracy across varied cookbook formats (handwritten, glossy, multi-column) is untested |
 | Bot-protected URL parsing | AllRecipes, Simply Recipes return 402/403. JSON-LD sites (BBC Good Food) work. |
+| iOS Simulator build | Tested on physical device only; simulator build not yet attempted |
 
 ---
 
@@ -144,15 +154,18 @@ FLAGs never block saving. They trigger the warning gate UI so the user acknowled
 
 ### State Machine
 
-Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 11 states:
+Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 13 states:
 
 ```
 idle → capture (NEW_IMAGE_IMPORT)
-idle → parsing (NEW_URL_IMPORT)
+idle → creatingUrlDraft (NEW_URL_IMPORT)
 idle → resuming (RESUME_DRAFT)
 
 capture → reorder (DONE_CAPTURING)
-reorder → parsing (CONFIRM_ORDER)
+reorder → uploading (CONFIRM_ORDER)
+
+creatingUrlDraft → parsing (draft created, draftId assigned)
+uploading → parsing (draft created, pages uploaded, draftId assigned)
 
 parsing → previewEdit (clean parse)
 parsing → retakeRequired (RETAKE issues)
@@ -174,7 +187,7 @@ saving → saved (success, final state)
 saving → previewEdit (error)
 ```
 
-The machine invokes async actors for API calls (`createDraft`, `parseDraft`, `saveDraft`, `resumeDraft`, `updateCandidate`). Each actor calls the corresponding API endpoint.
+The machine invokes async actors for API calls (`createDraft`, `createUrlDraft`, `uploadDraft`, `parseDraft`, `saveDraft`, `resumeDraft`, `updateCandidate`). The `uploadDraft` actor creates a draft and uploads all captured pages sequentially before transitioning to parsing.
 
 ---
 
@@ -1044,15 +1057,15 @@ RecipeJar/
 
 ### Mobile runtime validation
 
-The Android build is proven — the app compiles, installs on an emulator, and runs successfully with navigation working across all screens. The iOS build has not yet been executed. The first `pod install` + `run-ios` may surface CocoaPods linking issues with `react-native-vision-camera` or `react-native-reanimated` that require Podfile adjustments or Xcode build settings changes.
+Both Android and iOS builds are proven. The Android build compiles and runs on an emulator with navigation working across all screens. The iOS build compiles via Xcode 26.3 and runs on a physical iPhone with the full import flow tested end-to-end.
 
 ### Camera integration
 
-`react-native-vision-camera` is declared as a dependency but the `CaptureView.tsx` component has not been tested on a real camera. Camera permission is declared in `AndroidManifest.xml`. For iOS, add `NSCameraUsageDescription` to `Info.plist` (see Section 8). The iOS Simulator does not support camera — use a physical device for camera testing.
+`react-native-vision-camera` is working on a physical iPhone. Camera capture, image upload to Supabase Storage, and GPT-4o Vision parsing have been tested successfully. Camera permission is declared in both `AndroidManifest.xml` and `Info.plist`. The iOS Simulator does not support camera — use a physical device for camera testing.
 
 ### Image parsing quality
 
-GPT-4o Vision API is connected and functional. Actual extraction quality on real cookbook photos (handwritten, glossy pages, multi-column layouts, faded text) is untested. The validation engine will catch many extraction failures, but the parser prompts may need tuning based on real-world results.
+GPT-4o Vision API is connected and functional. Initial testing on a real printed cookbook page (Soy Sauce Marinade) showed strong results: title, 8 ingredients, and 1 step extracted correctly. One minor OCR error observed: "1/3 cup sake" misread as "1/2 cup sake" — fraction confusion between ⅓ and ½. The validation engine correctly surfaced a `DESCRIPTION_DETECTED` FLAG. Further testing on varied cookbook formats (handwritten, glossy pages, multi-column layouts, faded text) is needed to tune parser prompts.
 
 ### Bot-protected URLs
 
@@ -1065,3 +1078,20 @@ The MVP is single-user. There is no authentication, no user table, no data-owner
 ### Offline / local-first
 
 Not implemented. The mobile app requires network access to the API server for all operations. Future work: local SQLite database with sync, optimistic UI updates.
+
+---
+
+## 16. Changelog
+
+### 2026-03-20 — Import flow fix + UX improvements
+
+**Bug fixes:**
+- Fixed import flow: `createDraft` and `addPage` actors were defined but never invoked in the XState machine. Added `uploading` and `creatingUrlDraft` intermediate states to properly create drafts and upload pages before parsing.
+- Fixed `POST /drafts` failing with "Body cannot be empty when content-type is set to 'application/json'" — added a tolerant JSON content-type parser to the Fastify server.
+- Fixed API base URL for physical device testing — `localhost` doesn't work on a physical iPhone; changed to LAN IP.
+- Fixed Supabase database connection — direct-connect hostname (`db.*.supabase.co`) didn't resolve; switched to session pooler URL (`aws-0-us-west-2.pooler.supabase.com`).
+
+**UX improvements:**
+- Added warning dismiss/acknowledge buttons on FLAG issues in PreviewEditView ("OK, include" / "Undo" toggle).
+- Added cancel buttons throughout the import flow (CaptureView, ReorderView, PreviewEditView, WarningGateView) with confirmation dialog before navigating home.
+- Fixed HomeScreen header to use safe area insets instead of hardcoded padding, preventing text truncation on devices with Dynamic Island/notch.
