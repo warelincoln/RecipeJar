@@ -66,6 +66,21 @@ export const importMachine = setup({
         return api.drafts.addPage(input.draftId, input.imageUri);
       },
     ),
+    uploadDraft: fromPromise(
+      async ({
+        input,
+      }: {
+        input: { pages: { imageUri: string; orderIndex: number }[] };
+      }) => {
+        const draft = await api.drafts.create();
+        const uploadedPages = [];
+        for (const page of input.pages) {
+          const uploaded = await api.drafts.addPage(draft.id, page.imageUri);
+          uploadedPages.push(uploaded);
+        }
+        return { draftId: draft.id, pages: uploadedPages };
+      },
+    ),
     parseDraft: fromPromise(
       async ({ input }: { input: { draftId: string } }) => {
         return api.drafts.parse(input.draftId);
@@ -111,7 +126,7 @@ export const importMachine = setup({
       on: {
         NEW_IMAGE_IMPORT: { target: "capture" },
         NEW_URL_IMPORT: {
-          target: "parsing",
+          target: "creatingUrlDraft",
           actions: assign({
             sourceType: () => "url" as const,
             url: ({ event }) => event.url,
@@ -221,7 +236,46 @@ export const importMachine = setup({
               }),
           }),
         },
-        CONFIRM_ORDER: { target: "parsing" },
+        CONFIRM_ORDER: { target: "uploading" },
+      },
+    },
+
+    creatingUrlDraft: {
+      invoke: {
+        src: "createUrlDraft",
+        input: ({ context }) => ({ url: context.url! }),
+        onDone: {
+          target: "parsing",
+          actions: assign({
+            draftId: ({ event }) => event.output.id,
+          }),
+        },
+        onError: {
+          target: "idle",
+          actions: assign({ error: () => "Failed to create draft from URL." }),
+        },
+      },
+    },
+
+    uploading: {
+      invoke: {
+        src: "uploadDraft",
+        input: ({ context }) => ({
+          pages: context.capturedPages.map((p) => ({
+            imageUri: p.imageUri,
+            orderIndex: p.orderIndex,
+          })),
+        }),
+        onDone: {
+          target: "parsing",
+          actions: assign({
+            draftId: ({ event }) => event.output.draftId,
+          }),
+        },
+        onError: {
+          target: "idle",
+          actions: assign({ error: () => "Failed to upload pages. Please try again." }),
+        },
       },
     },
 

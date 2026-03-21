@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRecipesStore } from "../stores/recipes.store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -14,6 +15,7 @@ import type { RootStackParamList } from "../navigation/types";
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 export function HomeScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const { recipes, loading, error, fetchRecipes } = useRecipesStore();
 
   useEffect(() => {
@@ -27,7 +29,7 @@ export function HomeScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.title}>RecipeJar</Text>
         <Text style={styles.subtitle}>Your recipe collection</Text>
       </View>
@@ -91,7 +93,7 @@ export function HomeScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f9fafb" },
-  header: { paddingHorizontal: 16, paddingTop: 60, paddingBottom: 16 },
+  header: { paddingHorizontal: 16, paddingBottom: 16 },
   title: { fontSize: 28, fontWeight: "800" },
   subtitle: { fontSize: 14, color: "#6b7280", marginTop: 2 },
   loader: { marginTop: 40 },

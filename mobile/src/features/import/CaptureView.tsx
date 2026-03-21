@@ -13,9 +13,10 @@ interface CaptureViewProps {
   pages: { imageUri: string; orderIndex: number }[];
   onCapture: (imageUri: string) => void;
   onDone: () => void;
+  onCancel: () => void;
 }
 
-export function CaptureView({ pages, onCapture, onDone }: CaptureViewProps) {
+export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewProps) {
   const device = useCameraDevice("back");
   const cameraRef = useRef<Camera>(null);
 
@@ -42,6 +43,10 @@ export function CaptureView({ pages, onCapture, onDone }: CaptureViewProps) {
         isActive={true}
         photo={true}
       />
+
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
 
       <View style={styles.controls}>
         {pages.length > 0 && (
@@ -77,6 +82,8 @@ export function CaptureView({ pages, onCapture, onDone }: CaptureViewProps) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },
+  cancelButton: { position: "absolute", top: 60, left: 16, zIndex: 10, padding: 8 },
+  cancelText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   controls: { position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 40 },
   thumbnailList: { paddingHorizontal: 16, marginBottom: 16 },
   thumbnail: { width: 48, height: 64, borderRadius: 6, marginRight: 8, borderWidth: 1, borderColor: "#fff" },

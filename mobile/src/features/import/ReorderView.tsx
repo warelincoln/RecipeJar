@@ -12,9 +12,10 @@ interface ReorderViewProps {
   pages: { pageId: string; imageUri: string; orderIndex: number }[];
   onReorder: (pageOrder: { pageId: string; orderIndex: number }[]) => void;
   onConfirm: () => void;
+  onCancel: () => void;
 }
 
-export function ReorderView({ pages, onReorder, onConfirm }: ReorderViewProps) {
+export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderViewProps) {
   const [orderedPages, setOrderedPages] = useState(pages);
 
   const moveUp = (index: number) => {
@@ -37,6 +38,9 @@ export function ReorderView({ pages, onReorder, onConfirm }: ReorderViewProps) {
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
       <Text style={styles.header}>Arrange Pages</Text>
       <Text style={styles.subtitle}>
         Drag to reorder pages so the recipe reads in the correct order.
@@ -81,6 +85,8 @@ export function ReorderView({ pages, onReorder, onConfirm }: ReorderViewProps) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
+  cancelText: { fontSize: 16, color: "#6b7280" },
   header: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#6b7280", marginBottom: 16 },
   list: { flex: 1 },

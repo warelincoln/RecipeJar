@@ -16,17 +16,25 @@ import type {
 interface PreviewEditViewProps {
   candidate: EditedRecipeCandidate;
   validationResult: ValidationResult | null;
+  dismissedIssueIds: Set<string>;
   onEdit: (candidate: EditedRecipeCandidate) => void;
   onSave: () => void;
   onEnterCorrection: () => void;
+  onDismissWarning: (issueId: string) => void;
+  onUndismissWarning: (issueId: string) => void;
+  onCancel: () => void;
 }
 
 export function PreviewEditView({
   candidate,
   validationResult,
+  dismissedIssueIds,
   onEdit,
   onSave,
   onEnterCorrection,
+  onDismissWarning,
+  onUndismissWarning,
+  onCancel,
 }: PreviewEditViewProps) {
   const [title, setTitle] = useState(candidate.title);
   const [ingredients, setIngredients] = useState(candidate.ingredients);
@@ -63,6 +71,10 @@ export function PreviewEditView({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>Title</Text>
       <TextInput
         style={[
@@ -135,23 +147,43 @@ export function PreviewEditView({
           </Text>
           {validationResult.issues
             .filter((i) => i.severity !== "PASS")
-            .map((issue) => (
-              <View key={issue.issueId} style={styles.issueBadge}>
-                <Text
-                  style={[
-                    styles.issueSeverity,
-                    issue.severity === "BLOCK" && { color: "#dc2626" },
-                    issue.severity === "CORRECTION_REQUIRED" && {
-                      color: "#ea580c",
-                    },
-                    issue.severity === "FLAG" && { color: "#ca8a04" },
-                  ]}
-                >
-                  {issue.severity}
-                </Text>
-                <Text style={styles.issueMessage}>{issue.message}</Text>
-              </View>
-            ))}
+            .map((issue) => {
+              const isDismissed = dismissedIssueIds.has(issue.issueId);
+              return (
+                <View key={issue.issueId} style={[styles.issueBadge, isDismissed && styles.issueDismissed]}>
+                  <View style={styles.issueContent}>
+                    <Text
+                      style={[
+                        styles.issueSeverity,
+                        issue.severity === "BLOCK" && { color: "#dc2626" },
+                        issue.severity === "CORRECTION_REQUIRED" && { color: "#ea580c" },
+                        issue.severity === "FLAG" && { color: "#ca8a04" },
+                        isDismissed && { color: "#9ca3af" },
+                      ]}
+                    >
+                      {isDismissed ? "ACKNOWLEDGED" : issue.severity}
+                    </Text>
+                    <Text style={[styles.issueMessage, isDismissed && styles.issueMessageDismissed]}>
+                      {issue.message}
+                    </Text>
+                  </View>
+                  {issue.severity === "FLAG" && issue.userDismissible && (
+                    <TouchableOpacity
+                      style={[styles.dismissButton, isDismissed && styles.undismissButton]}
+                      onPress={() =>
+                        isDismissed
+                          ? onUndismissWarning(issue.issueId)
+                          : onDismissWarning(issue.issueId)
+                      }
+                    >
+                      <Text style={[styles.dismissText, isDismissed && styles.undismissText]}>
+                        {isDismissed ? "Undo" : "OK, include"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
         </View>
       )}
 
@@ -179,6 +211,8 @@ export function PreviewEditView({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, paddingBottom: 40 },
+  cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
+  cancelText: { fontSize: 16, color: "#6b7280" },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
   input: {
     borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
@@ -201,9 +235,19 @@ const styles = StyleSheet.create({
     marginTop: 24, padding: 16, backgroundColor: "#fef3c7", borderRadius: 12,
   },
   issuesSummaryTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
-  issueBadge: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  issueSeverity: { fontSize: 11, fontWeight: "700", marginRight: 8, width: 120 },
-  issueMessage: { flex: 1, fontSize: 13, color: "#374151" },
+  issueBadge: { flexDirection: "row", alignItems: "center", marginBottom: 10, paddingVertical: 4 },
+  issueDismissed: { opacity: 0.7 },
+  issueContent: { flex: 1 },
+  issueSeverity: { fontSize: 11, fontWeight: "700", marginBottom: 2 },
+  issueMessage: { fontSize: 13, color: "#374151" },
+  issueMessageDismissed: { textDecorationLine: "line-through", color: "#9ca3af" },
+  dismissButton: {
+    backgroundColor: "#f59e0b", paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 6, marginLeft: 8,
+  },
+  undismissButton: { backgroundColor: "#e5e7eb" },
+  dismissText: { fontSize: 12, fontWeight: "600", color: "#fff" },
+  undismissText: { color: "#6b7280" },
   buttonRow: {
     flexDirection: "row", justifyContent: "center",
     gap: 12, marginTop: 24,

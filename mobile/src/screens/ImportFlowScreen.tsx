@@ -1,5 +1,5 @@
-import React, { useCallback } from "react";
-import { View, StyleSheet } from "react-native";
+import React, { useCallback, useState } from "react";
+import { View, StyleSheet, Alert } from "react-native";
 import { useMachine } from "@xstate/react";
 import { importMachine } from "../features/import/machine";
 import { CaptureView } from "../features/import/CaptureView";
@@ -35,16 +35,49 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     }
   }, []);
 
+  const [dismissedIssueIds, setDismissedIssueIds] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const handleCancel = useCallback(() => {
+    Alert.alert("Cancel Import", "Are you sure you want to cancel this import?", [
+      { text: "Keep Going", style: "cancel" },
+      { text: "Cancel Import", style: "destructive", onPress: () => navigation.navigate("Home") },
+    ]);
+  }, [navigation]);
+
   const handleEdit = useCallback(
     async (candidate: EditedRecipeCandidate) => {
       if (!state.context.draftId) return;
-      const result = await api.drafts.updateCandidate(
+      await api.drafts.updateCandidate(
         state.context.draftId,
         candidate,
       );
       send({ type: "EDIT_CANDIDATE", candidate });
     },
     [state.context.draftId, send],
+  );
+
+  const handleDismissWarning = useCallback(
+    async (issueId: string) => {
+      if (!state.context.draftId) return;
+      await api.drafts.dismissWarning(state.context.draftId, issueId);
+      setDismissedIssueIds((prev) => new Set(prev).add(issueId));
+    },
+    [state.context.draftId],
+  );
+
+  const handleUndismissWarning = useCallback(
+    async (issueId: string) => {
+      if (!state.context.draftId) return;
+      await api.drafts.undismissWarning(state.context.draftId, issueId);
+      setDismissedIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issueId);
+        return next;
+      });
+    },
+    [state.context.draftId],
   );
 
   const renderContent = () => {
@@ -54,6 +87,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           pages={state.context.capturedPages}
           onCapture={(uri) => send({ type: "PAGE_CAPTURED", imageUri: uri })}
           onDone={() => send({ type: "DONE_CAPTURING" })}
+          onCancel={handleCancel}
         />
       );
     }
@@ -64,11 +98,17 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           pages={state.context.capturedPages}
           onReorder={(order) => send({ type: "REORDER", pageOrder: order })}
           onConfirm={() => send({ type: "CONFIRM_ORDER" })}
+          onCancel={handleCancel}
         />
       );
     }
 
-    if (state.matches("parsing") || state.matches("resuming")) {
+    if (
+      state.matches("parsing") ||
+      state.matches("resuming") ||
+      state.matches("uploading") ||
+      state.matches("creatingUrlDraft")
+    ) {
       return <ParsingView />;
     }
 
@@ -77,9 +117,13 @@ export function ImportFlowScreen({ route, navigation }: Props) {
         <PreviewEditView
           candidate={state.context.editedCandidate}
           validationResult={state.context.validationResult}
+          dismissedIssueIds={dismissedIssueIds}
           onEdit={handleEdit}
           onSave={() => send({ type: "ATTEMPT_SAVE" })}
           onEnterCorrection={() => send({ type: "ENTER_CORRECTION" })}
+          onDismissWarning={handleDismissWarning}
+          onUndismissWarning={handleUndismissWarning}
+          onCancel={handleCancel}
         />
       );
     }
@@ -127,6 +171,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           warnings={warnings}
           onReview={() => send({ type: "REVIEW_REQUESTED" })}
           onSaveAnyway={() => send({ type: "SAVE_ANYWAY" })}
+          onCancel={handleCancel}
         />
       );
     }

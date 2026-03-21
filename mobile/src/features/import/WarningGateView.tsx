@@ -12,15 +12,20 @@ interface WarningGateViewProps {
   warnings: ValidationIssue[];
   onReview: () => void;
   onSaveAnyway: () => void;
+  onCancel: () => void;
 }
 
 export function WarningGateView({
   warnings,
   onReview,
   onSaveAnyway,
+  onCancel,
 }: WarningGateViewProps) {
   return (
     <View style={styles.container}>
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
       <View style={styles.header}>
         <Text style={styles.icon}>⚠</Text>
         <Text style={styles.title}>Warnings Before Saving</Text>
@@ -64,6 +69,8 @@ export function WarningGateView({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
+  cancelText: { fontSize: 16, color: "#6b7280" },
   header: { alignItems: "center", marginBottom: 20 },
   icon: { fontSize: 40, marginBottom: 8 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
