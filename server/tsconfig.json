@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "paths": {
+      "@recipejar/shared": ["../shared/src"],
+      "@recipejar/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src", "tests"],
+  "exclude": ["tests/machine.test.ts"]
+}

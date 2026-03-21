@@ -1,0 +1,198 @@
+import { eq, sql } from "drizzle-orm";
+import { db } from "./db.js";
+import { drafts, draftPages, draftWarningStates } from "./schema.js";
+import type {
+  ParsedRecipeCandidate,
+  EditedRecipeCandidate,
+  ValidationResult,
+} from "@recipejar/shared";
+
+export interface CreateDraftInput {
+  sourceType: "image" | "url";
+  originalUrl?: string | null;
+}
+
+export interface AddPageInput {
+  draftId: string;
+  orderIndex: number;
+  imageUri: string;
+}
+
+export const draftsRepository = {
+  async create(input: CreateDraftInput) {
+    const [draft] = await db
+      .insert(drafts)
+      .values({
+        sourceType: input.sourceType,
+        originalUrl: input.originalUrl ?? null,
+        status: input.sourceType === "url" ? "READY_FOR_PARSE" : "CAPTURE_IN_PROGRESS",
+      })
+      .returning();
+    return draft;
+  },
+
+  async findById(id: string) {
+    const draft = await db.query.drafts.findFirst({
+      where: eq(drafts.id, id),
+    });
+    return draft ?? null;
+  },
+
+  async updateStatus(id: string, status: string) {
+    const [updated] = await db
+      .update(drafts)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(drafts.id, id))
+      .returning();
+    return updated;
+  },
+
+  async setParsedCandidate(
+    id: string,
+    candidate: ParsedRecipeCandidate,
+    validationResult: ValidationResult,
+  ) {
+    const [updated] = await db
+      .update(drafts)
+      .set({
+        parsedCandidateJson: candidate as unknown as Record<string, unknown>,
+        validationResultJson: validationResult as unknown as Record<string, unknown>,
+        editedCandidateJson: {
+          title: candidate.title ?? "",
+          ingredients: candidate.ingredients,
+          steps: candidate.steps,
+          description: candidate.description ?? null,
+        } as unknown as Record<string, unknown>,
+        status: "PARSED",
+        updatedAt: new Date(),
+      })
+      .where(eq(drafts.id, id))
+      .returning();
+    return updated;
+  },
+
+  async updateEditedCandidate(
+    id: string,
+    candidate: EditedRecipeCandidate,
+    validationResult: ValidationResult,
+  ) {
+    const [updated] = await db
+      .update(drafts)
+      .set({
+        editedCandidateJson: candidate as unknown as Record<string, unknown>,
+        validationResultJson: validationResult as unknown as Record<string, unknown>,
+        updatedAt: new Date(),
+      })
+      .where(eq(drafts.id, id))
+      .returning();
+    return updated;
+  },
+
+  async markSaved(id: string) {
+    const [updated] = await db
+      .update(drafts)
+      .set({ status: "SAVED", updatedAt: new Date() })
+      .where(eq(drafts.id, id))
+      .returning();
+    return updated;
+  },
+
+  // --- Pages ---
+
+  async addPage(input: AddPageInput) {
+    const [page] = await db
+      .insert(draftPages)
+      .values({
+        draftId: input.draftId,
+        orderIndex: input.orderIndex,
+        imageUri: input.imageUri,
+      })
+      .returning();
+    return page;
+  },
+
+  async getPages(draftId: string) {
+    return db.query.draftPages.findMany({
+      where: eq(draftPages.draftId, draftId),
+      orderBy: (pages, { asc }) => [asc(pages.orderIndex)],
+    });
+  },
+
+  async reorderPages(draftId: string, pageOrder: { pageId: string; orderIndex: number }[]) {
+    for (const item of pageOrder) {
+      await db
+        .update(draftPages)
+        .set({ orderIndex: item.orderIndex, updatedAt: new Date() })
+        .where(eq(draftPages.id, item.pageId));
+    }
+  },
+
+  async retakePage(pageId: string, newImageUri: string) {
+    const [updated] = await db
+      .update(draftPages)
+      .set({
+        imageUri: newImageUri,
+        retakeCount: sql`${draftPages.retakeCount} + 1`,
+        ocrText: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(draftPages.id, pageId))
+      .returning();
+    return updated;
+  },
+
+  async findPageById(pageId: string) {
+    const page = await db.query.draftPages.findFirst({
+      where: eq(draftPages.id, pageId),
+    });
+    return page ?? null;
+  },
+
+  // --- Warning States ---
+
+  async getWarningStates(draftId: string) {
+    return db.query.draftWarningStates.findMany({
+      where: eq(draftWarningStates.draftId, draftId),
+    });
+  },
+
+  async upsertWarningStates(
+    draftId: string,
+    issues: { issueId: string; code: string; fieldPath?: string }[],
+  ) {
+    if (issues.length === 0) return;
+    await db
+      .insert(draftWarningStates)
+      .values(
+        issues.map((i) => ({
+          draftId,
+          issueId: i.issueId,
+          issueCode: i.code,
+          fieldPath: i.fieldPath ?? null,
+        })),
+      )
+      .onConflictDoNothing();
+  },
+
+  async dismissWarning(draftId: string, issueId: string) {
+    const [updated] = await db
+      .update(draftWarningStates)
+      .set({ dismissed: true, dismissedAt: new Date(), updatedAt: new Date() })
+      .where(
+        sql`${draftWarningStates.draftId} = ${draftId} AND ${draftWarningStates.issueId} = ${issueId}`,
+      )
+      .returning();
+    return updated ?? null;
+  },
+
+  async undismissWarning(draftId: string, issueId: string) {
+    const [updated] = await db
+      .update(draftWarningStates)
+      .set({ dismissed: false, dismissedAt: null, updatedAt: new Date() })
+      .where(
+        sql`${draftWarningStates.draftId} = ${draftId} AND ${draftWarningStates.issueId} = ${issueId}`,
+      )
+      .returning();
+    return updated ?? null;
+  },
+};
