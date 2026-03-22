@@ -49,7 +49,6 @@ function makeCandidate(
       {
         index: 0,
         text: "Mix ingredients.",
-        mergedWhenSeparable: false,
         minorOcrArtifact: false,
         majorOcrArtifact: false,
       },
@@ -63,25 +62,24 @@ describe("validateRecipe", () => {
     const result = validateRecipe(makeCandidate());
     expect(result.saveState).toBe("SAVE_CLEAN");
     expect(result.hasBlockingIssues).toBe(false);
-    expect(result.hasCorrectionRequiredIssues).toBe(false);
     expect(result.hasWarnings).toBe(false);
     expect(result.requiresRetake).toBe(false);
     expect(result.issues).toHaveLength(0);
   });
 
-  it("missing title -> CORRECTION_REQUIRED", () => {
+  it("missing title -> FLAG", () => {
     const result = validateRecipe(makeCandidate({ title: null }));
     const issue = result.issues.find((i) => i.code === "TITLE_MISSING");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
-    expect(result.saveState).toBe("NO_SAVE");
+    expect(issue!.severity).toBe("FLAG");
+    expect(result.saveState).toBe("SAVE_CLEAN");
   });
 
-  it("empty title -> CORRECTION_REQUIRED", () => {
+  it("empty title -> FLAG", () => {
     const result = validateRecipe(makeCandidate({ title: "   " }));
     const issue = result.issues.find((i) => i.code === "TITLE_MISSING");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
+    expect(issue!.severity).toBe("FLAG");
   });
 
   it("missing ingredients -> BLOCK", () => {
@@ -118,7 +116,7 @@ describe("validateRecipe", () => {
     expect(result.saveState).toBe("NO_SAVE");
   });
 
-  it("merged ingredient lines -> CORRECTION_REQUIRED", () => {
+  it("merged ingredient lines -> FLAG", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
@@ -136,29 +134,11 @@ describe("validateRecipe", () => {
     );
     const issue = result.issues.find((i) => i.code === "INGREDIENT_MERGED");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
   });
 
-  it("merged step lines -> CORRECTION_REQUIRED", () => {
-    const result = validateRecipe(
-      makeCandidate({
-        stepSignals: [
-          {
-            index: 0,
-            text: "Mix. Then bake.",
-            mergedWhenSeparable: true,
-            minorOcrArtifact: false,
-            majorOcrArtifact: false,
-          },
-        ],
-      }),
-    );
-    const issue = result.issues.find((i) => i.code === "STEP_MERGED");
-    expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
-  });
-
-  it("suspected omission -> CORRECTION_REQUIRED (never FLAG)", () => {
+  it("suspected omission -> FLAG", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -174,11 +154,10 @@ describe("validateRecipe", () => {
     );
     const issue = result.issues.find((i) => i.code === "SUSPECTED_OMISSION");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
-    expect(issue!.severity).not.toBe("FLAG");
+    expect(issue!.severity).toBe("FLAG");
   });
 
-  it("confirmed omission -> BLOCK (never FLAG or CORRECTION_REQUIRED only)", () => {
+  it("confirmed omission -> BLOCK", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -216,9 +195,7 @@ describe("validateRecipe", () => {
     const issue = result.issues.find(
       (i) => i.code === "INGREDIENT_QTY_OR_UNIT_MISSING",
     );
-    expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("FLAG");
-    expect(issue!.userDismissible).toBe(true);
+    expect(issue).toBeUndefined();
   });
 
   it("minor OCR artifact on ingredient -> FLAG", () => {
@@ -246,7 +223,7 @@ describe("validateRecipe", () => {
     expect(issue!.severity).toBe("FLAG");
   });
 
-  it("major OCR artifact on ingredient -> CORRECTION_REQUIRED", () => {
+  it("major OCR artifact on ingredient -> FLAG", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
@@ -268,7 +245,7 @@ describe("validateRecipe", () => {
         i.fieldPath === "ingredients[0]",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
+    expect(issue!.severity).toBe("FLAG");
   });
 
   it("minor OCR artifact on step -> FLAG", () => {
@@ -278,7 +255,6 @@ describe("validateRecipe", () => {
           {
             index: 0,
             text: "Mix we1l.",
-            mergedWhenSeparable: false,
             minorOcrArtifact: true,
             majorOcrArtifact: false,
           },
@@ -292,14 +268,13 @@ describe("validateRecipe", () => {
     expect(issue!.severity).toBe("FLAG");
   });
 
-  it("major OCR artifact on step -> CORRECTION_REQUIRED", () => {
+  it("major OCR artifact on step -> FLAG", () => {
     const result = validateRecipe(
       makeCandidate({
         stepSignals: [
           {
             index: 0,
             text: "@#$ %%% !!!",
-            mergedWhenSeparable: false,
             minorOcrArtifact: false,
             majorOcrArtifact: true,
           },
@@ -310,7 +285,7 @@ describe("validateRecipe", () => {
       (i) => i.code === "MAJOR_OCR_ARTIFACT" && i.fieldPath === "steps[0]",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
+    expect(issue!.severity).toBe("FLAG");
   });
 
   it("description detected -> FLAG", () => {
@@ -328,11 +303,10 @@ describe("validateRecipe", () => {
       }),
     );
     const issue = result.issues.find((i) => i.code === "DESCRIPTION_DETECTED");
-    expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("FLAG");
+    expect(issue).toBeUndefined();
   });
 
-  it("multi-recipe detected -> BLOCK", () => {
+  it("multi-recipe detected -> FLAG (dismissible)", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -350,8 +324,10 @@ describe("validateRecipe", () => {
       (i) => i.code === "MULTI_RECIPE_DETECTED",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
-    expect(result.saveState).toBe("NO_SAVE");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.saveState).toBe("SAVE_CLEAN");
   });
 
   it("structure not separable -> BLOCK", () => {
@@ -466,7 +442,7 @@ describe("validateRecipe", () => {
     expect(result.requiresRetake).toBe(false);
   });
 
-  it("SAVE_CLEAN allowed with undismissed warnings (FLAGs)", () => {
+  it("SAVE_CLEAN allowed when ingredient signals have no active rules", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
@@ -483,32 +459,9 @@ describe("validateRecipe", () => {
       }),
     );
     expect(result.saveState).toBe("SAVE_CLEAN");
-    expect(result.hasWarnings).toBe(true);
   });
 
-  it("canEnterCorrectionMode true when CORRECTION_REQUIRED without BLOCK", () => {
-    const result = validateRecipe(makeCandidate({ title: null }));
-    expect(result.canEnterCorrectionMode).toBe(true);
-  });
-
-  it("canEnterCorrectionMode false when BLOCK present", () => {
-    const result = validateRecipe(
-      makeCandidate({
-        parseSignals: {
-          structureSeparable: true,
-          lowConfidenceStructure: false,
-          poorImageQuality: false,
-          multiRecipeDetected: true,
-          confirmedOmission: false,
-          suspectedOmission: false,
-          descriptionDetected: false,
-        },
-      }),
-    );
-    expect(result.canEnterCorrectionMode).toBe(false);
-  });
-
-  it("missing ingredient name -> CORRECTION_REQUIRED", () => {
+  it("missing ingredient name -> FLAG", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
@@ -528,7 +481,7 @@ describe("validateRecipe", () => {
       (i) => i.code === "INGREDIENT_NAME_MISSING",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("CORRECTION_REQUIRED");
+    expect(issue!.severity).toBe("FLAG");
   });
 });
 

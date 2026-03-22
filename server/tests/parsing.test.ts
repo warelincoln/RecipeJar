@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeToCandidate,
   buildErrorCandidate,
+  decodeHtmlEntities,
   type RawExtractionResult,
 } from "../src/parsing/normalize.js";
-import { extractStructuredData } from "../src/parsing/url/url-structured.adapter.js";
+import { extractStructuredData, extractMicrodata } from "../src/parsing/url/url-structured.adapter.js";
 import { extractDomBoundary } from "../src/parsing/url/url-dom.adapter.js";
+import { normalizeUrl } from "../src/parsing/url/url-fetch.service.js";
+import { smartTruncate } from "../src/parsing/url/url-ai.adapter.js";
 import { validateRecipe } from "../src/domain/validation/validation.engine.js";
 import type { SourcePage } from "@recipejar/shared";
 
@@ -125,6 +128,27 @@ describe("normalizeToCandidate", () => {
     expect(result.steps).toHaveLength(0);
     expect(result.parseSignals.suspectedOmission).toBe(true);
   });
+
+  it("decodes HTML entities in title, description, ingredients, and steps (JSON-LD / scraped text)", () => {
+    const raw: RawExtractionResult = {
+      title: "Fish &amp; Chips",
+      description: "Salt &amp; vinegar, 1/2&quot; thick",
+      ingredients: [{ text: "Oil &amp; butter", isHeader: false }],
+      steps: [{ text: "Mix A &amp; B." }],
+      signals: { structureSeparable: true },
+    };
+    const result = normalizeToCandidate(raw, "url", testPages);
+    expect(result.title).toBe("Fish & Chips");
+    expect(result.description).toBe('Salt & vinegar, 1/2" thick');
+    expect(result.ingredients[0].text).toBe("Oil & butter");
+    expect(result.steps[0].text).toBe("Mix A & B.");
+  });
+});
+
+describe("decodeHtmlEntities", () => {
+  it("passes through plain text", () => {
+    expect(decodeHtmlEntities("No entities here")).toBe("No entities here");
+  });
 });
 
 describe("buildErrorCandidate", () => {
@@ -238,5 +262,273 @@ describe("extractDomBoundary", () => {
   it("returns null for pages with no recipe content", () => {
     const html = "<html><body><p>Short</p></body></html>";
     expect(extractDomBoundary(html)).toBeNull();
+  });
+
+  it("preserves newlines between list items", () => {
+    const html = `
+      <html><body>
+      <div class="recipe-card">
+        <h2>Test Recipe</h2>
+        <ul>
+          <li>1 cup flour</li>
+          <li>2 eggs</li>
+          <li>1 cup milk</li>
+        </ul>
+        <p>${"Step content here. ".repeat(10)}</p>
+      </div>
+      </body></html>`;
+
+    const result = extractDomBoundary(html);
+    expect(result).not.toBeNull();
+    expect(result).toContain("1 cup flour\n");
+    expect(result).toContain("2 eggs\n");
+  });
+
+  it("picks the richest (longest) match when multiple selectors match", () => {
+    const short = "Short summary.".repeat(8);
+    const long = "Full recipe content with details. ".repeat(20);
+    const html = `
+      <html><body>
+      <div class="recipe-card">${short}</div>
+      <div class="recipe-content">${long}</div>
+      </body></html>`;
+
+    const result = extractDomBoundary(html);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBeGreaterThan(short.length);
+  });
+
+  it("strips noise elements (buttons, print links)", () => {
+    const html = `
+      <html><body>
+      <div class="recipe-card">
+        <h2>Cake Recipe</h2>
+        <button>Print</button>
+        <a class="jump-to-recipe">Jump to Recipe</a>
+        <p>${"Delicious cake instructions. ".repeat(10)}</p>
+      </div>
+      </body></html>`;
+
+    const result = extractDomBoundary(html);
+    expect(result).not.toBeNull();
+    expect(result).not.toContain("Print");
+    expect(result).not.toContain("Jump to Recipe");
+    expect(result).toContain("Cake Recipe");
+  });
+});
+
+describe("extractStructuredData — HowToSection headers", () => {
+  it("maps HowToSection.name as isHeader: true before sub-steps", () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Layer Cake",
+        "recipeIngredient": ["flour", "sugar", "eggs"],
+        "recipeInstructions": [
+          {
+            "@type": "HowToSection",
+            "name": "For the cake:",
+            "itemListElement": [
+              {"@type": "HowToStep", "text": "Mix dry ingredients."},
+              {"@type": "HowToStep", "text": "Bake at 350F."}
+            ]
+          },
+          {
+            "@type": "HowToSection",
+            "name": "For the frosting:",
+            "itemListElement": [
+              {"@type": "HowToStep", "text": "Beat butter and sugar."}
+            ]
+          }
+        ]
+      }
+      </script>
+      </head><body></body></html>`;
+
+    const result = extractStructuredData(html);
+    expect(result).not.toBeNull();
+    expect(result!.steps).toHaveLength(5);
+    expect(result!.steps![0]).toEqual({ text: "For the cake:", isHeader: true });
+    expect(result!.steps![1]).toEqual({ text: "Mix dry ingredients.", isHeader: false });
+    expect(result!.steps![2]).toEqual({ text: "Bake at 350F.", isHeader: false });
+    expect(result!.steps![3]).toEqual({ text: "For the frosting:", isHeader: true });
+    expect(result!.steps![4]).toEqual({ text: "Beat butter and sugar.", isHeader: false });
+  });
+
+  it("does not insert empty header when HowToSection has no name", () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Simple Cake",
+        "recipeIngredient": ["flour", "sugar"],
+        "recipeInstructions": [
+          {
+            "@type": "HowToSection",
+            "itemListElement": [
+              {"@type": "HowToStep", "text": "Mix."},
+              {"@type": "HowToStep", "text": "Bake."}
+            ]
+          }
+        ]
+      }
+      </script>
+      </head><body></body></html>`;
+
+    const result = extractStructuredData(html);
+    expect(result).not.toBeNull();
+    expect(result!.steps).toHaveLength(2);
+    expect(result!.steps![0]).toEqual({ text: "Mix.", isHeader: false });
+    expect(result!.steps![1]).toEqual({ text: "Bake.", isHeader: false });
+  });
+});
+
+describe("extractStructuredData — ingredient objects", () => {
+  it("extracts ingredients encoded as { text: ... } objects", () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Soup",
+        "recipeIngredient": [
+          {"text": "1 cup water"},
+          {"text": "1 tsp salt"},
+          "2 carrots"
+        ],
+        "recipeInstructions": [{"text": "Boil everything."}]
+      }
+      </script>
+      </head><body></body></html>`;
+
+    const result = extractStructuredData(html);
+    expect(result).not.toBeNull();
+    expect(result!.ingredients).toHaveLength(3);
+    expect(result!.ingredients![0].text).toBe("1 cup water");
+    expect(result!.ingredients![2].text).toBe("2 carrots");
+  });
+});
+
+describe("extractStructuredData — metadata", () => {
+  it("extracts recipeYield, times, and image from JSON-LD", () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Pancakes",
+        "recipeIngredient": ["flour", "milk"],
+        "recipeInstructions": [{"text": "Mix and cook."}],
+        "recipeYield": "4 servings",
+        "prepTime": "PT10M",
+        "cookTime": "PT20M",
+        "totalTime": "PT30M",
+        "image": "https://example.com/pancakes.jpg"
+      }
+      </script>
+      </head><body></body></html>`;
+
+    const result = extractStructuredData(html);
+    expect(result).not.toBeNull();
+    expect(result!.metadata).toBeDefined();
+    expect(result!.metadata!.yield).toBe("4 servings");
+    expect(result!.metadata!.prepTime).toBe("PT10M");
+    expect(result!.metadata!.cookTime).toBe("PT20M");
+    expect(result!.metadata!.totalTime).toBe("PT30M");
+    expect(result!.metadata!.imageUrl).toBe("https://example.com/pancakes.jpg");
+  });
+});
+
+describe("extractMicrodata", () => {
+  it("extracts recipe from itemprop attributes", () => {
+    const html = `
+      <html><body>
+      <div itemscope itemtype="http://schema.org/Recipe">
+        <h1 itemprop="name">Tomato Soup</h1>
+        <span itemprop="description">A warm bowl of soup.</span>
+        <ul>
+          <li itemprop="recipeIngredient">4 tomatoes</li>
+          <li itemprop="recipeIngredient">1 onion</li>
+          <li itemprop="recipeIngredient">salt</li>
+        </ul>
+        <div itemprop="recipeInstructions">
+          <div itemprop="step">Chop tomatoes and onion.</div>
+          <div itemprop="step">Simmer for 20 minutes.</div>
+        </div>
+      </div>
+      </body></html>`;
+
+    const result = extractMicrodata(html);
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe("Tomato Soup");
+    expect(result!.ingredients).toHaveLength(3);
+    expect(result!.steps).toHaveLength(2);
+    expect(result!.description).toBe("A warm bowl of soup.");
+  });
+
+  it("returns null when itemprop elements are insufficient", () => {
+    const html = `
+      <html><body>
+      <h1 itemprop="name">Just a Title</h1>
+      <li itemprop="recipeIngredient">flour</li>
+      </body></html>`;
+
+    expect(extractMicrodata(html)).toBeNull();
+  });
+});
+
+describe("normalizeUrl", () => {
+  it("strips fragment from URL", () => {
+    expect(normalizeUrl("https://example.com/recipe#comments")).toBe(
+      "https://example.com/recipe",
+    );
+  });
+
+  it("removes /amp suffix", () => {
+    expect(normalizeUrl("https://example.com/recipe/amp")).toBe(
+      "https://example.com/recipe/",
+    );
+  });
+
+  it("removes /amp/ suffix", () => {
+    expect(normalizeUrl("https://example.com/recipe/amp/")).toBe(
+      "https://example.com/recipe/",
+    );
+  });
+
+  it("preserves valid paths without modification", () => {
+    expect(normalizeUrl("https://example.com/recipes/pasta")).toBe(
+      "https://example.com/recipes/pasta",
+    );
+  });
+
+  it("returns raw string for invalid URLs", () => {
+    expect(normalizeUrl("not-a-url")).toBe("not-a-url");
+  });
+});
+
+describe("smartTruncate", () => {
+  it("returns full text when under limit", () => {
+    const text = "Short recipe text";
+    expect(smartTruncate(text, 8000)).toBe(text);
+  });
+
+  it("biases window to include recipe section keywords", () => {
+    const preamble = "A".repeat(5000);
+    const recipe = "INGREDIENTS\n1 cup flour\n2 eggs\nSTEPS\nMix and bake.";
+    const text = preamble + recipe;
+    const result = smartTruncate(text, 2000);
+    expect(result).toContain("INGREDIENTS");
+    expect(result).toContain("1 cup flour");
+  });
+
+  it("falls back to slice(0, limit) when no keywords found", () => {
+    const text = "X".repeat(10000);
+    const result = smartTruncate(text, 5000);
+    expect(result.length).toBe(5000);
+    expect(result).toBe(text.slice(0, 5000));
   });
 });

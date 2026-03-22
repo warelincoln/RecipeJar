@@ -1,6 +1,7 @@
 #import "AppDelegate.h"
 
 #import <React/RCTBundleURLProvider.h>
+#import <TargetConditionals.h>
 
 @implementation AppDelegate
 
@@ -22,7 +23,26 @@
 - (NSURL *)bundleURL
 {
 #if DEBUG
+  // Simulator: Metro on localhost. Physical iPhone: must use your Mac's LAN IP or RN falls back to a
+  // stale embedded bundle — UI never updates while API (api.ts) still hits the right host.
+#if TARGET_OS_SIMULATOR
   return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
+#else
+  {
+    NSString *host = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RecipeJarDevPackagerHost"];
+    if ([host isKindOfClass:[NSString class]] && host.length > 0) {
+      return [RCTBundleURLProvider jsBundleURLForBundleRoot:@"index"
+                                               packagerHost:host
+                                             packagerScheme:@"http"
+                                                  enableDev:YES
+                                         enableMinification:NO
+                                            inlineSourceMap:NO
+                                                modulesOnly:NO
+                                                  runModule:YES];
+    }
+    return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index"];
+  }
+#endif
 #else
   return [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];
 #endif

@@ -5,5 +5,12 @@
     "shared",
     "server",
     "mobile"
-  ]
+  ],
+  "scripts": {
+    "dev:phone": "concurrently -k -n api,metro -c blue,magenta \"npm run dev -w @recipejar/server\" \"npm run start -w @recipejar/mobile\"",
+    "ensure:phone": "bash scripts/ensure-phone-dev.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
 }

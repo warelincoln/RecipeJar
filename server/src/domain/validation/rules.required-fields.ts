@@ -10,10 +10,10 @@ export function evaluateRequiredFields(
     issues.push({
       issueId: "title-missing",
       code: "TITLE_MISSING",
-      severity: "CORRECTION_REQUIRED",
+      severity: "FLAG",
       message: "Recipe title is missing.",
       fieldPath: "title",
-      userDismissible: false,
+      userDismissible: true,
       userResolvable: true,
     });
   }

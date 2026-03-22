@@ -11,6 +11,7 @@ export interface ParsedStepEntry {
   id: string;
   text: string;
   orderIndex: number;
+  isHeader: boolean;
 }
 
 export interface ParsedRecipeCandidate {
@@ -34,4 +35,14 @@ export interface ParsedRecipeCandidate {
 
   ingredientSignals: IngredientSignal[];
   stepSignals: StepSignal[];
+
+  extractionMethod?: "json-ld" | "microdata" | "dom-ai" | "error";
+
+  metadata?: {
+    yield?: string;
+    prepTime?: string;
+    cookTime?: string;
+    totalTime?: string;
+    imageUrl?: string;
+  };
 }

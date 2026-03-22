@@ -13,22 +13,20 @@ interface RetakeRequiredViewProps {
   pages: { pageId: string; imageUri: string; retakeCount: number }[];
   issues: ValidationIssue[];
   onRetake: (pageId: string) => void;
-  onEnterCorrection: () => void;
 }
 
 export function RetakeRequiredView({
   pages,
   issues,
   onRetake,
-  onEnterCorrection,
 }: RetakeRequiredViewProps) {
   const retakeIssues = issues.filter(
     (i) => i.severity === "RETAKE" || i.code === "POOR_IMAGE_QUALITY",
   );
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Retake Required</Text>
+    <View style={styles.container} testID="retake-screen">
+      <Text style={styles.title} testID="retake-title">Retake Required</Text>
       <Text style={styles.subtitle}>
         Image quality or confidence is too low to extract the recipe reliably.
         Please retake the affected page(s).
@@ -56,6 +54,8 @@ export function RetakeRequiredView({
               <TouchableOpacity
                 style={styles.retakeButton}
                 onPress={() => onRetake(item.pageId)}
+                testID={`retake-button-${index}`}
+                accessibilityRole="button"
               >
                 <Text style={styles.retakeButtonText}>Retake</Text>
               </TouchableOpacity>
@@ -64,19 +64,12 @@ export function RetakeRequiredView({
         )}
         style={styles.list}
       />
-
-      <TouchableOpacity
-        style={styles.correctionButton}
-        onPress={onEnterCorrection}
-      >
-        <Text style={styles.correctionText}>Enter Manual Correction</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 24, paddingTop: 16 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#6b7280", marginBottom: 16, lineHeight: 20 },
   issueBanner: {
@@ -98,9 +91,4 @@ const styles = StyleSheet.create({
     paddingVertical: 8, borderRadius: 8,
   },
   retakeButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  correctionButton: {
-    backgroundColor: "#ea580c", paddingVertical: 14,
-    borderRadius: 12, alignItems: "center", marginTop: 16,
-  },
-  correctionText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

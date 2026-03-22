@@ -253,6 +253,7 @@ export async function draftsRoutes(app: FastifyInstance) {
           id: s.id,
           text: s.text,
           orderIndex: s.orderIndex,
+          isHeader: s.isHeader,
         })),
         description: editedCandidate.description,
       };
@@ -355,7 +356,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       const edited = draft.editedCandidateJson as unknown as {
         title: string;
         ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
-        steps: { text: string; orderIndex: number }[];
+        steps: { text: string; orderIndex: number; isHeader: boolean }[];
         description?: string | null;
       };
 

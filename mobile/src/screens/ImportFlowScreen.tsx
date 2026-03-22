@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { View, StyleSheet, Alert } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMachine } from "@xstate/react";
 import { importMachine } from "../features/import/machine";
 import { CaptureView } from "../features/import/CaptureView";
@@ -7,9 +8,8 @@ import { ReorderView } from "../features/import/ReorderView";
 import { ParsingView } from "../features/import/ParsingView";
 import { PreviewEditView } from "../features/import/PreviewEditView";
 import { RetakeRequiredView } from "../features/import/RetakeRequiredView";
-import { GuidedCorrectionView } from "../features/import/GuidedCorrectionView";
-import { WarningGateView } from "../features/import/WarningGateView";
 import { SavedView } from "../features/import/SavedView";
+import { UrlInputView } from "../features/import/UrlInputView";
 import { api } from "../services/api";
 import type { EditedRecipeCandidate } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -21,10 +21,12 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const { mode, url, resumeDraftId } = route.params ?? {
     mode: "image" as const,
   };
+  const insets = useSafeAreaInsets();
   const [state, send] = useMachine(importMachine);
+  const [awaitingUrl, setAwaitingUrl] = useState(mode === "url" && !url);
 
   React.useEffect(() => {
-    if (state.matches("idle")) {
+    if (state.matches("idle") && !awaitingUrl) {
       if (resumeDraftId) {
         send({ type: "RESUME_DRAFT", draftId: resumeDraftId });
       } else if (mode === "url" && url) {
@@ -33,7 +35,17 @@ export function ImportFlowScreen({ route, navigation }: Props) {
         send({ type: "NEW_IMAGE_IMPORT" });
       }
     }
-  }, []);
+  }, [awaitingUrl]);
+
+  React.useEffect(() => {
+    if (state.matches("timedOut")) {
+      Alert.alert(
+        "Oops!",
+        "That took a little too long. Don\u2019t worry \u2014 go ahead and try again!",
+        [{ text: "OK", onPress: () => navigation.navigate("Home") }],
+      );
+    }
+  }, [state.value]);
 
   const [dismissedIssueIds, setDismissedIssueIds] = useState<Set<string>>(
     new Set(),
@@ -81,6 +93,18 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   );
 
   const renderContent = () => {
+    if (awaitingUrl) {
+      return (
+        <UrlInputView
+          onSubmit={(submittedUrl) => {
+            setAwaitingUrl(false);
+            send({ type: "NEW_URL_IMPORT", url: submittedUrl });
+          }}
+          onCancel={() => navigation.navigate("Home")}
+        />
+      );
+    }
+
     if (state.matches("capture")) {
       return (
         <CaptureView
@@ -120,7 +144,6 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           dismissedIssueIds={dismissedIssueIds}
           onEdit={handleEdit}
           onSave={() => send({ type: "ATTEMPT_SAVE" })}
-          onEnterCorrection={() => send({ type: "ENTER_CORRECTION" })}
           onDismissWarning={handleDismissWarning}
           onUndismissWarning={handleUndismissWarning}
           onCancel={handleCancel}
@@ -136,42 +159,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
             retakeCount: 0,
           }))}
           issues={state.context.validationResult?.issues ?? []}
-          onRetake={(pageId) =>
-            send({ type: "RETAKE_SUBMITTED", imageUri: "" })
-          }
-          onEnterCorrection={() => send({ type: "ENTER_CORRECTION" })}
-        />
-      );
-    }
-
-    if (
-      state.matches("guidedCorrection") &&
-      state.context.editedCandidate
-    ) {
-      return (
-        <GuidedCorrectionView
-          candidate={state.context.editedCandidate}
-          validationResult={state.context.validationResult}
-          sourceImageUris={state.context.capturedPages.map((p) => p.imageUri)}
-          onEdit={handleEdit}
-          onComplete={(candidate) =>
-            send({ type: "CORRECTION_COMPLETE", candidate })
-          }
-        />
-      );
-    }
-
-    if (state.matches("finalWarningGate")) {
-      const warnings =
-        state.context.validationResult?.issues.filter(
-          (i) => i.severity === "FLAG",
-        ) ?? [];
-      return (
-        <WarningGateView
-          warnings={warnings}
-          onReview={() => send({ type: "REVIEW_REQUESTED" })}
-          onSaveAnyway={() => send({ type: "SAVE_ANYWAY" })}
-          onCancel={handleCancel}
+          onRetake={() => send({ type: "RETAKE_PAGE" })}
         />
       );
     }
@@ -183,6 +171,9 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           onViewRecipe={(id) =>
             navigation.replace("RecipeDetail", { recipeId: id })
           }
+          onAddMore={() =>
+            navigation.replace("ImportFlow", { mode: "image" })
+          }
           onDone={() => navigation.navigate("Home")}
         />
       );
@@ -191,7 +182,21 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     return <ParsingView />;
   };
 
-  return <View style={styles.container}>{renderContent()}</View>;
+  const isFullBleed = state.matches("capture") || awaitingUrl;
+  return (
+    <View
+      style={[
+        styles.container,
+        !isFullBleed && {
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+          backgroundColor: "#fff",
+        },
+      ]}
+    >
+      {renderContent()}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

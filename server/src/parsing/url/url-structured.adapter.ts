@@ -27,6 +27,67 @@ export function extractStructuredData(
   return null;
 }
 
+/**
+ * Extracts recipe data from Microdata (itemprop attributes).
+ * Fallback when no JSON-LD is present. Returns a structured
+ * RawExtractionResult or null if insufficient data found.
+ */
+export function extractMicrodata(
+  html: string,
+): RawExtractionResult | null {
+  const $ = cheerio.load(html);
+
+  const titleEl = $('[itemprop="name"]').first();
+  const title = titleEl.length > 0 ? titleEl.text().trim() : null;
+
+  const ingredientEls = $('[itemprop="recipeIngredient"], [itemprop="ingredients"]');
+  const ingredients: { text: string; isHeader: boolean }[] = [];
+  ingredientEls.each((_, el) => {
+    const text = $(el).text().trim();
+    if (text.length > 0) ingredients.push({ text, isHeader: false });
+  });
+
+  const instructionEls = $('[itemprop="recipeInstructions"]');
+  const steps: { text: string; isHeader: boolean }[] = [];
+  instructionEls.each((_, el) => {
+    const howToSteps = $(el).find('[itemprop="step"], [itemprop="text"]');
+    if (howToSteps.length > 0) {
+      howToSteps.each((__, stepEl) => {
+        const text = $(stepEl).text().trim();
+        if (text.length > 0) steps.push({ text, isHeader: false });
+      });
+    } else {
+      const text = $(el).text().trim();
+      if (text.length > 0) {
+        const lines = text.split(/\n+/).map((s) => s.trim()).filter((s) => s.length > 0);
+        for (const line of lines) {
+          steps.push({ text: line, isHeader: false });
+        }
+      }
+    }
+  });
+
+  if (!title || ingredients.length === 0 || steps.length === 0) {
+    return null;
+  }
+
+  const descEl = $('[itemprop="description"]').first();
+  const description = descEl.length > 0 ? descEl.text().trim() || null : null;
+
+  return {
+    title,
+    ingredients,
+    steps,
+    description,
+    signals: {
+      structureSeparable: true,
+      descriptionDetected: description !== null,
+    },
+    ingredientSignals: [],
+    stepSignals: [],
+  };
+}
+
 function findRecipeInLdJson(data: unknown): RawExtractionResult | null {
   if (Array.isArray(data)) {
     for (const item of data) {
@@ -60,14 +121,12 @@ function findRecipeInLdJson(data: unknown): RawExtractionResult | null {
   );
   const steps = extractInstructions(obj.recipeInstructions);
 
-  if (!title || ingredients.length === 0 || steps.length === 0) {
-    return null;
-  }
+  const metadata = extractMetadata(obj);
 
   return {
     title,
     ingredients: ingredients.map((text) => ({ text, isHeader: false })),
-    steps: steps.map((text) => ({ text })),
+    steps,
     description,
     signals: {
       structureSeparable: true,
@@ -75,42 +134,89 @@ function findRecipeInLdJson(data: unknown): RawExtractionResult | null {
     },
     ingredientSignals: [],
     stepSignals: [],
+    metadata,
   };
+}
+
+function extractMetadata(
+  obj: Record<string, unknown>,
+): { yield?: string; prepTime?: string; cookTime?: string; totalTime?: string; imageUrl?: string } | undefined {
+  const meta: Record<string, string> = {};
+
+  if (typeof obj.recipeYield === "string") meta.yield = obj.recipeYield;
+  else if (Array.isArray(obj.recipeYield) && typeof obj.recipeYield[0] === "string")
+    meta.yield = obj.recipeYield[0];
+
+  if (typeof obj.prepTime === "string") meta.prepTime = obj.prepTime;
+  if (typeof obj.cookTime === "string") meta.cookTime = obj.cookTime;
+  if (typeof obj.totalTime === "string") meta.totalTime = obj.totalTime;
+
+  if (typeof obj.image === "string") meta.imageUrl = obj.image;
+  else if (Array.isArray(obj.image) && typeof obj.image[0] === "string")
+    meta.imageUrl = obj.image[0];
+  else if (typeof obj.image === "object" && obj.image !== null) {
+    const imgObj = obj.image as Record<string, unknown>;
+    if (typeof imgObj.url === "string") meta.imageUrl = imgObj.url;
+  }
+
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 function extractStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((v) => (typeof v === "string" ? v.trim() : null))
+    .map((v) => {
+      if (typeof v === "string") return v.trim();
+      if (typeof v === "object" && v !== null) {
+        const obj = v as Record<string, unknown>;
+        if (typeof obj.text === "string") return obj.text.trim();
+        if (typeof obj.name === "string") return obj.name.trim();
+      }
+      return null;
+    })
     .filter((v): v is string => v !== null && v.length > 0);
 }
 
-function extractInstructions(value: unknown): string[] {
+interface StepEntry {
+  text: string;
+  isHeader: boolean;
+}
+
+function extractInstructions(value: unknown): StepEntry[] {
   if (!Array.isArray(value)) {
     if (typeof value === "string") {
       return value
         .split(/\n+/)
         .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+        .filter((s) => s.length > 0)
+        .map((s) => ({ text: s, isHeader: false }));
     }
     return [];
   }
 
-  const results: string[] = [];
+  const results: StepEntry[] = [];
   for (const item of value) {
     if (typeof item === "string") {
-      results.push(item.trim());
+      const trimmed = item.trim();
+      if (trimmed.length > 0) results.push({ text: trimmed, isHeader: false });
     } else if (typeof item === "object" && item !== null) {
       const obj = item as Record<string, unknown>;
-      if (typeof obj.text === "string") {
-        results.push(obj.text.trim());
+
+      if (obj["@type"] === "HowToSection") {
+        if (typeof obj.name === "string" && obj.name.trim().length > 0) {
+          results.push({ text: obj.name.trim(), isHeader: true });
+        }
+        if (Array.isArray(obj.itemListElement)) {
+          results.push(...extractInstructions(obj.itemListElement));
+        }
+      } else if (typeof obj.text === "string") {
+        const trimmed = obj.text.trim();
+        if (trimmed.length > 0) results.push({ text: trimmed, isHeader: false });
       } else if (typeof obj.name === "string") {
-        results.push(obj.name.trim());
-      }
-      if (obj["@type"] === "HowToSection" && Array.isArray(obj.itemListElement)) {
-        results.push(...extractInstructions(obj.itemListElement));
+        const trimmed = obj.name.trim();
+        if (trimmed.length > 0) results.push({ text: trimmed, isHeader: false });
       }
     }
   }
-  return results.filter((s) => s.length > 0);
+  return results;
 }

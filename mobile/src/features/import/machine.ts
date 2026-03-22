@@ -30,10 +30,7 @@ type ImportEvent =
   | { type: "EDIT_CANDIDATE"; candidate: EditedRecipeCandidate }
   | { type: "ATTEMPT_SAVE" }
   | { type: "RETAKE_SUBMITTED"; imageUri: string }
-  | { type: "ENTER_CORRECTION" }
-  | { type: "CORRECTION_COMPLETE"; candidate: EditedRecipeCandidate }
-  | { type: "REVIEW_REQUESTED" }
-  | { type: "SAVE_ANYWAY" }
+  | { type: "RETAKE_PAGE" }
   | { type: "REORDER"; pageOrder: { pageId: string; orderIndex: number }[] };
 
 const STATUS_TO_STATE: Record<DraftStatus, string> = {
@@ -42,7 +39,7 @@ const STATUS_TO_STATE: Record<DraftStatus, string> = {
   PARSING: "parsing",
   PARSED: "previewEdit",
   NEEDS_RETAKE: "retakeRequired",
-  IN_GUIDED_CORRECTION: "guidedCorrection",
+  IN_GUIDED_CORRECTION: "previewEdit",
   READY_TO_SAVE: "previewEdit",
   SAVED: "saved",
 };
@@ -180,20 +177,6 @@ export const importMachine = setup({
                 (event.output.validationResultJson as ValidationResult) ?? null,
             }),
           },
-          {
-            guard: ({ event }) =>
-              STATUS_TO_STATE[event.output.status as DraftStatus] ===
-              "guidedCorrection",
-            target: "guidedCorrection",
-            actions: assign({
-              parsedCandidate: ({ event }) =>
-                (event.output.parsedCandidateJson as ParsedRecipeCandidate) ?? null,
-              editedCandidate: ({ event }) =>
-                (event.output.editedCandidateJson as EditedRecipeCandidate) ?? null,
-              validationResult: ({ event }) =>
-                (event.output.validationResultJson as ValidationResult) ?? null,
-            }),
-          },
           { target: "capture" },
         ],
         onError: {
@@ -280,6 +263,14 @@ export const importMachine = setup({
     },
 
     parsing: {
+      after: {
+        60000: {
+          target: "timedOut",
+          actions: assign({
+            error: () => "This is taking longer than expected. Please try again.",
+          }),
+        },
+      },
       invoke: {
         src: "parseDraft",
         input: ({ context }) => ({ draftId: context.draftId! }),
@@ -287,14 +278,6 @@ export const importMachine = setup({
           {
             guard: ({ event }) => event.output.status === "NEEDS_RETAKE",
             target: "retakeRequired",
-            actions: assign({
-              parsedCandidate: ({ event }) => event.output.candidate,
-              validationResult: ({ event }) => event.output.validationResult,
-            }),
-          },
-          {
-            guard: ({ event }) => event.output.status === "IN_GUIDED_CORRECTION",
-            target: "guidedCorrection",
             actions: assign({
               parsedCandidate: ({ event }) => event.output.candidate,
               validationResult: ({ event }) => event.output.validationResult,
@@ -326,6 +309,8 @@ export const importMachine = setup({
       },
     },
 
+    timedOut: { type: "final" },
+
     previewEdit: {
       on: {
         EDIT_CANDIDATE: {
@@ -333,53 +318,26 @@ export const importMachine = setup({
             editedCandidate: ({ event }) => event.candidate,
           }),
         },
-        ATTEMPT_SAVE: [
-          {
-            guard: ({ context }) =>
-              (context.validationResult?.hasWarnings ?? false) &&
-              !context.validationResult?.hasBlockingIssues &&
-              !context.validationResult?.hasCorrectionRequiredIssues,
-            target: "finalWarningGate",
-          },
-          {
-            guard: ({ context }) =>
-              context.validationResult?.saveState === "SAVE_CLEAN",
-            target: "saving",
-          },
-          {
-            guard: ({ context }) =>
-              context.validationResult?.hasCorrectionRequiredIssues ?? false,
-            target: "guidedCorrection",
-          },
-        ],
-        ENTER_CORRECTION: { target: "guidedCorrection" },
+        ATTEMPT_SAVE: {
+          guard: ({ context }) =>
+            !context.validationResult?.hasBlockingIssues &&
+            !context.validationResult?.requiresRetake,
+          target: "saving",
+        },
       },
     },
 
     retakeRequired: {
       on: {
+        RETAKE_PAGE: {
+          target: "capture",
+          actions: assign({
+            capturedPages: () => [],
+          }),
+        },
         RETAKE_SUBMITTED: {
           target: "parsing",
         },
-        ENTER_CORRECTION: { target: "guidedCorrection" },
-      },
-    },
-
-    guidedCorrection: {
-      on: {
-        CORRECTION_COMPLETE: {
-          target: "previewEdit",
-          actions: assign({
-            editedCandidate: ({ event }) => event.candidate,
-          }),
-        },
-      },
-    },
-
-    finalWarningGate: {
-      on: {
-        REVIEW_REQUESTED: { target: "previewEdit" },
-        SAVE_ANYWAY: { target: "saving" },
       },
     },
 

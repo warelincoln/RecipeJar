@@ -12,11 +12,14 @@ Rules:
 - Extract the recipe title exactly as written.
 - Extract every ingredient line as a separate entry. Preserve ingredient headers like "For the sauce:" with isHeader: true.
 - Extract every step/instruction as a separate entry. Preserve inline step notes.
+- Mark sub-recipe section headers in steps (e.g. "To make the boba pearls:", "For the frosting:") with isHeader: true. These are not actual instructions.
+- Strip original step numbers from the beginning of extracted step text. The app adds its own numbering.
 - Preserve original wording. Only fix obvious OCR errors.
 - Do NOT rewrite, standardize units, or infer missing values.
 - Do NOT include stories, ads, or non-recipe content.
 - Cross-references like "See page 28" should be preserved as-is.
 - If you detect a description paragraph before the recipe, include it separately.
+- If multiple distinct recipes are visible, extract only the most prominent or primary recipe. Do not merge content from adjacent recipes.
 
 For each ingredient, report signal hints:
 - mergedWhenSeparable: true if the line contains multiple ingredients that should be separate entries
@@ -42,7 +45,7 @@ Return ONLY valid JSON matching this schema:
 {
   "title": string | null,
   "ingredients": [{ "text": string, "isHeader": boolean }],
-  "steps": [{ "text": string }],
+  "steps": [{ "text": string, "isHeader": boolean }],
   "description": string | null,
   "signals": {
     "structureSeparable": boolean,
@@ -57,7 +60,7 @@ Return ONLY valid JSON matching this schema:
   "stepSignals": [{ "index": number, "text": string, "mergedWhenSeparable": boolean, "minorOcrArtifact": boolean, "majorOcrArtifact": boolean }]
 }`;
 
-const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), ingredients (array of {text, isHeader}), steps (array of {text}), description (string|null). Preserve original wording. Return ONLY valid JSON.`;
+const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), ingredients (array of {text, isHeader}), steps (array of {text, isHeader}), description (string|null). Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. Return ONLY valid JSON.`;
 
 export async function parseImages(
   imageUrls: string[],
@@ -76,8 +79,9 @@ export async function parseImages(
     if (raw) {
       return normalizeToCandidate(raw, "image", sourcePages);
     }
-  } catch {
-    // First attempt failed, try simplified prompt
+    console.error("[image-parse] Primary prompt returned null result");
+  } catch (err) {
+    console.error("[image-parse] Primary prompt failed:", (err as Error).message);
   }
 
   try {
@@ -85,9 +89,12 @@ export async function parseImages(
     if (raw) {
       return normalizeToCandidate(raw, "image", sourcePages);
     }
-  } catch {
-    // Both attempts failed
+    console.error("[image-parse] Simplified prompt returned null result");
+  } catch (err) {
+    console.error("[image-parse] Simplified prompt failed:", (err as Error).message);
   }
+
+  console.error("[image-parse] Both attempts failed, returning error candidate. Image URLs:", imageUrls);
 
   return buildErrorCandidate("image", sourcePages);
 }
@@ -98,7 +105,7 @@ async function callVisionApi(
   imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[],
 ): Promise<RawExtractionResult | null> {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5.4",
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -110,7 +117,7 @@ async function callVisionApi(
       },
     ],
     response_format: { type: "json_object" },
-    max_tokens: 4096,
+    max_completion_tokens: 4096,
     temperature: 0.1,
   });
 

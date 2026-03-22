@@ -8,6 +8,20 @@
       "when": 1774053041332,
       "tag": "0000_new_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774108536929,
+      "tag": "0001_smart_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774153437711,
+      "tag": "0002_numerous_norman_osborn",
+      "breakpoints": true
     }
   ]
 }

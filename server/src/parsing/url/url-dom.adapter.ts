@@ -11,6 +11,7 @@ export function extractDomBoundary(html: string): string | null {
   $("script, style, nav, footer, header, aside, iframe, noscript").remove();
   $('[class*="ad-"], [class*="advertisement"], [id*="ad-"], [class*="sidebar"]').remove();
   $('[class*="comment"], [class*="social"], [class*="share"], [class*="related"]').remove();
+  $('[class*="print"], [class*="jump-to"], [class*="save-recipe"], button, [class*="rating"], [class*="review"]').remove();
 
   const recipeSelectors = [
     '[itemtype*="schema.org/Recipe"]',
@@ -18,22 +19,30 @@ export function extractDomBoundary(html: string): string | null {
     '[class*="recipe-content"]',
     '[class*="recipe-body"]',
     '[class*="wprm-recipe"]',
+    '[class*="wprm-recipe-container"]',
     '[class*="tasty-recipe"]',
     '[class*="easyrecipe"]',
     '[class*="jetpack-recipe"]',
+    '[class*="mv-recipe"]',
+    '[class*="yummly"]',
+    '[class*="zip-recipe"]',
+    '[class*="meal-planner-pro"]',
+    '[class*="cooked-recipe"]',
     ".recipe",
     "#recipe",
     '[data-recipe]',
   ];
 
+  let richest = "";
   for (const selector of recipeSelectors) {
-    const el = $(selector);
-    if (el.length > 0) {
-      const text = el.first().text().trim();
-      if (text.length > 100) {
-        return cleanText(text);
-      }
-    }
+    const matches = $(selector);
+    matches.each((_, el) => {
+      const text = extractStructuredText($, $(el));
+      if (text.length > richest.length) richest = text;
+    });
+  }
+  if (richest.length > 100) {
+    return cleanText(richest);
   }
 
   const itempropIngredients = $('[itemprop="recipeIngredient"], [itemprop="ingredients"]');
@@ -60,9 +69,9 @@ export function extractDomBoundary(html: string): string | null {
   }
 
   const mainContent =
-    $("main").text().trim() ||
-    $("article").text().trim() ||
-    $('[role="main"]').text().trim();
+    extractStructuredText($, $("main")) ||
+    extractStructuredText($, $("article")) ||
+    extractStructuredText($, $('[role="main"]'));
 
   if (mainContent.length > 100) {
     return cleanText(mainContent);
@@ -71,10 +80,26 @@ export function extractDomBoundary(html: string): string | null {
   return null;
 }
 
+/**
+ * Extracts text from a Cheerio element while preserving structure:
+ * inserts newlines between block-level elements so the AI can
+ * distinguish separate ingredients and steps.
+ */
+function extractStructuredText(
+  $: cheerio.CheerioAPI,
+  el: cheerio.Cheerio<cheerio.AnyNode>,
+): string {
+  if (el.length === 0) return "";
+  const clone = el.clone();
+  const inner = cheerio.load(clone.html() ?? "");
+  inner("li, p, br, h1, h2, h3, h4, h5, h6").after("\n");
+  return inner.root().text().trim();
+}
+
 function cleanText(text: string): string {
   return text
-    .replace(/\s+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[^\S\n]+/g, " ")   // collapse non-newline whitespace to single space
+    .replace(/\n{3,}/g, "\n\n")  // cap consecutive newlines at 2
     .trim()
-    .slice(0, 10000);
+    .slice(0, 12_000);
 }

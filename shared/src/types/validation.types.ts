@@ -1,7 +1,6 @@
 export type ValidationSeverity =
   | "PASS"
   | "FLAG"
-  | "CORRECTION_REQUIRED"
   | "RETAKE"
   | "BLOCK";
 
@@ -10,7 +9,6 @@ export type ValidationIssueCode =
   | "INGREDIENTS_MISSING"
   | "STEPS_MISSING"
   | "INGREDIENT_MERGED"
-  | "STEP_MERGED"
   | "INGREDIENT_NAME_MISSING"
   | "INGREDIENT_QTY_OR_UNIT_MISSING"
   | "STRUCTURE_NOT_SEPARABLE"
@@ -39,7 +37,5 @@ export interface ValidationResult {
   saveState: "SAVE_CLEAN" | "NO_SAVE";
   hasWarnings: boolean;
   hasBlockingIssues: boolean;
-  hasCorrectionRequiredIssues: boolean;
   requiresRetake: boolean;
-  canEnterCorrectionMode: boolean;
 }

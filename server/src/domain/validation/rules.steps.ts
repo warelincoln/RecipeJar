@@ -7,26 +7,14 @@ export function evaluateSteps(
   const issues: ValidationIssue[] = [];
 
   for (const signal of candidate.stepSignals) {
-    if (signal.mergedWhenSeparable) {
-      issues.push({
-        issueId: `step-merged-${signal.index}`,
-        code: "STEP_MERGED",
-        severity: "CORRECTION_REQUIRED",
-        message: `Step at position ${signal.index} appears to contain merged steps that can be separated.`,
-        fieldPath: `steps[${signal.index}]`,
-        userDismissible: false,
-        userResolvable: true,
-      });
-    }
-
     if (signal.majorOcrArtifact) {
       issues.push({
         issueId: `step-major-ocr-${signal.index}`,
         code: "MAJOR_OCR_ARTIFACT",
-        severity: "CORRECTION_REQUIRED",
+        severity: "FLAG",
         message: `Step at position ${signal.index} has a significant OCR artifact that may affect meaning.`,
         fieldPath: `steps[${signal.index}]`,
-        userDismissible: false,
+        userDismissible: true,
         userResolvable: true,
       });
     } else if (signal.minorOcrArtifact) {

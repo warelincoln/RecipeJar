@@ -32,6 +32,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>RecipeJarDevPackagerHost</key>
+	<string>192.168.146.239</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RecipeJar connects to the Metro bundler on your Mac during development.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>RecipeJar needs camera access to photograph cookbook pages</string>
 	<key>NSPhotoLibraryUsageDescription</key>

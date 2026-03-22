@@ -4,7 +4,6 @@ import { evaluateIntegrity } from "./rules.integrity.js";
 import { evaluateRequiredFields } from "./rules.required-fields.js";
 import { evaluateIngredients } from "./rules.ingredients.js";
 import { evaluateSteps } from "./rules.steps.js";
-import { evaluateDescription } from "./rules.description.js";
 import { evaluateRetake } from "./rules.retake.js";
 
 export function validateRecipe(
@@ -16,32 +15,21 @@ export function validateRecipe(
     ...evaluateRequiredFields(candidate),
     ...evaluateIngredients(candidate),
     ...evaluateSteps(candidate),
-    ...evaluateDescription(candidate),
     ...evaluateRetake(candidate),
   ];
 
   const hasBlockingIssues = issues.some((i) => i.severity === "BLOCK");
-  const hasCorrectionRequiredIssues = issues.some(
-    (i) => i.severity === "CORRECTION_REQUIRED",
-  );
   const requiresRetake = issues.some((i) => i.severity === "RETAKE");
   const hasWarnings = issues.some((i) => i.severity === "FLAG");
 
   const saveState =
-    hasBlockingIssues || hasCorrectionRequiredIssues || requiresRetake
-      ? "NO_SAVE"
-      : "SAVE_CLEAN";
-
-  const canEnterCorrectionMode =
-    (hasCorrectionRequiredIssues || requiresRetake) && !hasBlockingIssues;
+    hasBlockingIssues || requiresRetake ? "NO_SAVE" : "SAVE_CLEAN";
 
   return {
     issues,
     saveState,
     hasWarnings,
     hasBlockingIssues,
-    hasCorrectionRequiredIssues,
     requiresRetake,
-    canEnterCorrectionMode,
   };
 }

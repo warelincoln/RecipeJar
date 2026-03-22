@@ -4,6 +4,10 @@ dist/
 .env.local
 *.tsbuildinfo
 
+# IDE / tooling
+.cursor/
+.watchmanconfig
+
 # Android
 mobile/android/local.properties
 mobile/android/.gradle/
@@ -15,6 +19,7 @@ mobile/ios/Pods/
 mobile/ios/build/
 mobile/ios/*.xcworkspace/xcuserdata/
 mobile/ios/*.xcodeproj/xcuserdata/
+mobile/ios/.xcode.env.local
 
 # Metro
 .metro-health-check*

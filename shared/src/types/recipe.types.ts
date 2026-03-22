@@ -9,6 +9,7 @@ export interface RecipeStepEntry {
   id: string;
   text: string;
   orderIndex: number;
+  isHeader: boolean;
 }
 
 export interface RecipeSourcePage {

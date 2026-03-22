@@ -7,6 +7,7 @@ interface RecipesState {
   loading: boolean;
   error: string | null;
   fetchRecipes: () => Promise<void>;
+  deleteRecipe: (id: string) => Promise<void>;
 }
 
 export const useRecipesStore = create<RecipesState>((set) => ({
@@ -25,5 +26,12 @@ export const useRecipesStore = create<RecipesState>((set) => ({
         loading: false,
       });
     }
+  },
+
+  async deleteRecipe(id: string) {
+    await api.recipes.delete(id);
+    set((state) => ({
+      recipes: state.recipes.filter((r) => r.id !== id),
+    }));
   },
 }));

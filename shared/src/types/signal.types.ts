@@ -20,7 +20,6 @@ export interface IngredientSignal {
 export interface StepSignal {
   index: number;
   text: string;
-  mergedWhenSeparable: boolean;
   minorOcrArtifact: boolean;
   majorOcrArtifact: boolean;
 }

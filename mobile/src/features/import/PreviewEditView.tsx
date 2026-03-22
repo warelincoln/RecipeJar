@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
+import { Plus } from "lucide-react-native";
 import type {
   EditedRecipeCandidate,
   ValidationResult,
@@ -19,7 +20,6 @@ interface PreviewEditViewProps {
   dismissedIssueIds: Set<string>;
   onEdit: (candidate: EditedRecipeCandidate) => void;
   onSave: () => void;
-  onEnterCorrection: () => void;
   onDismissWarning: (issueId: string) => void;
   onUndismissWarning: (issueId: string) => void;
   onCancel: () => void;
@@ -31,7 +31,6 @@ export function PreviewEditView({
   dismissedIssueIds,
   onEdit,
   onSave,
-  onEnterCorrection,
   onDismissWarning,
   onUndismissWarning,
   onCancel,
@@ -44,6 +43,14 @@ export function PreviewEditView({
     (fieldPath: string): ValidationIssue[] =>
       validationResult?.issues.filter((i) => i.fieldPath === fieldPath) ?? [],
     [validationResult],
+  );
+
+  const isFieldDismissed = useCallback(
+    (fieldPath: string): boolean => {
+      const fieldIssues = issuesByField(fieldPath);
+      return fieldIssues.length > 0 && fieldIssues.every((i) => dismissedIssueIds.has(i.issueId));
+    },
+    [issuesByField, dismissedIssueIds],
   );
 
   const handleTitleChange = (text: string) => {
@@ -65,13 +72,40 @@ export function PreviewEditView({
     onEdit({ ...candidate, steps: updated });
   };
 
-  const hasBlockers =
-    validationResult?.hasBlockingIssues ||
-    validationResult?.hasCorrectionRequiredIssues;
+  const handleAddIngredient = () => {
+    const newIngredient = {
+      id: `new-ing-${Date.now()}`,
+      text: "",
+      orderIndex: ingredients.length,
+      isHeader: false,
+    };
+    const updated = [...ingredients, newIngredient];
+    setIngredients(updated);
+    onEdit({ ...candidate, ingredients: updated });
+  };
+
+  const handleAddStep = () => {
+    const newStep = {
+      id: `new-step-${Date.now()}`,
+      text: "",
+      orderIndex: steps.length,
+    };
+    const updated = [...steps, newStep];
+    setSteps(updated);
+    onEdit({ ...candidate, steps: updated });
+  };
+
+  const hasBlockers = validationResult?.hasBlockingIssues;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      testID="preview-edit-screen"
+    >
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
 
@@ -79,11 +113,12 @@ export function PreviewEditView({
       <TextInput
         style={[
           styles.input,
-          issuesByField("title").length > 0 && styles.inputError,
+          issuesByField("title").length > 0 && !isFieldDismissed("title") && styles.inputError,
         ]}
         value={title}
         onChangeText={handleTitleChange}
         placeholder="Recipe title"
+        testID="preview-title-input"
       />
       {issuesByField("title").map((issue) => (
         <Text key={issue.issueId} style={styles.issueText}>
@@ -103,6 +138,7 @@ export function PreviewEditView({
               style={[
                 styles.input,
                 issuesByField(`ingredients[${i}]`).length > 0 &&
+                  !isFieldDismissed(`ingredients[${i}]`) &&
                   styles.inputError,
               ]}
               value={ing.text}
@@ -116,29 +152,66 @@ export function PreviewEditView({
           ))}
         </View>
       ))}
-
-      <Text style={styles.sectionTitle}>Steps ({steps.length})</Text>
-      {steps.map((step, i) => (
-        <View key={step.id}>
-          <View style={styles.stepRow}>
-            <Text style={styles.stepNumber}>{i + 1}.</Text>
-            <TextInput
-              style={[
-                styles.stepInput,
-                issuesByField(`steps[${i}]`).length > 0 && styles.inputError,
-              ]}
-              value={step.text}
-              onChangeText={(t) => handleStepChange(i, t)}
-              multiline
-            />
-          </View>
-          {issuesByField(`steps[${i}]`).map((issue) => (
-            <Text key={issue.issueId} style={styles.issueText}>
-              {issue.message}
-            </Text>
-          ))}
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={handleAddIngredient}
+        testID="preview-add-ingredient"
+        accessibilityRole="button"
+        accessibilityLabel="preview-add-ingredient"
+      >
+        <View style={styles.addButtonContent}>
+          <Plus size={16} color="#2563eb" />
+          <Text style={styles.addButtonText}>Add Ingredient</Text>
         </View>
-      ))}
+      </TouchableOpacity>
+
+      <Text style={styles.sectionTitle}>Steps ({steps.filter((s) => !s.isHeader).length})</Text>
+      {(() => {
+        let stepNum = 0;
+        return steps.map((step, i) => {
+          if (step.isHeader) {
+            return (
+              <Text key={step.id} style={styles.stepHeader}>{step.text}</Text>
+            );
+          }
+          stepNum++;
+          return (
+            <View key={step.id}>
+              <View style={styles.stepRow}>
+                <Text style={styles.stepNumber}>{stepNum}.</Text>
+                <TextInput
+                  style={[
+                    styles.stepInput,
+                    issuesByField(`steps[${i}]`).length > 0 &&
+                      !isFieldDismissed(`steps[${i}]`) &&
+                      styles.inputError,
+                  ]}
+                  value={step.text}
+                  onChangeText={(t) => handleStepChange(i, t)}
+                  multiline
+                />
+              </View>
+              {issuesByField(`steps[${i}]`).map((issue) => (
+                <Text key={issue.issueId} style={styles.issueText}>
+                  {issue.message}
+                </Text>
+              ))}
+            </View>
+          );
+        });
+      })()}
+      <TouchableOpacity
+        style={styles.addButton}
+        onPress={handleAddStep}
+        testID="preview-add-step"
+        accessibilityRole="button"
+        accessibilityLabel="preview-add-step"
+      >
+        <View style={styles.addButtonContent}>
+          <Plus size={16} color="#2563eb" />
+          <Text style={styles.addButtonText}>Add Step</Text>
+        </View>
+      </TouchableOpacity>
 
       {validationResult && validationResult.issues.length > 0 && (
         <View style={styles.issuesSummary}>
@@ -156,7 +229,6 @@ export function PreviewEditView({
                       style={[
                         styles.issueSeverity,
                         issue.severity === "BLOCK" && { color: "#dc2626" },
-                        issue.severity === "CORRECTION_REQUIRED" && { color: "#ea580c" },
                         issue.severity === "FLAG" && { color: "#ca8a04" },
                         isDismissed && { color: "#9ca3af" },
                       ]}
@@ -175,9 +247,10 @@ export function PreviewEditView({
                           ? onUndismissWarning(issue.issueId)
                           : onDismissWarning(issue.issueId)
                       }
+                      testID={`preview-confirm-${issue.issueId}`}
                     >
                       <Text style={[styles.dismissText, isDismissed && styles.undismissText]}>
-                        {isDismissed ? "Undo" : "OK, include"}
+                        {isDismissed ? "Undo" : "confirm"}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -188,18 +261,13 @@ export function PreviewEditView({
       )}
 
       <View style={styles.buttonRow}>
-        {hasBlockers && (
-          <TouchableOpacity
-            style={styles.correctionButton}
-            onPress={onEnterCorrection}
-          >
-            <Text style={styles.correctionText}>Fix Issues</Text>
-          </TouchableOpacity>
-        )}
         <TouchableOpacity
           style={[styles.saveButton, hasBlockers && styles.saveButtonDisabled]}
           onPress={onSave}
           disabled={!!hasBlockers}
+          testID="preview-save"
+          accessibilityRole="button"
+          accessibilityLabel="preview-save"
         >
           <Text style={styles.saveText}>Save Recipe</Text>
         </TouchableOpacity>
@@ -210,7 +278,7 @@ export function PreviewEditView({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
@@ -224,6 +292,10 @@ const styles = StyleSheet.create({
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
     color: "#374151", paddingVertical: 6,
   },
+  stepHeader: {
+    fontSize: 15, fontWeight: "600", fontStyle: "italic",
+    color: "#374151", paddingVertical: 6,
+  },
   stepRow: { flexDirection: "row", alignItems: "flex-start" },
   stepNumber: { fontSize: 15, fontWeight: "600", marginRight: 8, marginTop: 10 },
   stepInput: {
@@ -231,6 +303,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15,
     marginBottom: 4, minHeight: 60, textAlignVertical: "top",
   },
+  addButton: {
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    borderStyle: "dashed",
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  addButtonContent: { flexDirection: "row", alignItems: "center", gap: 6 },
+  addButtonText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
   issuesSummary: {
     marginTop: 24, padding: 16, backgroundColor: "#fef3c7", borderRadius: 12,
   },
@@ -252,11 +336,6 @@ const styles = StyleSheet.create({
     flexDirection: "row", justifyContent: "center",
     gap: 12, marginTop: 24,
   },
-  correctionButton: {
-    flex: 1, backgroundColor: "#ea580c",
-    paddingVertical: 14, borderRadius: 12, alignItems: "center",
-  },
-  correctionText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   saveButton: {
     flex: 1, backgroundColor: "#16a34a",
     paddingVertical: 14, borderRadius: 12, alignItems: "center",

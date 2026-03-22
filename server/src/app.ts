@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import { draftsRoutes } from "./api/drafts.routes.js";
 import { recipesRoutes } from "./api/recipes.routes.js";
+import { collectionsRoutes } from "./api/collections.routes.js";
 
 const app = Fastify({ logger: true });
 
@@ -23,6 +24,7 @@ app.addContentTypeParser(
 app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } });
 app.register(draftsRoutes);
 app.register(recipesRoutes);
+app.register(collectionsRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 

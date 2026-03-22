@@ -50,9 +50,7 @@ describe("Import flow XState machine", () => {
               saveState: "SAVE_CLEAN",
               hasWarnings: false,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: false,
               requiresRetake: false,
-              canEnterCorrectionMode: false,
             },
           }),
         },
@@ -85,9 +83,7 @@ describe("Import flow XState machine", () => {
               saveState: "NO_SAVE",
               hasWarnings: false,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: false,
               requiresRetake: true,
-              canEnterCorrectionMode: true,
             },
           }),
         },
@@ -104,7 +100,7 @@ describe("Import flow XState machine", () => {
       actor.stop();
     });
 
-    it("transitions to guidedCorrection when draft status is IN_GUIDED_CORRECTION", async () => {
+    it("IN_GUIDED_CORRECTION resumes to previewEdit", async () => {
       const machine = importMachine.provide({
         actors: {
           resumeDraft: mockActor({
@@ -113,12 +109,10 @@ describe("Import flow XState machine", () => {
             editedCandidateJson: { title: "X", ingredients: [], steps: [] },
             validationResultJson: {
               issues: [],
-              saveState: "NO_SAVE",
+              saveState: "SAVE_CLEAN",
               hasWarnings: false,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: true,
               requiresRetake: false,
-              canEnterCorrectionMode: true,
             },
           }),
         },
@@ -131,7 +125,7 @@ describe("Import flow XState machine", () => {
       const snapshot = await waitFor(actor, (s) => s.value !== "resuming", {
         timeout: 1000,
       });
-      expect(snapshot.value).toBe("guidedCorrection");
+      expect(snapshot.value).toBe("previewEdit");
       actor.stop();
     });
 
@@ -154,65 +148,75 @@ describe("Import flow XState machine", () => {
   });
 
   // ----------------------------------------------------------------
-  // Retake escalation → guidedCorrection
+  // Image import → upload → parse → previewEdit → save
   // ----------------------------------------------------------------
-  describe("retake escalation to guidedCorrection", () => {
-    it("transitions retakeRequired → guidedCorrection via ENTER_CORRECTION", async () => {
+  describe("full image import flow", () => {
+    it("capture → reorder → uploading → parsing → previewEdit → saving → saved", async () => {
+      const savedRecipe = { id: "r1", title: "Test Recipe" };
+
       const machine = importMachine.provide({
         actors: {
-          createDraft: mockActor({ id: "d1" }),
+          uploadDraft: mockActor({ draftId: "d1", pages: [] }),
           parseDraft: mockActor({
-            status: "NEEDS_RETAKE",
-            candidate: { title: null, ingredients: [], steps: [] },
+            status: "PARSED",
+            candidate: {
+              title: "Test Recipe",
+              ingredients: [{ id: "i1", text: "flour", orderIndex: 0 }],
+              steps: [{ id: "s1", text: "Mix.", orderIndex: 0 }],
+            },
             validationResult: {
-              issues: [{ issueId: "r1", severity: "RETAKE" }],
-              saveState: "NO_SAVE",
+              issues: [],
+              saveState: "SAVE_CLEAN",
               hasWarnings: false,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: false,
-              requiresRetake: true,
-              canEnterCorrectionMode: true,
+              requiresRetake: false,
             },
           }),
+          saveDraft: mockActor({ recipe: savedRecipe, saveDecision: { saveState: "SAVE_CLEAN" } }),
         },
       });
 
       const actor = createActor(machine);
       actor.start();
 
-      // Move to capture
       actor.send({ type: "NEW_IMAGE_IMPORT" });
       expect(actor.getSnapshot().value).toBe("capture");
 
-      // Simulate pages + done
       actor.send({ type: "PAGE_CAPTURED", imageUri: "img1.jpg" });
       actor.send({ type: "DONE_CAPTURING" });
       expect(actor.getSnapshot().value).toBe("reorder");
 
-      // Confirm order → parsing (async invoke)
       actor.send({ type: "CONFIRM_ORDER" });
+
+      const afterUpload = await waitFor(actor, (s) => s.value !== "uploading", {
+        timeout: 1000,
+      });
+
       const afterParse = await waitFor(actor, (s) => s.value !== "parsing", {
         timeout: 1000,
       });
-      expect(afterParse.value).toBe("retakeRequired");
+      expect(afterParse.value).toBe("previewEdit");
 
-      // Escalate to guided correction
-      actor.send({ type: "ENTER_CORRECTION" });
-      expect(actor.getSnapshot().value).toBe("guidedCorrection");
+      actor.send({ type: "ATTEMPT_SAVE" });
+      const afterSave = await waitFor(actor, (s) => s.value !== "saving", {
+        timeout: 1000,
+      });
+      expect(afterSave.value).toBe("saved");
+      expect(afterSave.context.savedRecipeId).toBe("r1");
       actor.stop();
     });
   });
 
   // ----------------------------------------------------------------
-  // Warning gate → saving (SAVE_USER_VERIFIED path)
+  // ATTEMPT_SAVE with warnings → direct save (no warning gate)
   // ----------------------------------------------------------------
-  describe("warning gate to SAVE_USER_VERIFIED", () => {
-    it("transitions previewEdit → finalWarningGate → saving via SAVE_ANYWAY", async () => {
+  describe("ATTEMPT_SAVE with warnings saves directly", () => {
+    it("transitions previewEdit → saving → saved even with FLAG warnings", async () => {
       const savedRecipe = { id: "r1", title: "Flagged Recipe" };
 
       const machine = importMachine.provide({
         actors: {
-          createDraft: mockActor({ id: "d1" }),
+          uploadDraft: mockActor({ draftId: "d1", pages: [] }),
           parseDraft: mockActor({
             status: "PARSED",
             candidate: {
@@ -234,9 +238,7 @@ describe("Import flow XState machine", () => {
               saveState: "SAVE_CLEAN",
               hasWarnings: true,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: false,
               requiresRetake: false,
-              canEnterCorrectionMode: false,
             },
           }),
           saveDraft: mockActor({ recipe: savedRecipe, saveDecision: { saveState: "SAVE_USER_VERIFIED" } }),
@@ -246,24 +248,14 @@ describe("Import flow XState machine", () => {
       const actor = createActor(machine);
       actor.start();
 
-      // Navigate to parsing via image import
       actor.send({ type: "NEW_IMAGE_IMPORT" });
       actor.send({ type: "PAGE_CAPTURED", imageUri: "img.jpg" });
       actor.send({ type: "DONE_CAPTURING" });
       actor.send({ type: "CONFIRM_ORDER" });
 
-      // Wait for parse to complete → previewEdit
-      const afterParse = await waitFor(actor, (s) => s.value !== "parsing", {
-        timeout: 1000,
-      });
-      expect(afterParse.value).toBe("previewEdit");
+      await waitFor(actor, (s) => s.value === "previewEdit", { timeout: 2000 });
 
-      // ATTEMPT_SAVE with warnings → finalWarningGate
       actor.send({ type: "ATTEMPT_SAVE" });
-      expect(actor.getSnapshot().value).toBe("finalWarningGate");
-
-      // SAVE_ANYWAY → saving → saved
-      actor.send({ type: "SAVE_ANYWAY" });
       const afterSave = await waitFor(actor, (s) => s.value !== "saving", {
         timeout: 1000,
       });
@@ -271,35 +263,29 @@ describe("Import flow XState machine", () => {
       expect(afterSave.context.savedRecipeId).toBe("r1");
       actor.stop();
     });
+  });
 
-    it("REVIEW_REQUESTED returns to previewEdit from finalWarningGate", async () => {
+  // ----------------------------------------------------------------
+  // ATTEMPT_SAVE blocked when hasBlockingIssues
+  // ----------------------------------------------------------------
+  describe("ATTEMPT_SAVE blocked", () => {
+    it("stays in previewEdit when blocking issues exist", async () => {
       const machine = importMachine.provide({
         actors: {
-          createDraft: mockActor({ id: "d1" }),
+          uploadDraft: mockActor({ draftId: "d1", pages: [] }),
           parseDraft: mockActor({
             status: "PARSED",
             candidate: {
               title: "Recipe",
-              ingredients: [{ id: "i1", text: "x", orderIndex: 0 }],
-              steps: [{ id: "s1", text: "y", orderIndex: 0 }],
+              ingredients: [],
+              steps: [],
             },
             validationResult: {
-              issues: [
-                {
-                  issueId: "f1",
-                  code: "SUSPECTED_OMISSION",
-                  severity: "FLAG",
-                  message: "Flag",
-                  userDismissible: true,
-                  userResolvable: false,
-                },
-              ],
-              saveState: "SAVE_CLEAN",
-              hasWarnings: true,
-              hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: false,
+              issues: [{ issueId: "b1", code: "INGREDIENTS_MISSING", severity: "BLOCK" }],
+              saveState: "NO_SAVE",
+              hasWarnings: false,
+              hasBlockingIssues: true,
               requiresRetake: false,
-              canEnterCorrectionMode: false,
             },
           }),
         },
@@ -307,40 +293,41 @@ describe("Import flow XState machine", () => {
 
       const actor = createActor(machine);
       actor.start();
+
       actor.send({ type: "NEW_IMAGE_IMPORT" });
       actor.send({ type: "PAGE_CAPTURED", imageUri: "img.jpg" });
       actor.send({ type: "DONE_CAPTURING" });
       actor.send({ type: "CONFIRM_ORDER" });
 
-      await waitFor(actor, (s) => s.value !== "parsing", { timeout: 1000 });
-      actor.send({ type: "ATTEMPT_SAVE" });
-      expect(actor.getSnapshot().value).toBe("finalWarningGate");
+      await waitFor(actor, (s) => s.value === "previewEdit", { timeout: 2000 });
 
-      actor.send({ type: "REVIEW_REQUESTED" });
+      actor.send({ type: "ATTEMPT_SAVE" });
       expect(actor.getSnapshot().value).toBe("previewEdit");
       actor.stop();
     });
   });
 
   // ----------------------------------------------------------------
-  // guidedCorrection → previewEdit via CORRECTION_COMPLETE
+  // URL import flow
   // ----------------------------------------------------------------
-  describe("guidedCorrection flow", () => {
-    it("returns to previewEdit after CORRECTION_COMPLETE", async () => {
+  describe("URL import flow", () => {
+    it("idle → creatingUrlDraft → parsing → previewEdit", async () => {
       const machine = importMachine.provide({
         actors: {
-          createDraft: mockActor({ id: "d1" }),
+          createUrlDraft: mockActor({ id: "url-d1" }),
           parseDraft: mockActor({
-            status: "IN_GUIDED_CORRECTION",
-            candidate: { title: "X", ingredients: [], steps: [] },
+            status: "PARSED",
+            candidate: {
+              title: "URL Recipe",
+              ingredients: [{ id: "i1", text: "flour", orderIndex: 0 }],
+              steps: [{ id: "s1", text: "Mix.", orderIndex: 0 }],
+            },
             validationResult: {
-              issues: [{ issueId: "c1", severity: "CORRECTION_REQUIRED" }],
-              saveState: "NO_SAVE",
+              issues: [],
+              saveState: "SAVE_CLEAN",
               hasWarnings: false,
               hasBlockingIssues: false,
-              hasCorrectionRequiredIssues: true,
               requiresRetake: false,
-              canEnterCorrectionMode: true,
             },
           }),
         },
@@ -348,26 +335,15 @@ describe("Import flow XState machine", () => {
 
       const actor = createActor(machine);
       actor.start();
-      actor.send({ type: "NEW_IMAGE_IMPORT" });
-      actor.send({ type: "PAGE_CAPTURED", imageUri: "img.jpg" });
-      actor.send({ type: "DONE_CAPTURING" });
-      actor.send({ type: "CONFIRM_ORDER" });
 
-      const afterParse = await waitFor(actor, (s) => s.value !== "parsing", {
-        timeout: 1000,
-      });
-      expect(afterParse.value).toBe("guidedCorrection");
+      actor.send({ type: "NEW_URL_IMPORT", url: "https://example.com/recipe" });
 
-      actor.send({
-        type: "CORRECTION_COMPLETE",
-        candidate: {
-          title: "Fixed Recipe",
-          ingredients: [{ id: "i1", text: "flour", orderIndex: 0, isHeader: false }],
-          steps: [{ id: "s1", text: "Cook.", orderIndex: 0 }],
-        },
+      const snapshot = await waitFor(actor, (s) => s.value === "previewEdit", {
+        timeout: 2000,
       });
-      expect(actor.getSnapshot().value).toBe("previewEdit");
-      expect(actor.getSnapshot().context.editedCandidate?.title).toBe("Fixed Recipe");
+      expect(snapshot.value).toBe("previewEdit");
+      expect(snapshot.context.draftId).toBe("url-d1");
+      expect(snapshot.context.sourceType).toBe("url");
       actor.stop();
     });
   });

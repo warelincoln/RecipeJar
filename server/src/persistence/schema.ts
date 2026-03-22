@@ -86,6 +86,17 @@ export const draftWarningStates = pgTable(
   ],
 );
 
+export const collections = pgTable("collections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const recipes = pgTable(
   "recipes",
   {
@@ -94,6 +105,9 @@ export const recipes = pgTable(
     description: text("description"),
     sourceType: text("source_type").notNull(),
     originalUrl: text("original_url"),
+    collectionId: uuid("collection_id").references(() => collections.id, {
+      onDelete: "set null",
+    }),
     saveState: text("save_state").notNull(),
     isUserVerified: boolean("is_user_verified").notNull().default(false),
     hasUnresolvedWarnings: boolean("has_unresolved_warnings")
@@ -109,6 +123,7 @@ export const recipes = pgTable(
   (table) => [
     index("recipes_created_at_idx").on(table.createdAt),
     index("recipes_save_state_idx").on(table.saveState),
+    index("recipes_collection_id_idx").on(table.collectionId),
   ],
 );
 
@@ -146,6 +161,7 @@ export const recipeSteps = pgTable(
       .references(() => recipes.id, { onDelete: "cascade" }),
     orderIndex: integer("order_index").notNull(),
     text: text("text").notNull(),
+    isHeader: boolean("is_header").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

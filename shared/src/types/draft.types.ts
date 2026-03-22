@@ -36,6 +36,7 @@ export interface EditableStepEntry {
   id: string;
   text: string;
   orderIndex: number;
+  isHeader: boolean;
 }
 
 export interface EditedRecipeCandidate {

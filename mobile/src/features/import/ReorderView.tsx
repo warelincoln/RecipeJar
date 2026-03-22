@@ -7,6 +7,7 @@ import {
   FlatList,
   StyleSheet,
 } from "react-native";
+import { ChevronUp, ChevronDown } from "lucide-react-native";
 
 interface ReorderViewProps {
   pages: { pageId: string; imageUri: string; orderIndex: number }[];
@@ -37,11 +38,11 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+    <View style={styles.container} testID="reorder-screen">
+      <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="reorder-cancel" accessibilityRole="button" accessibilityLabel="reorder-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
-      <Text style={styles.header}>Arrange Pages</Text>
+      <Text style={styles.header} testID="reorder-header">Arrange Pages</Text>
       <Text style={styles.subtitle}>
         Drag to reorder pages so the recipe reads in the correct order.
       </Text>
@@ -55,20 +56,13 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
             <Text style={styles.pageLabel}>Page {index + 1}</Text>
             <View style={styles.arrows}>
               <TouchableOpacity onPress={() => moveUp(index)} disabled={index === 0}>
-                <Text style={[styles.arrow, index === 0 && styles.arrowDisabled]}>▲</Text>
+                <ChevronUp size={20} color={index === 0 ? "#d1d5db" : "#2563eb"} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => moveDown(index)}
                 disabled={index === orderedPages.length - 1}
               >
-                <Text
-                  style={[
-                    styles.arrow,
-                    index === orderedPages.length - 1 && styles.arrowDisabled,
-                  ]}
-                >
-                  ▼
-                </Text>
+                <ChevronDown size={20} color={index === orderedPages.length - 1 ? "#d1d5db" : "#2563eb"} />
               </TouchableOpacity>
             </View>
           </View>
@@ -76,7 +70,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
         style={styles.list}
       />
 
-      <TouchableOpacity style={styles.confirmButton} onPress={onConfirm}>
+      <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} testID="reorder-confirm" accessibilityRole="button" accessibilityLabel="reorder-confirm">
         <Text style={styles.confirmText}>Continue to Parse</Text>
       </TouchableOpacity>
     </View>
@@ -84,7 +78,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
+  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 8 },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
   header: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
@@ -97,11 +91,10 @@ const styles = StyleSheet.create({
   pageThumb: { width: 48, height: 64, borderRadius: 4, marginRight: 12 },
   pageLabel: { flex: 1, fontSize: 16 },
   arrows: { gap: 4 },
-  arrow: { fontSize: 20, color: "#2563eb", paddingHorizontal: 8 },
-  arrowDisabled: { color: "#d1d5db" },
+  arrow: { paddingHorizontal: 8 },
   confirmButton: {
     backgroundColor: "#2563eb", paddingVertical: 14,
-    borderRadius: 12, alignItems: "center", marginTop: 16,
+    borderRadius: 12, alignItems: "center", marginTop: 16, marginBottom: 8,
   },
   confirmText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

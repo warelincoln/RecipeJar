@@ -10,9 +10,7 @@ function makeCleanResult(
     saveState: "SAVE_CLEAN",
     hasWarnings: false,
     hasBlockingIssues: false,
-    hasCorrectionRequiredIssues: false,
     requiresRetake: false,
-    canEnterCorrectionMode: false,
     ...overrides,
   };
 }
@@ -99,28 +97,6 @@ describe("decideSave", () => {
     expect(decision.allowed).toBe(false);
   });
 
-  it("NO_SAVE when CORRECTION_REQUIRED exists", () => {
-    const decision = decideSave({
-      validationResult: makeCleanResult({
-        saveState: "NO_SAVE",
-        hasCorrectionRequiredIssues: true,
-        issues: [
-          {
-            issueId: "corr-1",
-            code: "TITLE_MISSING",
-            severity: "CORRECTION_REQUIRED",
-            message: "Title missing",
-            userDismissible: false,
-            userResolvable: true,
-          },
-        ],
-      }),
-      dismissedIssueIds: [],
-    });
-    expect(decision.saveState).toBe("NO_SAVE");
-    expect(decision.allowed).toBe(false);
-  });
-
   it("NO_SAVE when retake required", () => {
     const decision = decideSave({
       validationResult: makeCleanResult({
@@ -171,6 +147,29 @@ describe("decideSave", () => {
     expect(decision.saveState).toBe("SAVE_USER_VERIFIED");
     expect(decision.isUserVerified).toBe(true);
     expect(decision.hasUnresolvedWarnings).toBe(true);
+  });
+
+  it("SAVE_USER_VERIFIED when multi-recipe flag is dismissed", () => {
+    const decision = decideSave({
+      validationResult: makeCleanResult({
+        hasWarnings: true,
+        issues: [
+          {
+            issueId: "multi-recipe-detected",
+            code: "MULTI_RECIPE_DETECTED",
+            severity: "FLAG",
+            message: "Multiple recipes were detected in this image. Only one was extracted — please verify the content below is correct.",
+            userDismissible: true,
+            userResolvable: true,
+          },
+        ],
+      }),
+      dismissedIssueIds: ["multi-recipe-detected"],
+    });
+    expect(decision.saveState).toBe("SAVE_USER_VERIFIED");
+    expect(decision.isUserVerified).toBe(true);
+    expect(decision.allowed).toBe(true);
+    expect(decision.hasUnresolvedWarnings).toBe(false);
   });
 
   it("SAVE_CLEAN does not require zero FLAGs", () => {

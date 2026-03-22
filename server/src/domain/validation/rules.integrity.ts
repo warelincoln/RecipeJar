@@ -21,10 +21,10 @@ export function evaluateIntegrity(
     issues.push({
       issueId: "suspected-omission",
       code: "SUSPECTED_OMISSION",
-      severity: "CORRECTION_REQUIRED",
+      severity: "FLAG",
       message:
         "Some content may be missing. Please review and correct if needed.",
-      userDismissible: false,
+      userDismissible: true,
       userResolvable: true,
     });
   }
@@ -33,11 +33,11 @@ export function evaluateIntegrity(
     issues.push({
       issueId: "multi-recipe-detected",
       code: "MULTI_RECIPE_DETECTED",
-      severity: "BLOCK",
+      severity: "FLAG",
       message:
-        "Multiple recipes detected. Please adjust input to contain only one recipe.",
-      userDismissible: false,
-      userResolvable: false,
+        "Multiple recipes were detected in this image. Only one was extracted — please verify the content below is correct.",
+      userDismissible: true,
+      userResolvable: true,
     });
   }
 

@@ -7,6 +7,7 @@ import {
   Image,
   StyleSheet,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, useCameraDevice } from "react-native-vision-camera";
 
 interface CaptureViewProps {
@@ -17,6 +18,7 @@ interface CaptureViewProps {
 }
 
 export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewProps) {
+  const insets = useSafeAreaInsets();
   const device = useCameraDevice("back");
   const cameraRef = useRef<Camera>(null);
 
@@ -44,7 +46,7 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
         photo={true}
       />
 
-      <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+      <TouchableOpacity style={[styles.cancelButton, { top: insets.top + 8 }]} onPress={onCancel} testID="capture-cancel" accessibilityRole="button" accessibilityLabel="capture-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
 
@@ -58,17 +60,18 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
               <Image source={{ uri: item.imageUri }} style={styles.thumbnail} />
             )}
             style={styles.thumbnailList}
+            testID="capture-thumbnails"
           />
         )}
 
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
+          <TouchableOpacity style={styles.captureButton} onPress={handleCapture} testID="capture-shutter" accessibilityRole="button" accessibilityLabel="capture-shutter">
             <View style={styles.captureInner} />
           </TouchableOpacity>
         </View>
 
         {pages.length > 0 && (
-          <TouchableOpacity style={styles.doneButton} onPress={onDone}>
+          <TouchableOpacity style={styles.doneButton} onPress={onDone} testID="capture-done" accessibilityRole="button" accessibilityLabel="capture-done">
             <Text style={styles.doneText}>
               Done ({pages.length} page{pages.length !== 1 ? "s" : ""})
             </Text>
@@ -82,9 +85,9 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },
-  cancelButton: { position: "absolute", top: 60, left: 16, zIndex: 10, padding: 8 },
+  cancelButton: { position: "absolute", left: 16, zIndex: 10, padding: 8 },
   cancelText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  controls: { position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 40 },
+  controls: { position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 50 },
   thumbnailList: { paddingHorizontal: 16, marginBottom: 16 },
   thumbnail: { width: 48, height: 64, borderRadius: 6, marginRight: 8, borderWidth: 1, borderColor: "#fff" },
   buttonRow: { alignItems: "center", marginBottom: 16 },

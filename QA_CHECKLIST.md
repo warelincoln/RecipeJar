@@ -192,12 +192,7 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 1. `POST /drafts/url` with `{"url": "https://..."}`
 2. `POST /drafts/:id/parse`
 
-**Expected validation issues:**
-
-| Code | Severity | Likely? | Notes |
-|------|----------|---------|-------|
-| `DESCRIPTION_DETECTED` | `FLAG` | Yes | Most recipe sites include a blurb |
-| `INGREDIENT_QTY_OR_UNIT_MISSING` | `FLAG` | Maybe | "salt to taste" etc. |
+**Expected validation issues:** None for well-structured sites.
 
 **Expected save state:** `SAVE_CLEAN`
 
@@ -205,15 +200,20 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 
 **Key behavior to verify:**
 - JSON-LD extraction succeeds without AI fallback (fast response, <1 second)
+- Quality gate passes (2+ ingredients, 1+ steps, title > 2 chars)
+- Extraction method logged as `json-ld`
+- `candidate.extractionMethod` is `"json-ld"`
 - `parseSignals.structureSeparable` is `true`
 - All signal booleans (`poorImageQuality`, `lowConfidenceStructure`, etc.) are `false`
 - Ingredient `isHeader` correctly identifies section headers from structured data
+- `HowToSection` names appear as step headers with `isHeader: true`
+- Optional metadata (yield, times, image) captured if present in JSON-LD
 
 ---
 
 ## Scenario 8 — URL with no structured data (AI fallback)
 
-**Input:** URL to a recipe page with no JSON-LD or microdata — just plain HTML content.
+**Input:** URL to a recipe page with no JSON-LD or Microdata — just plain HTML content.
 
 **API sequence:** Same as Scenario 7.
 
@@ -221,18 +221,20 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 
 | Code | Severity | Notes |
 |------|----------|-------|
-| `DESCRIPTION_DETECTED` | `FLAG` | |
-| `SUSPECTED_OMISSION` | `CORRECTION_REQUIRED` | If AI can't extract everything |
-| `INGREDIENT_MERGED` | `CORRECTION_REQUIRED` | If AI merges lines |
+| `SUSPECTED_OMISSION` | `FLAG` | If AI can't extract everything |
+| `INGREDIENT_MERGED` | `FLAG` | If AI merges lines |
 
-**Expected save state:** `SAVE_CLEAN` if extraction is clean; `NO_SAVE` if `CORRECTION_REQUIRED`
+**Expected save state:** `SAVE_CLEAN` if extraction is clean
 
-**Machine state:** `previewEdit` or `guidedCorrection` depending on issues
+**Machine state:** `previewEdit`
 
 **Key behavior to verify:**
-- AI fallback is triggered only when JSON-LD and DOM boundary extraction both fail
+- Cascade order: JSON-LD returns null → Microdata returns null → DOM boundary extracts text → AI parses it
+- `candidate.extractionMethod` is `"dom-ai"`
+- Extraction method logged as `dom-ai`
 - Response takes longer (3-10 seconds for AI call)
-- `parseSignals` reflect AI confidence
+- Smart truncation biases the AI input window toward recipe content (ingredients/steps sections)
+- AI response is validated (must have title, 1+ ingredients, 1+ steps)
 
 ---
 
@@ -242,24 +244,58 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 
 **API sequence:** Same as Scenario 7.
 
-**Expected validation issues:**
+**Expected behavior:**
+1. First fetch attempt with bot UA returns 403
+2. Automatic retry with browser-like Chrome UA
+3. If browser UA also fails: `buildErrorCandidate()` with error signals
+
+**If browser UA succeeds:** Normal extraction cascade runs on the returned HTML.
+
+**If browser UA also fails:**
 
 | Code | Severity | Notes |
 |------|----------|-------|
 | `STRUCTURE_NOT_SEPARABLE` | `BLOCK` | |
-| `TITLE_MISSING` | `CORRECTION_REQUIRED` | |
+| `TITLE_MISSING` | `FLAG` | |
 | `INGREDIENTS_MISSING` | `BLOCK` | |
 | `STEPS_MISSING` | `BLOCK` | |
-| `SUSPECTED_OMISSION` | `CORRECTION_REQUIRED` | |
+| `SUSPECTED_OMISSION` | `FLAG` | |
 
 **Expected save state:** `NO_SAVE`
 
 **Machine state after parse:** `retakeRequired` (due to error-candidate signals)
 
 **Key behavior to verify:**
+- Extraction method logged as `error` with reason
 - Server doesn't crash on fetch failure
-- `buildErrorCandidate()` returns a candidate with all error signals set
+- Browser UA fallback is attempted before giving up
 - User should be informed the URL could not be accessed
+
+---
+
+## Scenario 12 — URL with Microdata but no JSON-LD
+
+**Input:** URL to a recipe page that uses `itemprop` attributes on HTML elements but has no `<script type="application/ld+json">` tag. Common on older recipe sites and some CMS platforms.
+
+**API sequence:** Same as Scenario 7.
+
+**Expected behavior:**
+1. JSON-LD extraction returns null (no script tags)
+2. Microdata extraction reads `itemprop="name"`, `itemprop="recipeIngredient"`, `itemprop="recipeInstructions"` from HTML elements
+3. Quality gate checks the Microdata result
+4. If quality gate passes, returns structured candidate without AI
+
+**Expected validation issues:** None for well-structured Microdata.
+
+**Expected save state:** `SAVE_CLEAN`
+
+**Machine state after parse:** `previewEdit`
+
+**Key behavior to verify:**
+- `candidate.extractionMethod` is `"microdata"`
+- Extraction method logged as `microdata`
+- No AI call made (fast response, <1 second)
+- Ingredients and steps extracted as individual entries (one per `itemprop` element)
 
 ---
 

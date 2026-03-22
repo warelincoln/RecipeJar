@@ -1,0 +1,1 @@
+ALTER TABLE "recipe_steps" ADD COLUMN "is_header" boolean DEFAULT false NOT NULL;

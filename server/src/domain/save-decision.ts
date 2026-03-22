@@ -8,7 +8,6 @@ export function decideSave(input: {
 
   if (
     validationResult.hasBlockingIssues ||
-    validationResult.hasCorrectionRequiredIssues ||
     validationResult.requiresRetake
   ) {
     return {

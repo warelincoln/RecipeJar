@@ -4,6 +4,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { RecipeDetailScreen } from "./src/screens/RecipeDetailScreen";
+import { RecipeEditScreen } from "./src/screens/RecipeEditScreen";
+import { CollectionScreen } from "./src/screens/CollectionScreen";
 import { ImportFlowScreen } from "./src/screens/ImportFlowScreen";
 import type { RootStackParamList } from "./src/navigation/types";
 
@@ -24,6 +26,16 @@ export default function App() {
             name="RecipeDetail"
             component={RecipeDetailScreen}
             options={{ headerShown: true, title: "Recipe" }}
+          />
+          <Stack.Screen
+            name="RecipeEdit"
+            component={RecipeEditScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Collection"
+            component={CollectionScreen}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="ImportFlow"

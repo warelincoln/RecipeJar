@@ -11,10 +11,10 @@ export function evaluateIngredients(
       issues.push({
         issueId: `ingredient-merged-${signal.index}`,
         code: "INGREDIENT_MERGED",
-        severity: "CORRECTION_REQUIRED",
+        severity: "FLAG",
         message: `Ingredient at position ${signal.index} appears to contain merged entries that can be separated.`,
         fieldPath: `ingredients[${signal.index}]`,
-        userDismissible: false,
+        userDismissible: true,
         userResolvable: true,
       });
     }
@@ -23,20 +23,8 @@ export function evaluateIngredients(
       issues.push({
         issueId: `ingredient-name-missing-${signal.index}`,
         code: "INGREDIENT_NAME_MISSING",
-        severity: "CORRECTION_REQUIRED",
-        message: `Ingredient at position ${signal.index} is missing a name.`,
-        fieldPath: `ingredients[${signal.index}]`,
-        userDismissible: false,
-        userResolvable: true,
-      });
-    }
-
-    if (signal.missingQuantityOrUnit) {
-      issues.push({
-        issueId: `ingredient-qty-unit-missing-${signal.index}`,
-        code: "INGREDIENT_QTY_OR_UNIT_MISSING",
         severity: "FLAG",
-        message: `Ingredient at position ${signal.index} may be missing a quantity or unit.`,
+        message: `Ingredient at position ${signal.index} is missing a name.`,
         fieldPath: `ingredients[${signal.index}]`,
         userDismissible: true,
         userResolvable: true,
@@ -47,10 +35,10 @@ export function evaluateIngredients(
       issues.push({
         issueId: `ingredient-major-ocr-${signal.index}`,
         code: "MAJOR_OCR_ARTIFACT",
-        severity: "CORRECTION_REQUIRED",
+        severity: "FLAG",
         message: `Ingredient at position ${signal.index} has a significant OCR artifact that may affect meaning.`,
         fieldPath: `ingredients[${signal.index}]`,
-        userDismissible: false,
+        userDismissible: true,
         userResolvable: true,
       });
     } else if (signal.minorOcrArtifact) {

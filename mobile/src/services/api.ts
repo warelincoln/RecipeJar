@@ -149,5 +149,53 @@ export const api = {
     get(id: string) {
       return request<Recipe>(`/recipes/${id}`);
     },
+
+    update(
+      id: string,
+      body: {
+        title: string;
+        description?: string | null;
+        collectionId?: string | null;
+        ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
+        steps: { text: string; orderIndex: number; isHeader: boolean }[];
+      },
+    ) {
+      return request<Recipe>(`/recipes/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+
+    delete(id: string) {
+      return request(`/recipes/${id}`, { method: "DELETE" });
+    },
+
+    assignCollection(id: string, collectionId: string | null) {
+      return request(`/recipes/${id}/collection`, {
+        method: "PATCH",
+        body: JSON.stringify({ collectionId }),
+      });
+    },
+  },
+
+  collections: {
+    create(name: string) {
+      return request<{ id: string; name: string }>("/collections", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+    },
+
+    list() {
+      return request<{ id: string; name: string }[]>("/collections");
+    },
+
+    getRecipes(collectionId: string) {
+      return request<Recipe[]>(`/collections/${collectionId}/recipes`);
+    },
+
+    delete(id: string) {
+      return request(`/collections/${id}`, { method: "DELETE" });
+    },
   },
 };

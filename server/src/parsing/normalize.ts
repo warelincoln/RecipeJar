@@ -1,3 +1,4 @@
+import { decode } from "he";
 import { v4 as uuidv4 } from "uuid";
 import type {
   ParsedRecipeCandidate,
@@ -7,6 +8,14 @@ import type {
   StepSignal,
   SourcePage,
 } from "@recipejar/shared";
+
+export interface RecipeMetadata {
+  yield?: string;
+  prepTime?: string;
+  cookTime?: string;
+  totalTime?: string;
+  imageUrl?: string;
+}
 
 export interface RawExtractionResult {
   title?: string | null;
@@ -26,6 +35,8 @@ export interface RawExtractionResult {
 
   ingredientSignals?: RawIngredientSignal[];
   stepSignals?: RawStepSignal[];
+
+  metadata?: RecipeMetadata;
 }
 
 interface RawIngredient {
@@ -35,6 +46,7 @@ interface RawIngredient {
 
 interface RawStep {
   text?: string;
+  isHeader?: boolean;
 }
 
 interface RawIngredientSignal {
@@ -55,6 +67,15 @@ interface RawStepSignal {
   majorOcrArtifact?: boolean;
 }
 
+/**
+ * JSON-LD and scraped HTML often carry HTML entities (e.g. &amp; for &).
+ * Decode once so stored recipes show plain text in the app.
+ */
+export function decodeHtmlEntities(value: string): string {
+  if (typeof value !== "string" || value.length === 0) return value;
+  return decode(value);
+}
+
 export function normalizeToCandidate(
   raw: RawExtractionResult,
   sourceType: "image" | "url",
@@ -63,7 +84,8 @@ export function normalizeToCandidate(
   const ingredients: ParsedIngredientEntry[] = (raw.ingredients ?? []).map(
     (ing, i) => ({
       id: uuidv4(),
-      text: typeof ing.text === "string" ? ing.text : "",
+      text:
+        typeof ing.text === "string" ? decodeHtmlEntities(ing.text) : "",
       orderIndex: i,
       isHeader: ing.isHeader === true,
     }),
@@ -71,8 +93,10 @@ export function normalizeToCandidate(
 
   const steps: ParsedStepEntry[] = (raw.steps ?? []).map((step, i) => ({
     id: uuidv4(),
-    text: typeof step.text === "string" ? step.text : "",
+    text:
+      typeof step.text === "string" ? decodeHtmlEntities(step.text) : "",
     orderIndex: i,
+    isHeader: step.isHeader === true,
   }));
 
   const signals = raw.signals ?? {};
@@ -81,7 +105,8 @@ export function normalizeToCandidate(
     raw.ingredientSignals ?? []
   ).map((sig, i) => ({
     index: typeof sig.index === "number" ? sig.index : i,
-    text: typeof sig.text === "string" ? sig.text : "",
+    text:
+      typeof sig.text === "string" ? decodeHtmlEntities(sig.text) : "",
     mergedWhenSeparable: sig.mergedWhenSeparable === true,
     missingName: sig.missingName === true,
     missingQuantityOrUnit: sig.missingQuantityOrUnit === true,
@@ -91,21 +116,28 @@ export function normalizeToCandidate(
 
   const stepSignals: StepSignal[] = (raw.stepSignals ?? []).map((sig, i) => ({
     index: typeof sig.index === "number" ? sig.index : i,
-    text: typeof sig.text === "string" ? sig.text : "",
+    text:
+      typeof sig.text === "string" ? decodeHtmlEntities(sig.text) : "",
     mergedWhenSeparable: sig.mergedWhenSeparable === true,
     minorOcrArtifact: sig.minorOcrArtifact === true,
     majorOcrArtifact: sig.majorOcrArtifact === true,
   }));
 
+  const titleDecoded =
+    typeof raw.title === "string" ? decodeHtmlEntities(raw.title) : null;
+  const descriptionDecoded =
+    typeof raw.description === "string"
+      ? decodeHtmlEntities(raw.description)
+      : null;
+
   const hasMissingContent =
-    ingredients.length === 0 || steps.length === 0 || !raw.title;
+    ingredients.length === 0 || steps.length === 0 || !titleDecoded;
 
   return {
-    title: typeof raw.title === "string" ? raw.title : null,
+    title: titleDecoded,
     ingredients,
     steps,
-    description:
-      typeof raw.description === "string" ? raw.description : null,
+    description: descriptionDecoded,
     sourceType,
     sourcePages,
     parseSignals: {
@@ -120,6 +152,7 @@ export function normalizeToCandidate(
     },
     ingredientSignals,
     stepSignals,
+    metadata: raw.metadata,
   };
 }
 
