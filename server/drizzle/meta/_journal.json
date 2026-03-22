@@ -22,6 +22,20 @@
       "when": 1774153437711,
       "tag": "0002_numerous_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774400000000,
+      "tag": "0003_recipe_collections_join_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774209568315,
+      "tag": "0004_burly_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

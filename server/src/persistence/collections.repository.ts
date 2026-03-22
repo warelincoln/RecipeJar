@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db.js";
-import { collections, recipes } from "./schema.js";
+import { collections } from "./schema.js";
 
 export const collectionsRepository = {
   async create(name: string) {
@@ -24,10 +24,6 @@ export const collectionsRepository = {
   },
 
   async delete(id: string) {
-    await db
-      .update(recipes)
-      .set({ collectionId: null })
-      .where(eq(recipes.collectionId, id));
     await db.delete(collections).where(eq(collections.id, id));
   },
 };

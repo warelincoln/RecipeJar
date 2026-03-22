@@ -27,8 +27,12 @@ export type {
   RecipeStepEntry,
   RecipeSourcePage,
   RecipeSourceContext,
+  RecipeCollectionRef,
+  RecipeNote,
   Recipe,
 } from "./types/recipe.types.js";
+
+export { NOTE_MAX_LENGTH } from "./constants";
 
 export type {
   DraftStatus,

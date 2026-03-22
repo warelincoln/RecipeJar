@@ -11,15 +11,18 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - URL recipe parsing with 4-tier cascade: JSON-LD → Microdata → DOM boundary extraction → AI fallback (with fetch retry, browser UA fallback, quality gate, and extraction logging)
 - Deterministic validation engine with 6 rule modules and 12 issue codes (3 severities: BLOCK, FLAG, RETAKE)
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
-- Drizzle ORM schema with 8 PostgreSQL tables (including `collections`), indexes, cascade deletes
+- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes
 - Supabase Storage integration for recipe page images
 - XState v5 state machine for mobile import flow (9 states — simplified, no correction or warning gate states)
 - React Native mobile app with navigation, screens, Zustand stores (recipes + collections), API client
-- Collections feature: create collections, assign recipes to collections (one collection per recipe), collection view screen
+- Collections feature: create collections, many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder
 - Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment
-- Home screen with two-column recipe card grid, horizontal collections row, centered jar FAB with modal (camera, URL, create collection)
-- Long-press recipe cards to assign/remove collection membership
-- Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs)
+- Home screen with search bar, two-column recipe card grid, horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, URL, create collection), three empty states (no recipes, all organized, no search results)
+- Long-press recipe cards to assign/move/remove collection membership with toast notification and undo
+- User notes: multiple text notes per recipe (max 250 chars each), add/edit via modal, delete with confirmation, newest-first with date and "Edited" label, displayed on recipe detail screen below steps
+- Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
+- Real-time client-side search by recipe title on home screen and all collection/folder views
+- Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (71 keyword rules covering meal types, cuisines, proteins, drinks, diets, occasions, etc.; falls back to brown folder for unmatched names)
 - URL input screen for the URL import flow (user pastes a recipe URL before parsing)
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
@@ -28,7 +31,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 
 - User authentication and multi-user data ownership (single-user MVP)
 - Offline/local-first sync
-- Recipe search or tagging
+- Multi-collection assignment UI (schema supports many-to-many; UI currently assigns one collection at a time)
 - Recipe sharing or export
 - Production deployment configuration
 
@@ -42,7 +45,7 @@ All of the following were executed against a real Supabase PostgreSQL database a
 
 | What | Evidence |
 |---|---|
-| `drizzle-kit push` | All 7 tables, indexes, and foreign keys applied to Supabase |
+| `drizzle-kit push` | All 10 tables, indexes, and foreign keys applied to Supabase |
 | Fastify server startup | Listens on `0.0.0.0:3000` |
 | `GET /health` | Returns `{"status":"ok"}` |
 | `POST /drafts` | Image draft created in real DB, returns UUID and `CAPTURE_IN_PROGRESS` |
@@ -67,7 +70,7 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | Validation engine | 23 tests | All 12 issue codes, all severity levels (BLOCK, FLAG, RETAKE), multi-recipe FLAG downgrade |
 | Save-decision logic | 8 tests | `SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`, dismissed multi-recipe FLAG |
 | Parsing + normalization | 35 tests | `normalizeToCandidate`, `buildErrorCandidate`, JSON-LD extraction (incl. HowToSection headers, ingredient objects, metadata), Microdata extraction, DOM boundary (structure preservation, noise removal, richest match), URL normalization, smart truncation |
-| API integration | 16 tests | All 11 draft endpoints + 5 recipe endpoints, full parse-edit-save flow |
+| API integration | 16+ tests | All 11 draft endpoints + 9 recipe endpoints (CRUD + collection + notes CRUD + rating), full parse-edit-save flow |
 | XState machine | 8 tests | Happy path, resume routing, retake flow, URL import |
 
 All 90 server tests pass.
@@ -115,6 +118,8 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 
 | What | Why |
 |---|---|
+| Homepage collections overhaul on device | Uncategorized-only home view, "All Recipes" virtual folder, real-time search, toast with undo, collection name tags — code complete but not yet fully tested on physical device |
+| User notes + star rating on device | Notes CRUD (add/edit/delete) and half-star rating with tap-toggle UX — API verified via curl and partial device testing; full end-to-end device QA pending |
 | Multi-page image ordering UX | Single-page capture tested; multi-page reorder not yet tested on device |
 | Real cookbook photo parsing quality at scale | Single recipe tested with good results; accuracy across varied cookbook formats (handwritten, glossy, multi-column) is untested |
 | Bot-protected URL parsing | AllRecipes, Simply Recipes may return 402/403. Browser UA fallback partially mitigates 403s. JSON-LD and Microdata sites work. |
@@ -355,7 +360,7 @@ Using 'postgres' driver for database querying
 [✓] Changes applied
 ```
 
-This creates 8 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes` (with `collection_id` FK), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`.
+This creates 10 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes`, `recipe_collections` (join table with composite PK and cascade deletes), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`, `recipe_notes` (FK to recipes with cascade delete, indexed by recipe_id).
 
 If you see `ECONNREFUSED` or `ENOTFOUND`: your `DATABASE_URL` is wrong, or you are not using the pooler URL. See Section 5.
 
@@ -913,7 +918,7 @@ If validation has unresolved BLOCK or RETAKE issues, this returns **422** with `
 curl -s http://localhost:3000/recipes/$RECIPE_ID
 ```
 
-Expected response (200): full recipe with `title`, `ingredients`, `steps`, `saveState`.
+Expected response (200): full recipe with `title`, `ingredients`, `steps`, `saveState`, `collections`.
 
 ### 9.7 URL-based flow (alternative to image)
 
@@ -999,10 +1004,11 @@ RecipeJar/
 │   ├── tsconfig.json
 │   └── src/
 │       ├── index.ts                      # barrel export
+│       ├── constants.ts                  # shared constants (NOTE_MAX_LENGTH = 250)
 │       └── types/
 │           ├── draft.types.ts            # DraftStatus, RecipeDraft, EditedRecipeCandidate, DraftWarningState
 │           ├── parsed-candidate.types.ts # ParsedRecipeCandidate, parseSignals shape
-│           ├── recipe.types.ts           # Recipe, RecipeIngredientEntry, RecipeStepEntry
+│           ├── recipe.types.ts           # Recipe, RecipeNote, RecipeCollectionRef, RecipeIngredientEntry, RecipeStepEntry
 │           ├── save-decision.types.ts    # SaveDecision, RecipeSaveState
 │           ├── signal.types.ts           # IngredientSignal, StepSignal, SourcePage
 │           └── validation.types.ts       # ValidationResult, ValidationIssue, ValidationSeverity, ValidationIssueCode
@@ -1015,12 +1021,15 @@ RecipeJar/
 │   ├── vitest.config.ts                  # test runner config
 │   ├── drizzle/                          # generated migration SQL
 │   │   ├── 0000_new_raider.sql
-│   │   └── 0001_smart_champions.sql      # collections table + collectionId FK on recipes
+│   │   ├── 0001_smart_champions.sql      # collections table + collectionId FK on recipes
+│   │   ├── 0002_numerous_norman_osborn.sql
+│   │   ├── 0003_recipe_collections_join_table.sql  # many-to-many: create join table, migrate data, drop column
+│   │   └── 0004_burly_yellow_claw.sql              # recipe_notes table + rating_half_steps column on recipes
 │   ├── src/
 │   │   ├── app.ts                        # server entry point, Fastify setup, route registration
 │   │   ├── api/
 │   │   │   ├── drafts.routes.ts          # 11 draft endpoints (create, upload, parse, edit, save, etc.)
-│   │   │   ├── recipes.routes.ts         # 5 recipe endpoints (list, get, update, delete, assign collection)
+│   │   │   ├── recipes.routes.ts         # 9 recipe endpoints (list, get, update, delete, assign collection, notes CRUD, rating)
 │   │   │   └── collections.routes.ts     # 4 collection endpoints (create, list, get recipes, delete)
 │   │   ├── domain/
 │   │   │   ├── save-decision.ts          # decideSave() — determines SAVE_CLEAN / SAVE_USER_VERIFIED / NO_SAVE
@@ -1047,9 +1056,10 @@ RecipeJar/
 │   │   │       └── url-ai.adapter.ts     # GPT-5.4 fallback with simplified prompt (no signal arrays), smart truncation, retry, response validation
 │   │   └── persistence/
 │   │       ├── db.ts                     # Drizzle client initialization (lazy, uses DATABASE_URL)
-│   │       ├── schema.ts                # 8 table definitions with indexes and FK cascades
+│   │       ├── schema.ts                # 10 table definitions with indexes, FK cascades, recipe_collections join table, recipe_notes
 │   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states
-│   │       ├── recipes.repository.ts    # CRUD for recipes, ingredients, steps, source pages + update/assignCollection
+│   │       ├── recipes.repository.ts    # CRUD for recipes, ingredients, steps, source pages + assignToCollection/removeFromCollection via join table + rating
+│   │       ├── recipe-notes.repository.ts # CRUD for recipe notes (create, update, delete, list by recipe) + touches parent recipe updatedAt
 │   │       └── collections.repository.ts # CRUD for collections
 │   └── tests/
 │       ├── validation.engine.test.ts    # 23 tests — all validation rules
@@ -1080,6 +1090,11 @@ RecipeJar/
     │       ├── ImportFlowUITests.swift  # Import flow screen tests (capture, URL input, preview, saved, etc.)
     │       └── Info.plist
     └── src/
+        ├── components/
+        │   ├── ToastQueue.tsx           # stackable toast notifications with undo (used for collection assignment feedback)
+        │   ├── RecipeRatingInput.tsx    # interactive half-star rating (tap-toggle: half→full→half, debounced API save, onPressIn for instant response)
+        │   ├── CompactRecipeRating.tsx  # read-only compact rating for grid cards (gold star icon + numeric value, hidden when unrated)
+        │   └── RecipeNotesSection.tsx   # notes list + add/edit modal (multiline, char counter, KeyboardAvoidingView) + delete confirmation
         ├── features/
         │   └── import/
         │       ├── machine.ts           # XState v5 import flow state machine (9 states)
@@ -1091,13 +1106,13 @@ RecipeJar/
         │       ├── SavedView.tsx        # success UI (Lucide Check icon)
         │       └── UrlInputView.tsx     # URL input screen (Lucide Link icon)
         ├── navigation/
-        │   └── types.ts                # RootStackParamList (Home, RecipeDetail, RecipeEdit, Collection, ImportFlow)
+        │   └── types.ts                # RootStackParamList (Home, RecipeDetail, RecipeEdit, Collection with isAllRecipes, ImportFlow)
         ├── screens/
-        │   ├── HomeScreen.tsx           # two-column recipe grid, collections row, jar FAB with modal
-        │   ├── CollectionScreen.tsx     # recipes in a specific collection
+        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB, toast on assignment
+        │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, long-press remove/assign
         │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection)
         │   ├── ImportFlowScreen.tsx     # renders state machine views + URL input gate
-        │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button
+        │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button, inline star rating, notes section
         ├── services/
         │   └── api.ts                  # API client (drafts + recipes + collections endpoints)
         └── stores/
@@ -1258,6 +1273,8 @@ Both Android and iOS builds are proven. The Android build compiles and runs on a
 
 All UI icons use `lucide-react-native` (backed by `react-native-svg@15.12.1`). The only non-Lucide character in the UI is the `•` bullet point in `RecipeDetailScreen.tsx`, which is an intentional decorative list marker. When upgrading React Native, check `react-native-svg` compatibility — v15.13+ requires RN 0.78+.
 
+Collection folders on the home screen auto-assign a contextual icon and color via `getCollectionIcon()` in `HomeScreen.tsx`. The function matches the collection name (case-insensitive, `includes`-based) against a 71-rule keyword dictionary covering meal types, dish types, baking, sweets, proteins, produce, drinks, diets, cuisines, cooking methods, occasions, seasons, and personal categories. Unmatched names fall back to a brown `FolderOpen`. The "All Recipes" virtual folder always shows a blue `BookOpen`. To add new icon mappings, append entries to the `ICON_RULES` array — more specific keywords should appear before generic ones. All 55 icons used in the dictionary are verified to exist in `lucide-react-native@0.577.0`.
+
 ### Image parsing quality
 
 GPT-5.3 Vision API is connected and functional. Initial testing on a real printed cookbook page (Soy Sauce Marinade) showed strong results: title, 8 ingredients, and 1 step extracted correctly. Further testing on varied cookbook formats (handwritten, glossy pages, multi-column layouts, faded text) is needed to tune parser prompts.
@@ -1281,6 +1298,111 @@ Not implemented. The mobile app requires network access to the API server for al
 ---
 
 ## 16. Changelog
+
+### 2026-03-22 — User notes and star rating
+
+**Shared types:**
+- Added `RecipeNote` interface (`id`, `text`, `createdAt`, `updatedAt`) and `NOTE_MAX_LENGTH = 250` constant in `shared/src/constants.ts`
+- Extended `Recipe` with `rating: number | null` (0.5–5.0 in half steps, or null for unrated) and `notes: RecipeNote[]` (populated on `GET /recipes/:id`, empty array on list endpoints)
+
+**Database (migration 0004):**
+- Created `recipe_notes` table (uuid PK, FK to recipes with cascade delete, text, timestamps) with index on `recipe_id`
+- Added nullable `rating_half_steps` integer column to `recipes` (stored as 1–10 internally, mapped to 0.5–5.0 in the API)
+
+**Server — repositories:**
+- `recipe-notes.repository.ts` (new): CRUD for notes (`listByRecipeId`, `findById`, `create`, `update`, `delete`) + `touchRecipeUpdatedAt` helper to bump parent recipe timestamp on mutations
+- `recipes.repository.ts`: `findById` now loads notes (newest-first); list endpoints include `rating` mapped from `ratingHalfSteps`; added `setRating(recipeId, halfSteps)` method
+
+**Server — routes (4 new endpoints):**
+- `POST /recipes/:id/notes` — create note (text trim + length validation)
+- `PATCH /recipes/:id/notes/:noteId` — update note text
+- `DELETE /recipes/:id/notes/:noteId` — delete note
+- `PATCH /recipes/:id/rating` — set or clear rating (validates 0.5-step values)
+
+**Mobile — new components:**
+- `RecipeRatingInput.tsx`: interactive 5-star rating with half-star precision. Tap-toggle UX: first tap → half star, second tap → full, third tap → half. Uses `onPressIn` + `delayPressIn={0}` for instant touch response. Maintains local state with ref-based tracking for stable callbacks. Debounces API calls (600ms) so rapid tapping sends only the final value.
+- `CompactRecipeRating.tsx`: read-only compact display for grid cards — small gold star icon + numeric value (e.g., "4.5"). Returns null when unrated, so no space is consumed on unrated cards.
+- `RecipeNotesSection.tsx`: notes list sorted newest-first with date and "Edited" label (compares `createdAt` vs `updatedAt`). Add/edit via React Native `Modal` with multiline `TextInput`, character counter, and `KeyboardAvoidingView`. Delete via `Alert.alert` confirmation. Long-press to delete, tap to edit.
+
+**Mobile — screen integration:**
+- `RecipeDetailScreen.tsx`: rating input between description and ingredients; notes section after steps. Rating fires API call without refetching the full recipe (avoids expensive re-render).
+- `HomeScreen.tsx` and `CollectionScreen.tsx`: `CompactRecipeRating` rendered on recipe cards.
+
+**Mobile — API client:**
+- Added `createNote`, `updateNote`, `deleteNote`, `setRating` methods to `api.recipes`
+
+**Server tests:**
+- Added integration tests for notes CRUD (create, 251-char reject, empty reject, missing recipe 404, edit, wrong-recipe 404, delete) and rating (set half-star, clear to null, invalid value, out of range, missing recipe)
+
+**Bug fixes during implementation:**
+- Fixed Metro crash: `shared/src/index.ts` exported `NOTE_MAX_LENGTH` with `.js` extension (`"./constants.js"`) which Metro couldn't resolve. Changed to extensionless `"./constants"`. Other exports use `.js` but are all `export type` (erased at compile time), so Metro never resolves them.
+- Applied database migration 0004 (had not been run against Supabase)
+- Restarted server to pick up new route registrations
+
+### 2026-03-22 — Remove LayoutAnimation (crash fix)
+
+- Removed all `LayoutAnimation.configureNext()` calls from `HomeScreen.tsx` and `CollectionScreen.tsx` — back-to-back calls while a toast was active caused iOS crashes
+- Removed Android `UIManager.setLayoutAnimationEnabledExperimental(true)` from `App.tsx`
+- Added try/catch around all async `handleSelection` callbacks in both screens to prevent unhandled promise rejections on network errors
+
+### 2026-03-22 — Homepage collections overhaul: uncategorized view, search, "All Recipes", toast + undo
+
+**Schema (many-to-many join table):**
+- Replaced `collection_id` nullable FK on `recipes` with a `recipe_collections` join table (composite PK on `recipe_id` + `collection_id`, cascade deletes on both FKs)
+- Hand-written migration `0003_recipe_collections_join_table.sql`: creates join table, migrates existing data, drops old column and index
+- Schema now supports many-to-many recipe-collection relationships; UI currently enforces single-assignment at the repository level
+
+**Shared types:**
+- Added `RecipeCollectionRef` interface (`{ id: string; name: string }`)
+- Added `collections: RecipeCollectionRef[]` to the `Recipe` interface
+- Exported `RecipeCollectionRef` from `shared/src/index.ts`
+
+**Server — repository layer:**
+- `recipes.repository`: `list()` and `findById()` now attach `collections` array via join table lookup; `listByCollection()` filters through join table; added `assignToCollection(recipeId, collectionId)` and `removeFromCollection(recipeId)` methods; `update()` handles collection assignment through the join table instead of setting a column
+- `collections.repository`: simplified `delete()` — cascade deletes on join table handle orphaned links
+
+**Server — routes:**
+- `PATCH /recipes/:id/collection` now calls `assignToCollection()` or `removeFromCollection()` based on whether `collectionId` is provided or null
+- All recipe responses now include a `collections` array
+
+**Mobile — HomeScreen:**
+- Added search bar (real-time client-side filtering by recipe title across all recipes)
+- Homepage now shows only uncategorized recipes by default; search temporarily overrides this to show all matching recipes
+- "All Recipes" virtual UI folder prepended to the collections row (always visible, not database-backed)
+- Collection name tag shown on recipe cards only when they appear outside their natural context (search results or "All Recipes" view)
+- `LayoutAnimation.configureNext(easeInEaseOut)` triggered on collection assignment/removal (not during search)
+- Toast notification with undo on successful collection assignment (via `ToastQueue` component)
+- Three empty states: "No recipes yet", "All recipes organized", "No recipes matching..."
+- Collections row always visible (removed conditional rendering)
+- `keyboardShouldPersistTaps="handled"` on all FlatLists
+
+**Mobile — CollectionScreen:**
+- Added search bar (real-time filtering within the collection)
+- Accepts `isAllRecipes` flag from route params; when true, fetches all recipes and shows adaptive long-press options (assign/move/remove)
+- Normal collections show long-press "Remove from [collection name]" only
+- `LayoutAnimation` on removal, three empty states, collection name tags in "All Recipes" view
+- `keyboardShouldPersistTaps="handled"` on FlatList
+
+**Mobile — ToastQueue component (new):**
+- `mobile/src/components/ToastQueue.tsx`: stackable toast notifications with sequential display, 4-second auto-dismiss, and per-toast undo callback
+- Exposed via `forwardRef` / `useImperativeHandle` with `addToast()` method
+
+**Mobile — other screens:**
+- `RecipeDetailScreen`: uses `recipe.collections` array instead of `(recipe as any).collectionId`
+- `RecipeEditScreen`: reads initial collection from `recipe.collections[0]?.id`
+- `App.tsx`: enables `LayoutAnimation` on Android via `UIManager.setLayoutAnimationEnabledExperimental(true)`
+- `navigation/types.ts`: added `isAllRecipes?: boolean` to Collection route params
+
+**Integration tests:**
+- Updated `recipesRepository` mock with `assignToCollection`, `removeFromCollection`, `listByCollection` methods
+
+### 2026-03-22 — Auto-assign collection icons
+
+- Collection folders on the home screen now automatically display a contextual Lucide icon and color based on their name, instead of all showing a brown `FolderOpen`
+- 71 keyword rules covering: meal types (breakfast, lunch, dinner, dessert, snack, appetizer, side), dish types (soup, salad, pasta, pizza, burger, curry, casserole), baking (cake, bread, cookie, pie, donut), sweets (candy, lollipop, popsicle), proteins (chicken, beef, pork, fish, egg, bean), produce (fruit, apple, banana, carrot, citrus), drinks (coffee, tea, smoothie, cocktail, wine, beer), diets (vegan, vegetarian, keto, healthy, gluten free), cuisines (italian, mexican, asian, indian, french, greek), cooking methods (bbq, baking, slow cook), effort (quick, easy), planning (meal prep, freezer), occasions (holiday, party), seasons, and personal categories (favorite, family, chef, try)
+- Unmatched collection names fall back to the original brown `FolderOpen` icon
+- 55 Lucide icons imported, all verified to exist in `lucide-react-native@0.577.0`
+- Single file change (`HomeScreen.tsx`), no server/database/migration impact
 
 ### 2026-03-22 — Multi-recipe FLAG downgrade
 
@@ -1390,7 +1512,7 @@ Not implemented. The mobile app requires network access to the API server for al
 - FLAGS are attention-only — users confirm/dismiss inline in the preview screen
 
 **Collections feature:**
-- Added `collections` table (id, name, created_at, updated_at) and `collection_id` nullable FK on `recipes`
+- Added `collections` table (id, name, created_at, updated_at) and `collection_id` nullable FK on `recipes` (later replaced by `recipe_collections` join table — see 2026-03-22 overhaul)
 - Added `collections.repository.ts` with CRUD operations
 - Added `collections.routes.ts`: POST /collections, GET /collections, GET /collections/:id/recipes, DELETE /collections/:id
 - Added `recipes.update` and `recipes.assignCollection` to recipes repository and routes

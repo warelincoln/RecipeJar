@@ -1,12 +1,19 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { db } from "./db.js";
 import {
   recipes,
   recipeIngredients,
   recipeSteps,
   recipeSourcePages,
+  recipeCollections,
+  recipeNotes,
+  collections,
 } from "./schema.js";
 import type { SaveDecision } from "@recipejar/shared";
+
+function mapRating(halfSteps: number | null): number | null {
+  return halfSteps != null ? halfSteps / 2 : null;
+}
 
 export interface SaveRecipeInput {
   title: string;
@@ -21,6 +28,37 @@ export interface SaveRecipeInput {
     imageUri?: string | null;
     extractedText?: string | null;
   }[];
+}
+
+async function attachCollections(
+  recipeRows: (typeof recipes.$inferSelect)[],
+) {
+  if (recipeRows.length === 0) return [];
+
+  const recipeIds = recipeRows.map((r) => r.id);
+  const joinRows = await db
+    .select({
+      recipeId: recipeCollections.recipeId,
+      collectionId: collections.id,
+      collectionName: collections.name,
+    })
+    .from(recipeCollections)
+    .innerJoin(collections, eq(recipeCollections.collectionId, collections.id))
+    .where(inArray(recipeCollections.recipeId, recipeIds));
+
+  const map = new Map<string, { id: string; name: string }[]>();
+  for (const row of joinRows) {
+    const arr = map.get(row.recipeId) ?? [];
+    arr.push({ id: row.collectionId, name: row.collectionName });
+    map.set(row.recipeId, arr);
+  }
+
+  return recipeRows.map((r) => ({
+    ...r,
+    rating: mapRating(r.ratingHalfSteps),
+    notes: [],
+    collections: map.get(r.id) ?? [],
+  }));
 }
 
 export const recipesRepository = {
@@ -71,7 +109,7 @@ export const recipesRepository = {
       );
     }
 
-    return recipe;
+    return { ...recipe, rating: mapRating(recipe.ratingHalfSteps), notes: [], collections: [] };
   },
 
   async findById(id: string) {
@@ -95,20 +133,62 @@ export const recipesRepository = {
       orderBy: (rsp, { asc }) => [asc(rsp.orderIndex)],
     });
 
-    return { ...recipe, ingredients, steps, sourcePages: pages };
+    const joinRows = await db
+      .select({
+        collectionId: collections.id,
+        collectionName: collections.name,
+      })
+      .from(recipeCollections)
+      .innerJoin(
+        collections,
+        eq(recipeCollections.collectionId, collections.id),
+      )
+      .where(eq(recipeCollections.recipeId, id));
+
+    const recipeCollectionsList = joinRows.map((r) => ({
+      id: r.collectionId,
+      name: r.collectionName,
+    }));
+
+    const notes = await db.query.recipeNotes.findMany({
+      where: eq(recipeNotes.recipeId, id),
+      orderBy: (rn, { desc: d }) => [d(rn.createdAt)],
+    });
+
+    return {
+      ...recipe,
+      rating: mapRating(recipe.ratingHalfSteps),
+      notes,
+      ingredients,
+      steps,
+      sourcePages: pages,
+      collections: recipeCollectionsList,
+    };
   },
 
   async list() {
-    return db.query.recipes.findMany({
+    const allRecipes = await db.query.recipes.findMany({
       orderBy: (r, { desc: d }) => [d(r.createdAt)],
     });
+    return attachCollections(allRecipes);
   },
 
   async listByCollection(collectionId: string) {
-    return db.query.recipes.findMany({
-      where: eq(recipes.collectionId, collectionId),
-      orderBy: (r, { desc: d }) => [d(r.createdAt)],
-    });
+    const joinRows = await db
+      .select({ recipeId: recipeCollections.recipeId })
+      .from(recipeCollections)
+      .where(eq(recipeCollections.collectionId, collectionId));
+
+    if (joinRows.length === 0) return [];
+
+    const recipeIds = joinRows.map((r) => r.recipeId);
+    const recipeRows = await db
+      .select()
+      .from(recipes)
+      .where(inArray(recipes.id, recipeIds))
+      .orderBy(desc(recipes.createdAt));
+
+    return attachCollections(recipeRows);
   },
 
   async update(
@@ -126,13 +206,24 @@ export const recipesRepository = {
       .set({
         title: input.title,
         description: input.description ?? null,
-        collectionId: input.collectionId ?? null,
         updatedAt: new Date(),
       })
       .where(eq(recipes.id, id))
       .returning();
 
     if (!recipe) return null;
+
+    if (input.collectionId !== undefined) {
+      await db
+        .delete(recipeCollections)
+        .where(eq(recipeCollections.recipeId, id));
+      if (input.collectionId !== null) {
+        await db.insert(recipeCollections).values({
+          recipeId: id,
+          collectionId: input.collectionId,
+        });
+      }
+    }
 
     await db
       .delete(recipeIngredients)
@@ -164,17 +255,52 @@ export const recipesRepository = {
   },
 
   async delete(id: string) {
-    await db.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id));
+    await db
+      .delete(recipeIngredients)
+      .where(eq(recipeIngredients.recipeId, id));
     await db.delete(recipeSteps).where(eq(recipeSteps.recipeId, id));
-    await db.delete(recipeSourcePages).where(eq(recipeSourcePages.recipeId, id));
-    const [deleted] = await db.delete(recipes).where(eq(recipes.id, id)).returning();
+    await db
+      .delete(recipeSourcePages)
+      .where(eq(recipeSourcePages.recipeId, id));
+    await db
+      .delete(recipeCollections)
+      .where(eq(recipeCollections.recipeId, id));
+    const [deleted] = await db
+      .delete(recipes)
+      .where(eq(recipes.id, id))
+      .returning();
     return deleted ?? null;
   },
 
-  async assignCollection(recipeId: string, collectionId: string | null) {
+  async assignToCollection(recipeId: string, collectionId: string) {
+    await db
+      .delete(recipeCollections)
+      .where(eq(recipeCollections.recipeId, recipeId));
+    await db.insert(recipeCollections).values({ recipeId, collectionId });
     const [recipe] = await db
       .update(recipes)
-      .set({ collectionId, updatedAt: new Date() })
+      .set({ updatedAt: new Date() })
+      .where(eq(recipes.id, recipeId))
+      .returning();
+    return recipe ?? null;
+  },
+
+  async removeFromCollection(recipeId: string) {
+    await db
+      .delete(recipeCollections)
+      .where(eq(recipeCollections.recipeId, recipeId));
+    const [recipe] = await db
+      .update(recipes)
+      .set({ updatedAt: new Date() })
+      .where(eq(recipes.id, recipeId))
+      .returning();
+    return recipe ?? null;
+  },
+
+  async setRating(recipeId: string, ratingHalfSteps: number | null) {
+    const [recipe] = await db
+      .update(recipes)
+      .set({ ratingHalfSteps, updatedAt: new Date() })
       .where(eq(recipes.id, recipeId))
       .returning();
     return recipe ?? null;

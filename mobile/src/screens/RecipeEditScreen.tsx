@@ -54,7 +54,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         })),
       );
       setSteps((recipe.steps ?? []).map((s) => ({ text: s.text, isHeader: s.isHeader })));
-      setCollectionId((recipe as any).collectionId ?? null);
+      setCollectionId(recipe.collections?.[0]?.id ?? null);
       setLoading(false);
     });
   }, [recipeId]);

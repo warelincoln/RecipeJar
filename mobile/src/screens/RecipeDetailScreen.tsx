@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
 import { api } from "../services/api";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
+import { RecipeRatingInput } from "../components/RecipeRatingInput";
+import { RecipeNotesSection } from "../components/RecipeNotesSection";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -26,7 +28,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   const { deleteRecipe } = useRecipesStore();
   const { collections, fetchCollections } = useCollectionsStore();
 
-  const hasCollection = !!(recipe as any)?.collectionId;
+  const hasCollection = (recipe?.collections?.length ?? 0) > 0;
 
   const handleAddToCollection = () => {
     if (collections.length === 0) {
@@ -84,6 +86,10 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
     );
   };
 
+  const refreshRecipe = useCallback(() => {
+    api.recipes.get(recipeId).then(setRecipe);
+  }, [recipeId]);
+
   useEffect(() => {
     fetchCollections();
     api.recipes
@@ -91,6 +97,10 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       .then(setRecipe)
       .finally(() => setLoading(false));
   }, [recipeId]);
+
+  useEffect(() => {
+    return navigation.addListener("focus", refreshRecipe);
+  }, [navigation, refreshRecipe]);
 
   if (loading) {
     return (
@@ -140,6 +150,13 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         <Text style={styles.description} testID="recipe-detail-description">{recipe.description}</Text>
       )}
 
+      <RecipeRatingInput
+        rating={recipe.rating}
+        onRate={(value) => {
+          api.recipes.setRating(recipeId, value);
+        }}
+      />
+
       {recipe.isUserVerified && (
         <View style={styles.badge} testID="recipe-detail-verified-badge">
           <Text style={styles.badgeText}>User Verified</Text>
@@ -181,6 +198,22 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
           );
         });
       })()}
+
+      <RecipeNotesSection
+        notes={recipe.notes ?? []}
+        onAdd={async (text) => {
+          await api.recipes.createNote(recipeId, text);
+          refreshRecipe();
+        }}
+        onEdit={async (noteId, text) => {
+          await api.recipes.updateNote(recipeId, noteId, text);
+          refreshRecipe();
+        }}
+        onDelete={async (noteId) => {
+          await api.recipes.deleteNote(recipeId, noteId);
+          refreshRecipe();
+        }}
+      />
 
       <View style={styles.meta}>
         {recipe.sourceContext?.sourceType && (

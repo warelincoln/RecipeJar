@@ -4,6 +4,7 @@ import type {
   ParsedRecipeCandidate,
   ValidationResult,
   Recipe,
+  RecipeNote,
 } from "@recipejar/shared";
 
 const BASE_URL = __DEV__
@@ -174,6 +175,33 @@ export const api = {
       return request(`/recipes/${id}/collection`, {
         method: "PATCH",
         body: JSON.stringify({ collectionId }),
+      });
+    },
+
+    createNote(recipeId: string, text: string) {
+      return request<RecipeNote>(`/recipes/${recipeId}/notes`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+    },
+
+    updateNote(recipeId: string, noteId: string, text: string) {
+      return request<RecipeNote>(`/recipes/${recipeId}/notes/${noteId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ text }),
+      });
+    },
+
+    deleteNote(recipeId: string, noteId: string) {
+      return request(`/recipes/${recipeId}/notes/${noteId}`, {
+        method: "DELETE",
+      });
+    },
+
+    setRating(recipeId: string, rating: number | null) {
+      return request<Recipe>(`/recipes/${recipeId}/rating`, {
+        method: "PATCH",
+        body: JSON.stringify({ rating }),
       });
     },
   },

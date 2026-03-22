@@ -8,6 +8,7 @@ import {
   jsonb,
   uniqueIndex,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const drafts = pgTable(
@@ -105,9 +106,7 @@ export const recipes = pgTable(
     description: text("description"),
     sourceType: text("source_type").notNull(),
     originalUrl: text("original_url"),
-    collectionId: uuid("collection_id").references(() => collections.id, {
-      onDelete: "set null",
-    }),
+    ratingHalfSteps: integer("rating_half_steps"),
     saveState: text("save_state").notNull(),
     isUserVerified: boolean("is_user_verified").notNull().default(false),
     hasUnresolvedWarnings: boolean("has_unresolved_warnings")
@@ -123,7 +122,24 @@ export const recipes = pgTable(
   (table) => [
     index("recipes_created_at_idx").on(table.createdAt),
     index("recipes_save_state_idx").on(table.saveState),
-    index("recipes_collection_id_idx").on(table.collectionId),
+  ],
+);
+
+export const recipeCollections = pgTable(
+  "recipe_collections",
+  {
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.recipeId, table.collectionId] }),
   ],
 );
 
@@ -199,5 +215,25 @@ export const recipeSourcePages = pgTable(
       table.recipeId,
       table.orderIndex,
     ),
+  ],
+);
+
+export const recipeNotes = pgTable(
+  "recipe_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("recipe_notes_recipe_id_idx").on(table.recipeId),
   ],
 );

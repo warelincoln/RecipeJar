@@ -39,6 +39,22 @@ vi.mock("../src/persistence/recipes.repository.js", () => ({
     save: vi.fn(),
     findById: vi.fn(),
     list: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    assignToCollection: vi.fn(),
+    removeFromCollection: vi.fn(),
+    listByCollection: vi.fn(),
+    setRating: vi.fn(),
+  },
+}));
+
+vi.mock("../src/persistence/recipe-notes.repository.js", () => ({
+  recipeNotesRepository: {
+    listByRecipeId: vi.fn(),
+    findById: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -63,12 +79,14 @@ import { draftsRoutes } from "../src/api/drafts.routes.js";
 import { recipesRoutes } from "../src/api/recipes.routes.js";
 import { draftsRepository } from "../src/persistence/drafts.repository.js";
 import { recipesRepository } from "../src/persistence/recipes.repository.js";
+import { recipeNotesRepository } from "../src/persistence/recipe-notes.repository.js";
 import { parseImages } from "../src/parsing/image/image-parse.adapter.js";
 import { parseUrl } from "../src/parsing/url/url-parse.adapter.js";
 import type { ParsedRecipeCandidate } from "@recipejar/shared";
 
 const draftRepo = vi.mocked(draftsRepository);
 const recipeRepo = vi.mocked(recipesRepository);
+const notesRepo = vi.mocked(recipeNotesRepository);
 const mockParseImages = vi.mocked(parseImages);
 const mockParseUrl = vi.mocked(parseUrl);
 
@@ -514,6 +532,225 @@ describe("API Integration", () => {
     it("returns 404 for unknown draft", async () => {
       draftRepo.findById.mockResolvedValue(null as never);
       const res = await app.inject({ method: "GET", url: "/drafts/missing" });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Full parse → edit → save flow with mocked parser
+  // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // Notes CRUD
+  // ------------------------------------------------------------------
+  describe("POST /recipes/:id/notes", () => {
+    it("creates a note and returns 201", async () => {
+      recipeRepo.findById.mockResolvedValue({ id: "r1" } as never);
+      notesRepo.create.mockResolvedValue({
+        id: "n1",
+        recipeId: "r1",
+        text: "Great with extra garlic",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/recipes/r1/notes",
+        payload: { text: "Great with extra garlic" },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().text).toBe("Great with extra garlic");
+      expect(notesRepo.create).toHaveBeenCalledWith("r1", "Great with extra garlic");
+    });
+
+    it("rejects note longer than 250 characters", async () => {
+      recipeRepo.findById.mockResolvedValue({ id: "r1" } as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/recipes/r1/notes",
+        payload: { text: "x".repeat(251) },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(notesRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects empty/whitespace-only note", async () => {
+      recipeRepo.findById.mockResolvedValue({ id: "r1" } as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/recipes/r1/notes",
+        payload: { text: "   " },
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("returns 404 for missing recipe", async () => {
+      recipeRepo.findById.mockResolvedValue(null as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/recipes/missing/notes",
+        payload: { text: "hello" },
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("PATCH /recipes/:id/notes/:noteId", () => {
+    it("updates a note", async () => {
+      notesRepo.findById.mockResolvedValue({ id: "n1", recipeId: "r1" } as never);
+      notesRepo.update.mockResolvedValue({
+        id: "n1",
+        recipeId: "r1",
+        text: "Updated text",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/notes/n1",
+        payload: { text: "Updated text" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().text).toBe("Updated text");
+    });
+
+    it("returns 404 when note belongs to different recipe", async () => {
+      notesRepo.findById.mockResolvedValue({ id: "n1", recipeId: "r2" } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/notes/n1",
+        payload: { text: "Updated" },
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("returns 404 when note does not exist", async () => {
+      notesRepo.findById.mockResolvedValue(null as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/notes/missing",
+        payload: { text: "Updated" },
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("DELETE /recipes/:id/notes/:noteId", () => {
+    it("deletes a note", async () => {
+      notesRepo.findById.mockResolvedValue({ id: "n1", recipeId: "r1" } as never);
+      notesRepo.delete.mockResolvedValue({ id: "n1" } as never);
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: "/recipes/r1/notes/n1",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().success).toBe(true);
+      expect(notesRepo.delete).toHaveBeenCalledWith("n1");
+    });
+
+    it("returns 404 when note belongs to different recipe", async () => {
+      notesRepo.findById.mockResolvedValue({ id: "n1", recipeId: "r2" } as never);
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: "/recipes/r1/notes/n1",
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Rating
+  // ------------------------------------------------------------------
+  describe("PATCH /recipes/:id/rating", () => {
+    it("sets a half-star rating", async () => {
+      recipeRepo.findById.mockResolvedValueOnce({ id: "r1" } as never);
+      recipeRepo.setRating.mockResolvedValue({ id: "r1" } as never);
+      recipeRepo.findById.mockResolvedValueOnce({
+        id: "r1",
+        rating: 4.5,
+        notes: [],
+      } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/rating",
+        payload: { rating: 4.5 },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(recipeRepo.setRating).toHaveBeenCalledWith("r1", 9);
+    });
+
+    it("clears a rating with null", async () => {
+      recipeRepo.findById.mockResolvedValueOnce({ id: "r1" } as never);
+      recipeRepo.setRating.mockResolvedValue({ id: "r1" } as never);
+      recipeRepo.findById.mockResolvedValueOnce({
+        id: "r1",
+        rating: null,
+        notes: [],
+      } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/rating",
+        payload: { rating: null },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(recipeRepo.setRating).toHaveBeenCalledWith("r1", null);
+    });
+
+    it("rejects invalid rating value (0.3)", async () => {
+      recipeRepo.findById.mockResolvedValue({ id: "r1" } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/rating",
+        payload: { rating: 0.3 },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(recipeRepo.setRating).not.toHaveBeenCalled();
+    });
+
+    it("rejects out-of-range rating (6)", async () => {
+      recipeRepo.findById.mockResolvedValue({ id: "r1" } as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/r1/rating",
+        payload: { rating: 6 },
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("returns 404 for missing recipe", async () => {
+      recipeRepo.findById.mockResolvedValue(null as never);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/recipes/missing/rating",
+        payload: { rating: 3 },
+      });
+
       expect(res.statusCode).toBe(404);
     });
   });

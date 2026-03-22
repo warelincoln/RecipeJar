@@ -25,6 +25,18 @@ export interface RecipeSourceContext {
   pages: RecipeSourcePage[];
 }
 
+export interface RecipeCollectionRef {
+  id: string;
+  name: string;
+}
+
+export interface RecipeNote {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Recipe {
   id: string;
   title: string;
@@ -32,7 +44,11 @@ export interface Recipe {
   steps: RecipeStepEntry[];
   description?: string | null;
 
+  rating: number | null;
+  notes: RecipeNote[];
+
   sourceContext: RecipeSourceContext;
+  collections: RecipeCollectionRef[];
 
   saveState: "SAVE_CLEAN" | "SAVE_USER_VERIFIED";
   isUserVerified: boolean;
