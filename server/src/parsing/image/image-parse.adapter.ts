@@ -15,6 +15,7 @@ Rules:
 - Mark sub-recipe section headers in steps (e.g. "To make the boba pearls:", "For the frosting:") with isHeader: true. These are not actual instructions.
 - Strip original step numbers from the beginning of extracted step text. The app adds its own numbering.
 - Preserve original wording. Only fix obvious OCR errors.
+- Pay close attention to fractions in quantities (e.g. ⅓, ¼, ⅔, ¾). Distinguish carefully between visually similar fractions like ⅓ vs ½. When uncertain, zoom in mentally and prefer the fraction that matches the surrounding characters' style.
 - Do NOT rewrite, standardize units, or infer missing values.
 - Do NOT include stories, ads, or non-recipe content.
 - Cross-references like "See page 28" should be preserved as-is.

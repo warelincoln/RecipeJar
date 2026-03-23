@@ -7,7 +7,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 **What is implemented (MVP):**
 
 - Fastify API server with full draft lifecycle (create, upload pages, parse, edit, validate, save)
-- GPT-5.3 Vision image parsing (sends page photos to OpenAI, receives structured extraction with signal-rich prompt)
+- GPT-5.4 Vision image parsing (sends page photos to OpenAI, receives structured extraction with signal-rich prompt)
 - URL recipe parsing with 4-tier cascade: JSON-LD → Microdata → DOM boundary extraction → AI fallback (with fetch retry, browser UA fallback, quality gate, and extraction logging)
 - Deterministic validation engine with 6 rule modules and 12 issue codes (3 severities: BLOCK, FLAG, RETAKE)
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
@@ -57,9 +57,9 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | Supabase Storage bucket creation | `recipe-pages` bucket created programmatically |
 | Supabase Storage image upload | JPEG uploaded, public URL generated, cleanup confirmed |
 | Image upload via API | `POST /drafts/:id/pages` multipart upload stores file in Supabase Storage, creates `draft_pages` row |
-| GPT-5.3 Vision parse | Image parse pipeline called OpenAI, correctly identified non-recipe content, validation flagged expected issues |
+| GPT-5.4 Vision parse | Image parse pipeline called OpenAI, correctly identified non-recipe content, validation flagged expected issues |
 | GPT-5.4 URL AI fallback | Complex multi-sub-recipe page (Tonkotsu Ramen, 35 ingredients, 29 steps) extracted successfully via simplified prompt |
-| OpenAI API connectivity | GPT-5.3 (image) and GPT-5.4 (URL) models respond, JSON mode works |
+| OpenAI API connectivity | GPT-5.4 (image and URL) models respond, JSON mode works |
 
 ### Proven by Tests Only
 
@@ -104,8 +104,8 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | What | Evidence |
 |---|---|
 | iOS native build | Xcode 26.3 compiles all native modules and CocoaPods dependencies, installs on physical iPhone |
-| Camera capture flow | Photo taken of cookbook page via `react-native-vision-camera`, uploaded to Supabase Storage, sent to GPT-5.3 Vision |
-| GPT-5.3 Vision image parsing (real cookbook) | Soy Sauce Marinade recipe: extracted title, 8 ingredients, 1 step from a real cookbook photo |
+| Camera capture flow | Photo taken of cookbook page via `react-native-vision-camera`, compressed via `sharp` server-side pipeline (3072px, JPEG 85%), uploaded to Supabase Storage, sent to GPT-5.4 Vision |
+| GPT-5.4 Vision image parsing (real cookbook) | Soy Sauce Marinade recipe: extracted title, 8 ingredients, 1 step from a real cookbook photo. Fraction accuracy verified (⅓, ¼, etc.) |
 | Full import flow on device | capture → reorder → upload → parse → preview → save — all working end-to-end |
 | Collections | Created collections, assigned recipes via long-press, navigated to collection view |
 | Recipe editing | Edited saved recipes (title, ingredients, steps, collection assignment) via RecipeEditScreen |
@@ -143,7 +143,8 @@ Workspaces are linked via npm workspaces. `shared/` is referenced as `@recipejar
 
 ```
 Input (image or URL)
-  → Parse (GPT-5.3 Vision for images, JSON-LD/Microdata/DOM/GPT-5.4 AI cascade for URLs with retry, quality gate, and extraction logging)
+  → Optimize (sharp: auto-orient, resize ≤3072px, JPEG 85% for storage / 90% for OCR)
+  → Parse (GPT-5.4 Vision for images, JSON-LD/Microdata/DOM/GPT-5.4 AI cascade for URLs with retry, quality gate, and extraction logging)
   → Normalize (raw extraction → ParsedRecipeCandidate with parseSignals)
   → Validate (7 rule modules run in fixed order → ValidationResult)
   → Edit (user corrects in PreviewEdit, confirms/dismisses FLAG issues inline)
@@ -167,7 +168,17 @@ Located in `server/src/domain/validation/`. Runs 6 rule modules in this exact or
 
 Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline.
 
-There are only 3 severities: BLOCK, FLAG, and RETAKE. CORRECTION_REQUIRED was removed — all former CORRECTION_REQUIRED issues now emit FLAG severity. Merged step detection was also removed. MULTI_RECIPE_DETECTED was downgraded from BLOCK to FLAG — the AI prompt now extracts only the primary recipe when multiple are visible, and the user can verify/dismiss the flag.
+There are only 3 severities (CORRECTION_REQUIRED was removed — all former CORRECTION_REQUIRED issues now emit FLAG):
+
+| Severity | Effect on save | User action required |
+|---|---|---|
+| `FLAG` | Does NOT block save | User may confirm/dismiss inline in preview |
+| `RETAKE` | Blocks save | User should retake the photo |
+| `BLOCK` | Blocks save, no user fix possible | User must start over |
+
+FLAGs represent observations, not errors. A missing quantity ("salt" with no amount) is valid — many recipes write it that way. The system surfaces these so the user is aware, but never prevents saving based on them.
+
+Retake escalation: when `LOW_CONFIDENCE_STRUCTURE` or `POOR_IMAGE_QUALITY` fires, severity is `RETAKE`. After 2 retakes per page (`retakeCount >= 2` on all pages), severity escalates to `BLOCK` as `RETAKE_LIMIT_REACHED`.
 
 Each issue has a severity. The validation result aggregates:
 - `hasBlockingIssues` — any BLOCK severity
@@ -273,7 +284,7 @@ PORT=3000
 | `DATABASE_URL` | Supabase dashboard → Settings → Database → Connection string → select **Session pooler** tab. Use the pooler URL, not the direct connection URL. If your password has special characters (`@`, `*`, `/`, `&`), URL-encode them. | Server cannot start. All database operations fail. `drizzle-kit push` fails. |
 | `SUPABASE_URL` | Supabase dashboard → Settings → API → Project URL | Image upload/download fails. Draft page upload returns 500. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Settings → API → `service_role` key (under "Project API keys") | Image upload fails. Same as above. |
-| `OPENAI_API_KEY` | https://platform.openai.com/api-keys → Create new secret key | `POST /drafts/:id/parse` fails for image drafts (GPT-5.3 Vision). URL AI fallback fails. JSON-LD and DOM extraction still work. |
+| `OPENAI_API_KEY` | https://platform.openai.com/api-keys → Create new secret key | `POST /drafts/:id/parse` fails for image drafts (GPT-5.4 Vision). URL AI fallback fails. JSON-LD and DOM extraction still work. |
 | `PORT` | Optional. Defaults to `3000`. | Nothing. |
 
 ### Critical: Use the Session Pooler URL
@@ -791,152 +802,36 @@ Find your LAN IP: `ipconfig` (Windows) or `ifconfig` (macOS).
 
 This is a scripted walkthrough you can execute against the running server to verify the full pipeline. Uses `curl`. Replace `$DRAFT_ID` and `$RECIPE_ID` with actual UUIDs from responses.
 
-### 9.1 Create a draft
+Replace `$DRAFT_ID` and `$RECIPE_ID` with actual UUIDs from responses.
 
 ```bash
-curl -s -X POST http://localhost:3000/drafts \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
+# 1. Create a draft (201 → returns {id, status: "CAPTURE_IN_PROGRESS"})
+curl -s -X POST http://localhost:3000/drafts -H "Content-Type: application/json" -d '{}'
 
-Expected response (201):
+# 2. Upload an image page (201 → returns page with imageUri)
+curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/pages -F "page=@/path/to/recipe-photo.jpg"
 
-```json
-{
-  "id": "UUID",
-  "status": "CAPTURE_IN_PROGRESS",
-  "sourceType": "image",
-  "originalUrl": null,
-  "parsedCandidateJson": null,
-  "editedCandidateJson": null,
-  "validationResultJson": null,
-  "createdAt": "...",
-  "updatedAt": "..."
-}
-```
+# 3. Parse the draft (200 → returns {status, candidate, validationResult})
+curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/parse -H "Content-Type: application/json" -d '{}'
 
-Save the `id` as `$DRAFT_ID`.
-
-### 9.2 Upload an image page
-
-```bash
-curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/pages \
-  -F "page=@/path/to/recipe-photo.jpg"
-```
-
-Expected response (201):
-
-```json
-{
-  "id": "UUID",
-  "draftId": "$DRAFT_ID",
-  "orderIndex": 0,
-  "imageUri": "$DRAFT_ID/UUID.jpg",
-  "retakeCount": 0,
-  "ocrText": null,
-  "createdAt": "...",
-  "updatedAt": "..."
-}
-```
-
-### 9.3 Parse the draft
-
-```bash
-curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/parse \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-Expected response (200):
-
-```json
-{
-  "status": "PARSED",
-  "candidate": {
-    "title": "Recipe Title",
-    "ingredients": [...],
-    "steps": [...],
-    "parseSignals": { "structureSeparable": true, ... }
-  },
-  "validationResult": {
-    "saveState": "SAVE_CLEAN",
-    "issues": [...],
-    "hasBlockingIssues": false
-  }
-}
-```
-
-The `status` field will be one of: `PARSED`, `NEEDS_RETAKE`, `IN_GUIDED_CORRECTION`.
-
-### 9.4 Edit the candidate (optional)
-
-```bash
+# 4. (Optional) Edit the candidate — triggers revalidation
 curl -s -X PATCH http://localhost:3000/drafts/$DRAFT_ID/candidate \
   -H "Content-Type: application/json" \
-  -d '{
-    "title": "Fixed Title",
-    "ingredients": [{"id":"i1","text":"2 cups flour","orderIndex":0,"isHeader":false}],
-    "steps": [{"id":"s1","text":"Mix ingredients.","orderIndex":0}]
-  }'
-```
+  -d '{"title":"Fixed Title","ingredients":[{"id":"i1","text":"2 cups flour","orderIndex":0,"isHeader":false}],"steps":[{"id":"s1","text":"Mix ingredients.","orderIndex":0}]}'
 
-Expected response (200): updated draft with re-validated `validationResult`.
+# 5. Save the recipe (201 → {recipe, saveDecision}; 422 if BLOCK/RETAKE issues remain)
+curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/save -H "Content-Type: application/json" -d '{}'
 
-### 9.5 Save the recipe
-
-```bash
-curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/save \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-Expected response (201):
-
-```json
-{
-  "recipe": {
-    "id": "RECIPE_UUID",
-    "title": "Recipe Title",
-    "saveState": "SAVE_CLEAN",
-    "ingredients": [...],
-    "steps": [...]
-  },
-  "saveDecision": {
-    "saveState": "SAVE_CLEAN",
-    "allowed": true,
-    "isUserVerified": false,
-    "hasUnresolvedWarnings": false
-  }
-}
-```
-
-If validation has unresolved BLOCK or RETAKE issues, this returns **422** with `"error": "Cannot save"`.
-
-### 9.6 Fetch the saved recipe
-
-```bash
+# 6. Fetch the saved recipe
 curl -s http://localhost:3000/recipes/$RECIPE_ID
 ```
 
-Expected response (200): full recipe with `title`, `ingredients`, `steps`, `saveState`, `collections`.
-
-### 9.7 URL-based flow (alternative to image)
+**URL-based flow** (alternative to image — no page upload needed):
 
 ```bash
-# Create URL draft
-curl -s -X POST http://localhost:3000/drafts/url \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://www.bbcgoodfood.com/recipes/easy-pancakes"}'
-
-# Parse (no image upload needed)
-curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/parse \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
-# Save
-curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/save \
-  -H "Content-Type: application/json" \
-  -d '{}'
+curl -s -X POST http://localhost:3000/drafts/url -H "Content-Type: application/json" -d '{"url":"https://www.bbcgoodfood.com/recipes/easy-pancakes"}'
+curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/parse -H "Content-Type: application/json" -d '{}'
+curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/save -H "Content-Type: application/json" -d '{}'
 ```
 
 ---
@@ -957,40 +852,7 @@ Full checklist is in `QA_CHECKLIST.md` with 11 scenarios, expected validation is
 
 ---
 
-## 11. Key Concepts
-
-### Validation Severities
-
-There are 3 severity levels (plus PASS), ordered from least to most severe:
-
-| Severity | Effect on save | User action required | Example |
-|---|---|---|---|
-| `PASS` | None | None | (not emitted — absence of issues means pass) |
-| `FLAG` | Does NOT block save | User may confirm/dismiss inline in preview | `TITLE_MISSING`, `SUSPECTED_OMISSION`, `MULTI_RECIPE_DETECTED`, `INGREDIENT_MERGED`, `INGREDIENT_NAME_MISSING` |
-| `RETAKE` | **Blocks save** | User should retake the photo | `LOW_CONFIDENCE_STRUCTURE`, `POOR_IMAGE_QUALITY` |
-| `BLOCK` | **Blocks save**, no user fix possible | User must start over | `STRUCTURE_NOT_SEPARABLE`, `INGREDIENTS_MISSING`, `RETAKE_LIMIT_REACHED` |
-
-`CORRECTION_REQUIRED` was removed from the system. All issues that previously had `CORRECTION_REQUIRED` severity now emit `FLAG` severity instead, with `userDismissible: true`. There is no guided correction flow — users edit recipes directly in the preview screen.
-
-### SAVE_CLEAN vs SAVE_USER_VERIFIED
-
-- `SAVE_CLEAN`: No issues of any kind, or only un-dismissed FLAGs. The recipe saved exactly as the system validated it.
-- `SAVE_USER_VERIFIED`: The user dismissed at least one FLAG. The recipe is saved, but the system records that the user overrode a warning.
-- `NO_SAVE`: Cannot save. BLOCK or RETAKE issues remain.
-
-### Why FLAGs do not block save
-
-FLAGs represent observations, not errors. A missing quantity ("salt" with no amount) is valid — many recipes write it that way. A detected description is informational. The system surfaces these so the user is aware, but never prevents saving based on them. Users can confirm/dismiss FLAG issues inline in the preview screen.
-
-### Retake escalation
-
-When `LOW_CONFIDENCE_STRUCTURE` or `POOR_IMAGE_QUALITY` fires:
-1. First occurrence: severity is `RETAKE` — user can retake the photo
-2. After 2 retakes per page (`retakeCount >= 2` on all pages): severity escalates to `BLOCK` as `RETAKE_LIMIT_REACHED`
-
----
-
-## 12. Project Structure
+## 11. Project Structure
 
 ```
 RecipeJar/
@@ -1047,7 +909,8 @@ RecipeJar/
 │   │   ├── parsing/
 │   │   │   ├── normalize.ts             # normalizeToCandidate(), buildErrorCandidate()
 │   │   │   ├── image/
-│   │   │   │   └── image-parse.adapter.ts # GPT-5.3 Vision: signal-rich prompt, sends page images, receives structured extraction with OCR signals
+│   │   │   │   ├── image-parse.adapter.ts # GPT-5.4 Vision: signal-rich prompt, sends page images as base64 data URLs, receives structured extraction with OCR signals
+│   │   │   │   └── image-optimizer.ts    # sharp-based pipeline: optimizeForUpload (3072px, JPEG 85%) and optimizeForOcr (3072px, JPEG 90%, orient-only — no grayscale/CLAHE/sharpen)
 │   │   │   └── url/
 │   │   │       ├── url-parse.adapter.ts  # orchestrates 4-tier cascade: JSON-LD → Microdata → DOM → AI (quality-gated, logged)
 │   │   │       ├── url-fetch.service.ts  # fetches URL HTML with retry, browser UA fallback, URL normalization, size cap
@@ -1122,7 +985,7 @@ RecipeJar/
 
 ---
 
-## 13. Common Failure Points
+## 12. Common Failure Points
 
 ### Supabase IPv6 DNS Issue
 
@@ -1147,6 +1010,16 @@ RecipeJar/
 **Problem:** `npx react-native run-android` fails with "SDK location not found".
 
 **Fix:** Install Android Studio, set `ANDROID_HOME` environment variable. See Section 4.
+
+### Server Running Stale Code After File Changes
+
+**Problem:** You change server files (`server/src/**`), but the running API process keeps serving the old code. Logs don't show expected output (e.g., new `console.log` lines never appear), or behavior doesn't match what's on disk.
+
+**Cause:** The dev server runs via `tsx watch src/app.ts`, which uses a file watcher to detect changes and auto-restart. This watcher does not always fire — particularly when changes are made programmatically (e.g., by an AI agent or a script writing multiple files rapidly), or when new files are created in directories that weren't in the original watch tree. There is no visible error; the server keeps running the stale version silently.
+
+**How to detect:** After making server-side changes, look for the `Server listening at ...` log message in the terminal. If it only appears once (from the original startup), the server never restarted. You can also add or change a `console.log` and verify it appears.
+
+**Fix:** Manually restart the server. Kill the process (`lsof -iTCP:3000 -sTCP:LISTEN -t | xargs kill -9`) and re-run `npm run dev -w @recipejar/server` or `npm run dev:phone`. Always restart after major changes to server code — do not trust `tsx watch` to catch everything.
 
 ### Metro Port Conflict
 
@@ -1186,7 +1059,7 @@ RecipeJar/
 
 ---
 
-## 14. Development Workflow
+## 13. Development Workflow
 
 ### Mobile app (fast default)
 
@@ -1203,7 +1076,8 @@ When you work on `mobile/src/**`, follow **Section 8 — Fast iteration workflow
 
 ### Modifying parsing
 
-- **Image parsing:** Edit `server/src/parsing/image/image-parse.adapter.ts`. This constructs the GPT-5.3 Vision prompt (signal-rich: includes `ingredientSignals`, `stepSignals`, and top-level signal hints for OCR quality detection) and parses the response. The prompt instructs the AI to extract only the most prominent recipe when multiple are visible. The model is set via the `model` field in the `openai.chat.completions.create()` call.
+- **Image parsing:** Edit `server/src/parsing/image/image-parse.adapter.ts`. This constructs the GPT-5.4 Vision prompt (signal-rich: includes `ingredientSignals`, `stepSignals`, and top-level signal hints for OCR quality detection) and parses the response. The prompt instructs the AI to extract only the most prominent recipe when multiple are visible. The model is set via the `model` field in the `openai.chat.completions.create()` call. Uses `detail: "high"` for accurate fraction/quantity reading. Images are sent as base64 data URLs (downloaded from Supabase at parse time, processed through `optimizeForOcr`, encoded inline) to avoid an extra network hop for OpenAI.
+- **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Two functions: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — called at upload time before storing in Supabase) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — called at parse time before sending to OpenAI). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy — neural vision models perform best on clean, natural color images. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
 - **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. It tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch uses retry with backoff and browser UA fallback on 403. Every extraction logs which method succeeded (`extractionMethod` field on the candidate). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
 - **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
 
@@ -1259,332 +1133,38 @@ Non-interactive elements (Text, View containers) only need `testID`:
 
 ---
 
-## 15. Next Steps / Known Gaps
-
-### Mobile runtime validation
-
-Both Android and iOS builds are proven. The Android build compiles and runs on an emulator with navigation working across all screens. The iOS build compiles via Xcode and runs on both the iOS Simulator and a physical iPhone with the full import flow tested end-to-end. The app can be built from Cursor's terminal using `mobile/run.sh` without opening Xcode.
+## 14. Technical Notes & Known Gaps
 
 ### Camera integration
 
-`react-native-vision-camera` is working on a physical iPhone. Camera capture, image upload to Supabase Storage, and GPT-5.3 Vision parsing have been tested successfully. Camera permission is declared in both `AndroidManifest.xml` and `Info.plist`. The iOS Simulator does not support camera — use a physical device for camera testing.
+`react-native-vision-camera` is working on a physical iPhone with `qualityPrioritization: "balanced"`. Client-side compression via `react-native-compressor` was tested and removed — it caused native OOM crashes on high-resolution camera output. All image optimization happens server-side via `sharp` (see Section 13 — "Image optimization"). The iOS Simulator does not support camera — use a physical device for camera testing.
 
 ### Icon system
 
-All UI icons use `lucide-react-native` (backed by `react-native-svg@15.12.1`). The only non-Lucide character in the UI is the `•` bullet point in `RecipeDetailScreen.tsx`, which is an intentional decorative list marker. When upgrading React Native, check `react-native-svg` compatibility — v15.13+ requires RN 0.78+.
-
-Collection folders on the home screen auto-assign a contextual icon and color via `getCollectionIcon()` in `HomeScreen.tsx`. The function matches the collection name (case-insensitive, `includes`-based) against a 71-rule keyword dictionary covering meal types, dish types, baking, sweets, proteins, produce, drinks, diets, cuisines, cooking methods, occasions, seasons, and personal categories. Unmatched names fall back to a brown `FolderOpen`. The "All Recipes" virtual folder always shows a blue `BookOpen`. To add new icon mappings, append entries to the `ICON_RULES` array — more specific keywords should appear before generic ones. All 55 icons used in the dictionary are verified to exist in `lucide-react-native@0.577.0`.
+All UI icons use `lucide-react-native` (backed by `react-native-svg@15.12.1`). When upgrading React Native, check `react-native-svg` compatibility — v15.13+ requires RN 0.78+. Collection folders auto-assign contextual icons via `getCollectionIcon()` in `HomeScreen.tsx` (71 keyword rules); to add mappings, append to the `ICON_RULES` array.
 
 ### Image parsing quality
 
-GPT-5.3 Vision API is connected and functional. Initial testing on a real printed cookbook page (Soy Sauce Marinade) showed strong results: title, 8 ingredients, and 1 step extracted correctly. Further testing on varied cookbook formats (handwritten, glossy pages, multi-column layouts, faded text) is needed to tune parser prompts.
+GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy verified. Parse time ~27 seconds per single-page recipe. See Section 13 — "Image optimization" for full pipeline details and the resolution/model iteration history.
 
-### Bot-protected URLs
+### Known gaps
 
-Server-side fetching is blocked by some major recipe sites (AllRecipes, Simply Recipes, Food Network). The fetch layer now retries with a browser-like User-Agent on 403, which resolves access for some Cloudflare-protected sites. Sites that require JavaScript rendering (SPAs, heavy client-side apps) remain inaccessible. Options for future work: client-side URL extraction (fetch from the mobile app's webview), or a headless browser service.
-
-### Recipe metadata
-
-The JSON-LD extraction now captures optional metadata (servings, prep time, cook time, total time, image URL) from structured data. This metadata is stored in the parsed candidate but is not yet displayed in the mobile UI. Future work: display yield and times on recipe detail and edit screens.
-
-### Authentication
-
-The MVP is single-user. There is no authentication, no user table, no data-ownership enforcement. All drafts and recipes are globally accessible. Adding auth requires: a user table, session/JWT middleware on Fastify, user_id foreign keys on drafts/recipes, and RLS policies in Supabase.
-
-### Offline / local-first
-
-Not implemented. The mobile app requires network access to the API server for all operations. Future work: local SQLite database with sync, optimistic UI updates.
+- **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network block server-side fetches. Browser UA fallback partially mitigates 403s. Future: client-side webview extraction or headless browser.
+- **Recipe metadata UI**: JSON-LD captures servings, prep/cook/total time, and image URL, but these are not yet displayed in the mobile UI.
+- **Authentication**: Single-user MVP. No auth, no user table, no data-ownership. Adding auth requires: user table, session/JWT middleware, user_id FKs, Supabase RLS policies.
+- **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.
+- **Multi-collection assignment UI**: Schema supports many-to-many; UI currently assigns one collection at a time.
+- **Varied cookbook formats**: Only tested on a few printed cookbook pages. Accuracy across handwritten, glossy, multi-column layouts is unverified.
 
 ---
 
-## 16. Changelog
-
-### 2026-03-22 — User notes and star rating
-
-**Shared types:**
-- Added `RecipeNote` interface (`id`, `text`, `createdAt`, `updatedAt`) and `NOTE_MAX_LENGTH = 250` constant in `shared/src/constants.ts`
-- Extended `Recipe` with `rating: number | null` (0.5–5.0 in half steps, or null for unrated) and `notes: RecipeNote[]` (populated on `GET /recipes/:id`, empty array on list endpoints)
-
-**Database (migration 0004):**
-- Created `recipe_notes` table (uuid PK, FK to recipes with cascade delete, text, timestamps) with index on `recipe_id`
-- Added nullable `rating_half_steps` integer column to `recipes` (stored as 1–10 internally, mapped to 0.5–5.0 in the API)
-
-**Server — repositories:**
-- `recipe-notes.repository.ts` (new): CRUD for notes (`listByRecipeId`, `findById`, `create`, `update`, `delete`) + `touchRecipeUpdatedAt` helper to bump parent recipe timestamp on mutations
-- `recipes.repository.ts`: `findById` now loads notes (newest-first); list endpoints include `rating` mapped from `ratingHalfSteps`; added `setRating(recipeId, halfSteps)` method
-
-**Server — routes (4 new endpoints):**
-- `POST /recipes/:id/notes` — create note (text trim + length validation)
-- `PATCH /recipes/:id/notes/:noteId` — update note text
-- `DELETE /recipes/:id/notes/:noteId` — delete note
-- `PATCH /recipes/:id/rating` — set or clear rating (validates 0.5-step values)
-
-**Mobile — new components:**
-- `RecipeRatingInput.tsx`: interactive 5-star rating with half-star precision. Tap-toggle UX: first tap → half star, second tap → full, third tap → half. Uses `onPressIn` + `delayPressIn={0}` for instant touch response. Maintains local state with ref-based tracking for stable callbacks. Debounces API calls (600ms) so rapid tapping sends only the final value.
-- `CompactRecipeRating.tsx`: read-only compact display for grid cards — small gold star icon + numeric value (e.g., "4.5"). Returns null when unrated, so no space is consumed on unrated cards.
-- `RecipeNotesSection.tsx`: notes list sorted newest-first with date and "Edited" label (compares `createdAt` vs `updatedAt`). Add/edit via React Native `Modal` with multiline `TextInput`, character counter, and `KeyboardAvoidingView`. Delete via `Alert.alert` confirmation. Long-press to delete, tap to edit.
-
-**Mobile — screen integration:**
-- `RecipeDetailScreen.tsx`: rating input between description and ingredients; notes section after steps. Rating fires API call without refetching the full recipe (avoids expensive re-render).
-- `HomeScreen.tsx` and `CollectionScreen.tsx`: `CompactRecipeRating` rendered on recipe cards.
-
-**Mobile — API client:**
-- Added `createNote`, `updateNote`, `deleteNote`, `setRating` methods to `api.recipes`
-
-**Server tests:**
-- Added integration tests for notes CRUD (create, 251-char reject, empty reject, missing recipe 404, edit, wrong-recipe 404, delete) and rating (set half-star, clear to null, invalid value, out of range, missing recipe)
-
-**Bug fixes during implementation:**
-- Fixed Metro crash: `shared/src/index.ts` exported `NOTE_MAX_LENGTH` with `.js` extension (`"./constants.js"`) which Metro couldn't resolve. Changed to extensionless `"./constants"`. Other exports use `.js` but are all `export type` (erased at compile time), so Metro never resolves them.
-- Applied database migration 0004 (had not been run against Supabase)
-- Restarted server to pick up new route registrations
-
-### 2026-03-22 — Remove LayoutAnimation (crash fix)
-
-- Removed all `LayoutAnimation.configureNext()` calls from `HomeScreen.tsx` and `CollectionScreen.tsx` — back-to-back calls while a toast was active caused iOS crashes
-- Removed Android `UIManager.setLayoutAnimationEnabledExperimental(true)` from `App.tsx`
-- Added try/catch around all async `handleSelection` callbacks in both screens to prevent unhandled promise rejections on network errors
-
-### 2026-03-22 — Homepage collections overhaul: uncategorized view, search, "All Recipes", toast + undo
-
-**Schema (many-to-many join table):**
-- Replaced `collection_id` nullable FK on `recipes` with a `recipe_collections` join table (composite PK on `recipe_id` + `collection_id`, cascade deletes on both FKs)
-- Hand-written migration `0003_recipe_collections_join_table.sql`: creates join table, migrates existing data, drops old column and index
-- Schema now supports many-to-many recipe-collection relationships; UI currently enforces single-assignment at the repository level
-
-**Shared types:**
-- Added `RecipeCollectionRef` interface (`{ id: string; name: string }`)
-- Added `collections: RecipeCollectionRef[]` to the `Recipe` interface
-- Exported `RecipeCollectionRef` from `shared/src/index.ts`
-
-**Server — repository layer:**
-- `recipes.repository`: `list()` and `findById()` now attach `collections` array via join table lookup; `listByCollection()` filters through join table; added `assignToCollection(recipeId, collectionId)` and `removeFromCollection(recipeId)` methods; `update()` handles collection assignment through the join table instead of setting a column
-- `collections.repository`: simplified `delete()` — cascade deletes on join table handle orphaned links
-
-**Server — routes:**
-- `PATCH /recipes/:id/collection` now calls `assignToCollection()` or `removeFromCollection()` based on whether `collectionId` is provided or null
-- All recipe responses now include a `collections` array
-
-**Mobile — HomeScreen:**
-- Added search bar (real-time client-side filtering by recipe title across all recipes)
-- Homepage now shows only uncategorized recipes by default; search temporarily overrides this to show all matching recipes
-- "All Recipes" virtual UI folder prepended to the collections row (always visible, not database-backed)
-- Collection name tag shown on recipe cards only when they appear outside their natural context (search results or "All Recipes" view)
-- `LayoutAnimation.configureNext(easeInEaseOut)` triggered on collection assignment/removal (not during search)
-- Toast notification with undo on successful collection assignment (via `ToastQueue` component)
-- Three empty states: "No recipes yet", "All recipes organized", "No recipes matching..."
-- Collections row always visible (removed conditional rendering)
-- `keyboardShouldPersistTaps="handled"` on all FlatLists
-
-**Mobile — CollectionScreen:**
-- Added search bar (real-time filtering within the collection)
-- Accepts `isAllRecipes` flag from route params; when true, fetches all recipes and shows adaptive long-press options (assign/move/remove)
-- Normal collections show long-press "Remove from [collection name]" only
-- `LayoutAnimation` on removal, three empty states, collection name tags in "All Recipes" view
-- `keyboardShouldPersistTaps="handled"` on FlatList
-
-**Mobile — ToastQueue component (new):**
-- `mobile/src/components/ToastQueue.tsx`: stackable toast notifications with sequential display, 4-second auto-dismiss, and per-toast undo callback
-- Exposed via `forwardRef` / `useImperativeHandle` with `addToast()` method
-
-**Mobile — other screens:**
-- `RecipeDetailScreen`: uses `recipe.collections` array instead of `(recipe as any).collectionId`
-- `RecipeEditScreen`: reads initial collection from `recipe.collections[0]?.id`
-- `App.tsx`: enables `LayoutAnimation` on Android via `UIManager.setLayoutAnimationEnabledExperimental(true)`
-- `navigation/types.ts`: added `isAllRecipes?: boolean` to Collection route params
-
-**Integration tests:**
-- Updated `recipesRepository` mock with `assignToCollection`, `removeFromCollection`, `listByCollection` methods
-
-### 2026-03-22 — Auto-assign collection icons
-
-- Collection folders on the home screen now automatically display a contextual Lucide icon and color based on their name, instead of all showing a brown `FolderOpen`
-- 71 keyword rules covering: meal types (breakfast, lunch, dinner, dessert, snack, appetizer, side), dish types (soup, salad, pasta, pizza, burger, curry, casserole), baking (cake, bread, cookie, pie, donut), sweets (candy, lollipop, popsicle), proteins (chicken, beef, pork, fish, egg, bean), produce (fruit, apple, banana, carrot, citrus), drinks (coffee, tea, smoothie, cocktail, wine, beer), diets (vegan, vegetarian, keto, healthy, gluten free), cuisines (italian, mexican, asian, indian, french, greek), cooking methods (bbq, baking, slow cook), effort (quick, easy), planning (meal prep, freezer), occasions (holiday, party), seasons, and personal categories (favorite, family, chef, try)
-- Unmatched collection names fall back to the original brown `FolderOpen` icon
-- 55 Lucide icons imported, all verified to exist in `lucide-react-native@0.577.0`
-- Single file change (`HomeScreen.tsx`), no server/database/migration impact
-
-### 2026-03-22 — Multi-recipe FLAG downgrade
-
-**GPT vision prompt (`image-parse.adapter.ts`):**
-- Added rule: "If multiple distinct recipes are visible, extract only the most prominent or primary recipe. Do not merge content from adjacent recipes." The `multiRecipeDetected` signal is still reported, but the AI now knows to extract just one recipe.
-
-**Validation rule (`rules.integrity.ts`):**
-- Changed `MULTI_RECIPE_DETECTED` from `severity: "BLOCK"` to `severity: "FLAG"` with `userDismissible: true` and `userResolvable: true`
-- Updated message: "Multiple recipes were detected in this image. Only one was extracted — please verify the content below is correct."
-- Multi-recipe images no longer hard-block the import. Users see a dismissible warning and can verify/dismiss before saving.
-
-**Tests:**
-- Updated validation engine test: `MULTI_RECIPE_DETECTED` now asserts FLAG behavior (not BLOCK), `hasBlockingIssues: false`, `saveState: "SAVE_CLEAN"`
-- Added save-decision test: dismissing the multi-recipe FLAG yields `SAVE_USER_VERIFIED` with `allowed: true`
-- All 90 tests pass
-
-### 2026-03-22 — Simplified URL AI prompt
-
-**Prompt simplification (`url-ai.adapter.ts`):**
-- Removed `ingredientSignals` and `stepSignals` arrays from the URL AI prompt — these OCR-specific signal fields were unnecessary for URL text parsing and nearly doubled output token count
-- Removed signal fields: `structureSeparable`, `multiRecipeDetected`, `suspectedOmission`, `mergedWhenSeparable`, `missingName`, `missingQuantityOrUnit` from the requested JSON schema
-- Kept only `signals.descriptionDetected` — the only signal relevant for URL parsing
-- Lowered `max_completion_tokens` from 16,384 back to 4,096 (safe: complex recipes without signals ≈ 2,000 tokens)
-- The image parser (`image-parse.adapter.ts`) is unchanged — it still uses the full signal-rich prompt
-
-**Expected impact:**
-- ~40% fewer output tokens for AI-parsed URLs
-- Complex recipes (5+ sub-recipes, 30+ items) no longer exceed token limits
-- 5-10 seconds faster for complex recipes
-- ~40% lower AI cost per URL parse
-
-### 2026-03-22 — Bulletproof URL parsing
-
-**Fetch hardening (`url-fetch.service.ts`):**
-- Added 1 retry with 1.5s backoff on transient errors (network failures, HTTP 5xx, 429)
-- Added browser-like User-Agent fallback on HTTP 403 (helps with Cloudflare-protected recipe sites)
-- Added URL normalization: strips `#fragment`, removes `/amp` suffixes, collapses double slashes
-- Added 5MB response size guard via `Content-Length` check
-- Added `Accept-Language: en-US,en;q=0.9` header for consistent English content on multilingual sites
-
-**Structured data extraction (`url-structured.adapter.ts`):**
-- `HowToSection.name` is now mapped as a step header entry with `isHeader: true` before its sub-steps (previously silently dropped)
-- `extractStringArray` now handles ingredient objects (`{ text: "..." }`, `{ name: "..." }`) in addition to plain strings
-- Added `extractMicrodata()` function: reads `itemprop` attributes from HTML elements as a fallback when no JSON-LD is present, returning a structured `RawExtractionResult` that skips the AI path entirely
-- JSON-LD extraction now captures optional metadata: `recipeYield`, `prepTime`, `cookTime`, `totalTime`, `image`
-
-**DOM boundary extraction (`url-dom.adapter.ts`):**
-- Preserves newlines between `<li>`, `<p>`, `<br>`, and heading elements so the AI can distinguish separate ingredients and steps (previously collapsed all whitespace to single spaces)
-- Added 6 new recipe plugin selectors: Mediavine/Create, Yummly, Zip Recipe, Meal Planner Pro, Cooked, WPRM container
-- Now picks the richest (longest) match across all selectors instead of returning the first match
-- Strips noise elements: buttons, print links, jump-to-recipe links, ratings, reviews
-- Increased text cap from 10,000 to 12,000 chars
-
-**AI fallback (`url-ai.adapter.ts`):**
-- Smart truncation: biases the 8,000-char window to include recipe section keywords (ingredients, directions, steps) instead of blind `slice(0, 8000)`
-- Passes source URL domain to the AI for context
-- 1 retry with 2s delay on transient OpenAI errors (429, 5xx)
-- Validates AI response structure (at least 1 ingredient, at least 1 step; title optional — validation engine flags missing titles) before accepting
-
-**Orchestration (`url-parse.adapter.ts`):**
-- Added quality gate after structured data extraction: requires 2+ ingredients, 1+ steps, title > 2 chars. Sparse JSON-LD falls through to Microdata/DOM+AI instead of returning a broken candidate
-- Added Microdata as second tier in the cascade (JSON-LD → Microdata → DOM+AI → error)
-- Added structured extraction logging: every URL parse logs which method succeeded (`json-ld`, `microdata`, `dom-ai`, `error`) with ingredient/step counts
-- Added `extractionMethod` field to `ParsedRecipeCandidate` for debugging
-
-**Shared types:**
-- Added optional `extractionMethod` and `metadata` fields to `ParsedRecipeCandidate`
-- Added optional `metadata` to `RawExtractionResult`
-
-**Tests:**
-- Added 17 new parsing tests (35 total, up from 18): HowToSection headers, ingredient objects, Microdata extraction, DOM structure preservation, noise removal, richest match selection, smart truncation, URL normalization, metadata extraction
-- Fixed 3 stale validation tests that tested for removed rules (`INGREDIENT_QTY_OR_UNIT_MISSING`, `DESCRIPTION_DETECTED`)
-
-### 2026-03-21 — Default fast mobile dev loop
-
-- **Default Metro:** `cd mobile && npm start` (and `./run.sh metro`) no longer clears the Metro cache every time; cold cache is opt-in via `npm run start:reset` or `./run.sh metro-fresh`.
-- **README Section 8** now leads with **Fast iteration workflow (default)** — one native install per session, then Fast Refresh; table documents when to use cold Metro vs full native rebuild (deploys, `pod install`, native code).
-- **README Section 14** links mobile work to that workflow.
-
-### 2026-03-21 — iOS default: physical iPhone (wireless)
-
-- **README** states the normal iOS target is **Lincoln Ware's iPhone**, deployed with **`./run.sh device`** after one-time **Connect via network**; simulator is **`./run.sh sim`** only when explicitly wanted.
-- **`mobile/run.sh`** comment documents the default UDID as that device; `IOS_DEVICE_UDID` override unchanged.
-
-### 2026-03-21 — `npm run dev:phone` (API + Metro)
-
-- Root **`package.json`** adds **`npm run dev:phone`**: runs **`@recipejar/server`** `dev` and **`@recipejar/mobile`** `start` together via **`concurrently`** (one terminal; Ctrl+C stops both). Use this before testing on a physical iPhone so the app never hits “Network request failed” from a missing API.
-- **README Section 8** step 1 documents this as the default for phone testing.
-
-### 2026-03-21 — Phone dev environment automation
-
-- **`npm run ensure:phone`** / [`scripts/ensure-phone-dev.sh`](scripts/ensure-phone-dev.sh): verifies ports **3000** and **8081**, starts **API only**, **Metro only**, or **`dev:phone`** in the background as needed, waits until ready or times out.
-- **`.cursor/rules/phone-testing-dev-env.mdc`**: Cursor always-on rule — the agent must verify or start API + Metro before telling the user to check the physical device.
-
-### 2026-03-21 — Physical iPhone: force Metro to Mac LAN IP
-
-- **`AppDelegate.mm`**: On a **physical device** in **Debug**, the JS bundle URL uses **`RecipeJarDevPackagerHost`** from **Info.plist** so Metro is always your Mac (same IP as `api.ts`), instead of falling back to a **stale offline bundle** where the UI never updates.
-- **`Info.plist`**: `RecipeJarDevPackagerHost` (currently `192.168.146.239`), `NSLocalNetworkUsageDescription` for local-network access to Metro.
-
-### 2026-03-21 — Major update: collections, recipe editing, validation simplification, Lucide icons
-
-**Validation simplification:**
-- Removed `CORRECTION_REQUIRED` severity entirely — all former CORRECTION_REQUIRED issues now emit `FLAG` with `userDismissible: true`
-- Removed merged step detection (`STEP_MERGED` issue code and `mergedWhenSeparable` signal)
-- Removed `hasCorrectionRequiredIssues` and `canEnterCorrectionMode` from `ValidationResult`
-- Updated save-decision logic: only BLOCK and RETAKE issues block saving
-- FLAGS are attention-only — users confirm/dismiss inline in the preview screen
-
-**Collections feature:**
-- Added `collections` table (id, name, created_at, updated_at) and `collection_id` nullable FK on `recipes` (later replaced by `recipe_collections` join table — see 2026-03-22 overhaul)
-- Added `collections.repository.ts` with CRUD operations
-- Added `collections.routes.ts`: POST /collections, GET /collections, GET /collections/:id/recipes, DELETE /collections/:id
-- Added `recipes.update` and `recipes.assignCollection` to recipes repository and routes
-- Added `collections.store.ts` (Zustand) for mobile state management
-- Added `CollectionScreen.tsx` — displays recipes in a collection
-
-**Recipe editing:**
-- Added `RecipeEditScreen.tsx` — full edit screen for saved recipes (title, description, ingredients, steps, collection picker)
-- Added Edit button to `RecipeDetailScreen.tsx`
-- Added PUT /recipes/:id and PATCH /recipes/:id/collection API endpoints
-
-**Home screen redesign:**
-- Two-column recipe card grid with consistent spacing
-- Horizontal collections row
-- Replaced dual FABs with centered jar button opening a modal (camera, URL, create collection)
-- Long-press recipe cards to assign/remove collection membership via ActionSheet
-
-**State machine simplification:**
-- Removed `guidedCorrection` and `finalWarningGate` states
-- Simplified `ATTEMPT_SAVE` transition: goes directly to `saving` if no blocking issues or retakes
-- Machine now has 9 states (down from 13)
-- Deleted `GuidedCorrectionView.tsx` and `WarningGateView.tsx`
-
-**Lucide icon migration:**
-- Installed `lucide-react-native` and `react-native-svg@15.12.1` (compatible with RN 0.76)
-- Replaced all emoji and unicode glyph icons across 7 files with Lucide components
-- Icon mapping: jar→CookingPot, camera→Camera, link→Link, folder→FolderOpen, back→ChevronLeft, up/down→ChevronUp/Down, remove→X, add→Plus, check→Check
-
-**AI model upgrade:**
-- Changed image parsing model from GPT-4o to GPT-5.3 in `image-parse.adapter.ts`
-- Changed URL AI fallback model from GPT-4o to GPT-5.4 in `url-ai.adapter.ts`
-
-**Cursor-driven dev workflow:**
-- Added `mobile/run.sh` convenience script (`metro`, `metro-fresh`, `sim`, `device`)
-- Documented wireless debugging setup and Cursor-terminal workflow in README (see changelog entry **Default fast mobile dev loop** for the current default Metro behavior)
-
-**Global padding fix:**
-- Increased horizontal padding to 24px across all screens
-- Ensured safe area handling on all screens
-
-**Tests updated:**
-- Updated server tests: validation engine, save-decision, machine tests all pass
-- Removed tests for CORRECTION_REQUIRED, guided correction, warning gate, merged steps
-- Updated XCUITests for new UI structure
-
-### 2026-03-21 — iOS UI tests + URL input screen
-
-**iOS UI testing (XCUITest):**
-- Created `RecipeJarUITests` XCUITest target with 21 automated UI tests across 2 test files (`RecipeJarUITests.swift`, `ImportFlowUITests.swift`)
-- Tests cover: home screen elements, FAB navigation, camera import flow, URL import flow, cancel confirmation dialogs, recipe detail navigation with back button, capture view buttons, URL input screen, and deeper import states (preview edit, saved, warning gate, retake, guided correction)
-- Added `testID`, `accessibilityRole`, and `accessibilityLabel` props to all interactive React Native components across all screens for XCUITest element discovery
-- All XCUITest queries use `app.descendants(matching: .any)["identifier"]` instead of type-specific queries (e.g., `app.buttons["id"]`) because React Native's `TouchableOpacity` does not reliably map to a native button in the iOS accessibility tree
-- Tests use 120-second timeouts for initial home screen load to accommodate JS bundle download over the network on physical devices
-- Fixed legacy `RecipeJarTests.m` unit test: changed search text from "Welcome to React" (React Native template default) to "RecipeJar", reduced timeout from 600 seconds to 30 seconds, renamed test method to `testRendersHomeScreen`
-- Added `RecipeJarUITests` target to the `RecipeJar.xcscheme` shared scheme (both in `BuildActionEntries` and `Testables`) so tests appear in Xcode's Test Navigator and run with Cmd+U
-- 19 of 21 tests pass on a physical iPhone 16 running iOS 26.2. The 2 tests that rely on reaching deeper import states (saved view, warning gate, etc.) skip gracefully when the API server is not running
-
-**URL input screen:**
-- Created `UrlInputView.tsx` — a dedicated screen for pasting recipe URLs, shown when the user taps the URL FAB (purple link button) on the home screen
-- Previously, the URL FAB navigated to `ImportFlowScreen` with `mode: "url"` but no URL, causing it to fall through to the camera capture flow (a bug)
-- `ImportFlowScreen.tsx` now checks: if `mode === "url"` and no `url` param was provided, it renders `UrlInputView` instead of starting the state machine. When the user submits a URL, the screen sends `NEW_URL_IMPORT` to the XState machine and the normal parsing flow begins
-- The URL input screen includes basic validation (URL must start with `http`), a text field with URL keyboard type, and cancel/submit buttons with testIDs for XCUITest
-
-### 2026-03-20 — Import flow fix + UX improvements
-
-**Bug fixes:**
-- Fixed import flow: `createDraft` and `addPage` actors were defined but never invoked in the XState machine. Added `uploading` and `creatingUrlDraft` intermediate states to properly create drafts and upload pages before parsing.
-- Fixed `POST /drafts` failing with "Body cannot be empty when content-type is set to 'application/json'" — added a tolerant JSON content-type parser to the Fastify server.
-- Fixed API base URL for physical device testing — `localhost` doesn't work on a physical iPhone; changed to LAN IP.
-- Fixed Supabase database connection — direct-connect hostname (`db.*.supabase.co`) didn't resolve; switched to session pooler URL (`aws-0-us-west-2.pooler.supabase.com`).
-
-**UX improvements:**
-- Added warning dismiss/acknowledge buttons on FLAG issues in PreviewEditView ("OK, include" / "Undo" toggle).
-- Added cancel buttons throughout the import flow (CaptureView, ReorderView, PreviewEditView, WarningGateView) with confirmation dialog before navigating home.
-- Fixed HomeScreen header to use safe area insets instead of hardcoded padding, preventing text truncation on devices with Dynamic Island/notch.
+## 15. Changelog
+
+Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
+
+- **2026-03-22** — Image optimization pipeline (`sharp`, 3072px, GPT-5.4, `detail: "high"`)
+- **2026-03-22** — User notes and star rating (4 new API endpoints, 3 new mobile components, migration 0004)
+- **2026-03-22** — Homepage collections overhaul (many-to-many join table, search, "All Recipes", toast + undo)
+- **2026-03-22** — Auto-assign collection icons, multi-recipe FLAG downgrade, simplified URL AI prompt, bulletproof URL parsing
+- **2026-03-21** — Collections, recipe editing, validation simplification, Lucide icon migration, iOS UI tests, URL input screen, dev workflow automation
+- **2026-03-20** — Import flow fix, UX improvements

@@ -1,0 +1,59 @@
+import sharp from "sharp";
+
+/**
+ * Resize + auto-orient + JPEG compress for storage.
+ * Keeps color. Used as a safety net at upload time.
+ */
+export async function optimizeForUpload(buffer: Buffer): Promise<Buffer> {
+  try {
+    const original = buffer.length;
+    const optimized = await sharp(buffer)
+      .rotate()
+      .resize({
+        width: 3072,
+        height: 3072,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    console.log(
+      `[image-optimizer] upload: ${(original / 1024).toFixed(0)}KB → ${(optimized.length / 1024).toFixed(0)}KB`,
+    );
+    return optimized;
+  } catch (err) {
+    console.warn("[image-optimizer] optimizeForUpload failed, using original buffer:", err);
+    return buffer;
+  }
+}
+
+/**
+ * Light optimization for OCR: auto-orient and resize only.
+ * No grayscale/CLAHE/sharpen — neural vision models (OpenAI) perform best
+ * on clean, natural color images rather than classically preprocessed ones.
+ */
+export async function optimizeForOcr(buffer: Buffer): Promise<Buffer> {
+  try {
+    const start = Date.now();
+    const original = buffer.length;
+    const optimized = await sharp(buffer)
+      .rotate()
+      .resize({
+        width: 3072,
+        height: 3072,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    console.log(
+      `[image-optimizer] ocr: ${(original / 1024).toFixed(0)}KB → ${(optimized.length / 1024).toFixed(0)}KB (${Date.now() - start}ms)`,
+    );
+    return optimized;
+  } catch (err) {
+    console.warn("[image-optimizer] optimizeForOcr failed, using original buffer:", err);
+    return buffer;
+  }
+}

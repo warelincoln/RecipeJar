@@ -6,6 +6,7 @@ vi.mock("@supabase/supabase-js", () => ({
       from: vi.fn(() => ({
         upload: vi.fn().mockResolvedValue({ error: null }),
         remove: vi.fn().mockResolvedValue({ error: null }),
+        download: vi.fn().mockResolvedValue({ data: null, error: { message: "not found" } }),
         getPublicUrl: vi.fn((path: string) => ({
           data: { publicUrl: `http://test.supabase.co/${path}` },
         })),
@@ -68,6 +69,11 @@ vi.mock("../src/parsing/url/url-parse.adapter.js", () => ({
 
 vi.mock("../src/observability/event-logger.js", () => ({
   logEvent: vi.fn(),
+}));
+
+vi.mock("../src/parsing/image/image-optimizer.js", () => ({
+  optimizeForUpload: vi.fn((buf: Buffer) => Promise.resolve(buf)),
+  optimizeForOcr: vi.fn((buf: Buffer) => Promise.resolve(buf)),
 }));
 
 process.env.SUPABASE_URL = "http://test.supabase.co";

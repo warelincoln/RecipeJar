@@ -14,6 +14,7 @@ import type {
 import { parseImages } from "../parsing/image/image-parse.adapter.js";
 import { parseUrl } from "../parsing/url/url-parse.adapter.js";
 import { logEvent } from "../observability/event-logger.js";
+import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
 
 const STORAGE_BUCKET = "recipe-pages";
 
@@ -67,7 +68,8 @@ export async function draftsRoutes(app: FastifyInstance) {
       const pageId = uuidv4();
       const storagePath = `${draftId}/${pageId}.jpg`;
 
-      const buffer = await file.toBuffer();
+      const rawBuffer = await file.toBuffer();
+      const buffer = await optimizeForUpload(rawBuffer);
       const { error: uploadError } = await getSupabase().storage
         .from(STORAGE_BUCKET)
         .upload(storagePath, buffer, { contentType: "image/jpeg" });
@@ -119,7 +121,8 @@ export async function draftsRoutes(app: FastifyInstance) {
       }
 
       const storagePath = `${draftId}/${pageId}.jpg`;
-      const buffer = await file.toBuffer();
+      const rawBuffer = await file.toBuffer();
+      const buffer = await optimizeForUpload(rawBuffer);
 
       await getSupabase().storage.from(STORAGE_BUCKET).remove([storagePath]);
       const { error: uploadError } = await getSupabase().storage
@@ -163,14 +166,27 @@ export async function draftsRoutes(app: FastifyInstance) {
       if (draft.sourceType === "url" && draft.originalUrl) {
         candidate = await parseUrl(draft.originalUrl, sourcePages);
       } else {
-        const imageUrls: string[] = [];
-        for (const page of pages) {
-          const { data } = getSupabase().storage
-            .from(STORAGE_BUCKET)
-            .getPublicUrl(page.imageUri);
-          imageUrls.push(data.publicUrl);
-        }
-        candidate = await parseImages(imageUrls, sourcePages);
+        const imageDataUrls = await Promise.all(
+          pages.map(async (page) => {
+            try {
+              const { data, error } = await getSupabase().storage
+                .from(STORAGE_BUCKET)
+                .download(page.imageUri);
+              if (error || !data) throw new Error(error?.message ?? "Download returned no data");
+              const rawBuffer = Buffer.from(await data.arrayBuffer());
+              const optimized = await optimizeForOcr(rawBuffer);
+              const b64 = optimized.toString("base64");
+              return `data:image/jpeg;base64,${b64}`;
+            } catch (err) {
+              console.warn(`[parse] OCR optimization failed for ${page.imageUri}, falling back to public URL:`, err);
+              const { data: urlData } = getSupabase().storage
+                .from(STORAGE_BUCKET)
+                .getPublicUrl(page.imageUri);
+              return urlData.publicUrl;
+            }
+          })
+        );
+        candidate = await parseImages(imageDataUrls, sourcePages);
       }
 
       const validationResult = validateRecipe(candidate);
