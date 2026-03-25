@@ -8,9 +8,11 @@
   ],
   "scripts": {
     "dev:phone": "concurrently -k -n api,metro -c blue,magenta \"npm run dev -w @recipejar/server\" \"npm run start -w @recipejar/mobile\"",
-    "ensure:phone": "bash scripts/ensure-phone-dev.sh"
+    "ensure:phone": "bash scripts/ensure-phone-dev.sh",
+    "postinstall": "patch-package"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "patch-package": "^8.0.1"
   }
 }

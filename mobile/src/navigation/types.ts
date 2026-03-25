@@ -8,4 +8,5 @@ export type RootStackParamList = {
     isAllRecipes?: boolean;
   };
   ImportFlow: { mode: "image" | "url"; url?: string; resumeDraftId?: string };
+  WebRecipeImport: { initialUrl?: string };
 };

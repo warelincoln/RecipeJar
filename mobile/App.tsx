@@ -7,6 +7,7 @@ import { RecipeDetailScreen } from "./src/screens/RecipeDetailScreen";
 import { RecipeEditScreen } from "./src/screens/RecipeEditScreen";
 import { CollectionScreen } from "./src/screens/CollectionScreen";
 import { ImportFlowScreen } from "./src/screens/ImportFlowScreen";
+import { WebRecipeImportScreen } from "./src/screens/WebRecipeImportScreen";
 import type { RootStackParamList } from "./src/navigation/types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -41,6 +42,11 @@ export default function App() {
             name="ImportFlow"
             component={ImportFlowScreen}
             options={{ presentation: "fullScreenModal" }}
+          />
+          <Stack.Screen
+            name="WebRecipeImport"
+            component={WebRecipeImportScreen}
+            options={{ presentation: "fullScreenModal", headerShown: false }}
           />
         </Stack.Navigator>
       </NavigationContainer>

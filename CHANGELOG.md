@@ -1,5 +1,28 @@
 # RecipeJar Changelog
 
+### 2026-03-25 — WebView URL import, clipboard prompt, import UX
+
+**Mobile — in-app browser (`WebRecipeImportScreen`):**
+
+- Jar **URL** opens full-screen WebView: omnibar, refresh, back/forward, **Save to RecipeJar** → `ImportFlow` URL mode (`StackActions.replace`).
+- Default search for typed queries uses Google (`NEUTRAL_SEARCH_TEMPLATE` in `webImportUrl.ts`).
+- Blocks common ad/tracking hostnames in `onShouldStartLoadWithRequest` (top-frame and subframe).
+- External schemes (`tel:`, `mailto:`, `sms:`, `intent:`) prompt before `Linking.openURL`.
+
+**Mobile — Home clipboard sheet (`ClipboardRecipePrompt`):**
+
+- Shows when `Clipboard.hasString()` is true after focus delay; **Paste** calls `getString()` and validates URL via `parseClipboardForHttpsUrl`.
+- Session suppression after paste or dismiss: module-level flag + ref; reset only on `AppState` **background** → **active** (not `inactive` → `active`, so iOS paste dialogs do not clear suppression).
+
+**Mobile — other:**
+
+- **Recipe Saved** → **Add more**: URL import path returns to `WebRecipeImport`; image import returns to `ImportFlow` `{ mode: "image" }`.
+- Dependencies: `react-native-webview`, `@react-native-clipboard/clipboard`; `WebRecipeImport` route in `App.tsx` / `types.ts`.
+
+**Docs:**
+
+- README: WebView + clipboard + Add more behavior; **Known gaps** expanded for headless browser / client-side HTML extraction for bot-protected sites.
+
 ### 2026-03-22 — Image optimization pipeline
 
 - Added `sharp`-based server-side image processing (`server/src/parsing/image/image-optimizer.ts`)

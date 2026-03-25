@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMachine } from "@xstate/react";
@@ -24,18 +24,46 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [state, send] = useMachine(importMachine);
   const [awaitingUrl, setAwaitingUrl] = useState(mode === "url" && !url);
+  /** Avoid duplicate bootstraps; also avoids retry loops when URL draft creation errors back to idle. */
+  const lastBootKeyRef = useRef<string | null>(null);
+  const bootKey = `${mode}|${url ?? ""}|${resumeDraftId ?? ""}`;
 
-  React.useEffect(() => {
-    if (state.matches("idle") && !awaitingUrl) {
-      if (resumeDraftId) {
-        send({ type: "RESUME_DRAFT", draftId: resumeDraftId });
-      } else if (mode === "url" && url) {
-        send({ type: "NEW_URL_IMPORT", url });
-      } else {
-        send({ type: "NEW_IMAGE_IMPORT" });
-      }
+  useEffect(() => {
+    if (awaitingUrl) return;
+    if (!state.matches("idle")) return;
+    if (lastBootKeyRef.current === bootKey) return;
+
+    if (resumeDraftId) {
+      lastBootKeyRef.current = bootKey;
+      send({ type: "RESUME_DRAFT", draftId: resumeDraftId });
+      return;
     }
-  }, [awaitingUrl]);
+    if (mode === "url" && url) {
+      lastBootKeyRef.current = bootKey;
+      send({ type: "NEW_URL_IMPORT", url });
+      return;
+    }
+    if (mode === "image") {
+      lastBootKeyRef.current = bootKey;
+      send({ type: "NEW_IMAGE_IMPORT" });
+    }
+  }, [awaitingUrl, bootKey, mode, url, resumeDraftId, state.value, send]);
+
+  const idleErrorAlertedRef = useRef<string | null>(null);
+  useEffect(() => {
+    idleErrorAlertedRef.current = null;
+  }, [bootKey]);
+
+  useEffect(() => {
+    if (!state.matches("idle") || !state.context.error) return;
+    if (idleErrorAlertedRef.current === state.context.error) return;
+    idleErrorAlertedRef.current = state.context.error;
+    Alert.alert(
+      "Import didn't finish",
+      state.context.error,
+      [{ text: "OK", onPress: () => navigation.navigate("Home") }],
+    );
+  }, [state.value, state.context.error, navigation]);
 
   React.useEffect(() => {
     if (state.matches("timedOut")) {
@@ -172,7 +200,9 @@ export function ImportFlowScreen({ route, navigation }: Props) {
             navigation.replace("RecipeDetail", { recipeId: id })
           }
           onAddMore={() =>
-            navigation.replace("ImportFlow", { mode: "image" })
+            mode === "url"
+              ? navigation.replace("WebRecipeImport", {})
+              : navigation.replace("ImportFlow", { mode: "image" })
           }
           onDone={() => navigation.navigate("Home")}
         />

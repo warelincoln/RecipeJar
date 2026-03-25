@@ -23,7 +23,10 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
 - Real-time client-side search by recipe title on home screen and all collection/folder views
 - Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (71 keyword rules covering meal types, cuisines, proteins, drinks, diets, occasions, etc.; falls back to brown folder for unmatched names)
-- URL input screen for the URL import flow (user pastes a recipe URL before parsing)
+- **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), **Save to RecipeJar** passes the omnibar URL into `ImportFlow` via stack `replace`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app.
+- **Home clipboard prompt:** If the pasteboard has text (`Clipboard.hasString()` — avoids proactive `getString()` / permission churn on iOS), a bottom sheet offers **Paste**; reading and URL validation happen only on that tap. After **Paste** or dismiss, the sheet stays suppressed until the app returns from **background** (not `inactive`, so system dialogs like paste permission do not re-enable the prompt).
+- **Recipe Saved → Add more:** URL imports return to `WebRecipeImport`; camera/image imports return to `ImportFlow` in image mode.
+- URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). Server-side import remains **URL fetch only** (`fetchUrl`); bot-protected sites may still fail — see **Known gaps** (headless browser / client HTML upload roadmap).
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
 
@@ -81,10 +84,10 @@ All 90 server tests pass.
 |---|---|
 | Home screen elements | Title, subtitle, jar button, empty state/recipe list |
 | Navigation (camera import) | Jar modal camera action opens capture view, cancel returns home |
-| Navigation (URL import) | Jar modal URL action opens URL input screen |
+| Navigation (URL import) | Jar modal URL action opens in-app WebView browser (`WebRecipeImport`) |
 | Recipe detail | Tapping recipe card opens detail, back button returns home |
 | Capture view | Cancel button present/tappable, shutter button present/tappable |
-| URL input screen | URL field and submit button visible, cancel returns home |
+| URL import browser | WebView import screen: omnibar/close; Save hands off to import flow (testIDs `web-recipe-import-*`) |
 | Import flow screens | Preview edit save button, cancel dialog, saved view, retake required |
 | Debug/diagnostics | Dumps accessibility tree to console for debugging element queries |
 
@@ -112,7 +115,7 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Lucide icons | All icons render correctly as SVG via `lucide-react-native` |
 | Recipe list + detail views | HomeScreen displays saved recipes, RecipeDetailScreen shows full recipe content |
 | XCUITest UI tests | 19 of 21 automated UI tests pass on iPhone 16 (iOS 26.2). Tests verify home screen elements, FAB navigation, import flow screens, cancel dialogs, and recipe detail navigation |
-| URL input screen | URL FAB opens a dedicated URL input screen where user pastes a recipe URL before parsing begins |
+| URL import browser | URL FAB opens in-app browser; user can save native page URL into existing URL import pipeline |
 
 ### Not Yet Proven
 
@@ -913,7 +916,8 @@ RecipeJar/
 │   │   │   │   └── image-optimizer.ts    # sharp-based pipeline: optimizeForUpload (3072px, JPEG 85%) and optimizeForOcr (3072px, JPEG 90%, orient-only — no grayscale/CLAHE/sharpen)
 │   │   │   └── url/
 │   │   │       ├── url-parse.adapter.ts  # orchestrates 4-tier cascade: JSON-LD → Microdata → DOM → AI (quality-gated, logged)
-│   │   │       ├── url-fetch.service.ts  # fetches URL HTML with retry, browser UA fallback, URL normalization, size cap
+│   │   │       ├── url-fetch.service.ts  # fetches URL HTML: manual redirects (max 10), SSRF checks per hop, retry, browser UA fallback, normalization, size cap
+│   │   │       ├── url-ssrf-guard.ts     # blocks private/special-use IPs; dns.lookup(all+verbatim) for hostnames
 │   │   │       ├── url-structured.adapter.ts # extracts JSON-LD Recipe schema + Microdata (itemprop) fallback
 │   │   │       ├── url-dom.adapter.ts    # Cheerio-based DOM boundary extraction with structure-preserving text
 │   │   │       └── url-ai.adapter.ts     # GPT-5.4 fallback with simplified prompt (no signal arrays), smart truncation, retry, response validation
@@ -928,6 +932,7 @@ RecipeJar/
 │       ├── validation.engine.test.ts    # 23 tests — all validation rules
 │       ├── save-decision.test.ts        # 8 tests — save decision logic
 │       ├── parsing.test.ts             # 35 tests — normalization, error candidate, URL extractors
+│       ├── url-ssrf-guard.test.ts     # SSRF guard + fetchUrl redirect behavior
 │       ├── integration.test.ts         # 16 tests — all API endpoints (mocked DB/storage)
 │       └── machine.test.ts            # 8 tests — XState machine transitions
 │
@@ -954,6 +959,7 @@ RecipeJar/
     │       └── Info.plist
     └── src/
         ├── components/
+        │   ├── ClipboardRecipePrompt.tsx # Home clipboard sheet: Paste reads clipboard → WebRecipeImport
         │   ├── ToastQueue.tsx           # stackable toast notifications with undo (used for collection assignment feedback)
         │   ├── RecipeRatingInput.tsx    # interactive half-star rating (tap-toggle: half→full→half, debounced API save, onPressIn for instant response)
         │   ├── CompactRecipeRating.tsx  # read-only compact rating for grid cards (gold star icon + numeric value, hidden when unrated)
@@ -967,14 +973,16 @@ RecipeJar/
         │       ├── PreviewEditView.tsx  # recipe preview/edit with inline FLAG confirm/dismiss
         │       ├── RetakeRequiredView.tsx # retake prompt UI
         │       ├── SavedView.tsx        # success UI (Lucide Check icon)
-        │       └── UrlInputView.tsx     # URL input screen (Lucide Link icon)
+        │       ├── UrlInputView.tsx     # URL paste screen when ImportFlow has no pre-passed URL
+        │       └── webImportUrl.ts      # neutral search URL, strip credentials, search-result detection helpers
         ├── navigation/
-        │   └── types.ts                # RootStackParamList (Home, RecipeDetail, RecipeEdit, Collection with isAllRecipes, ImportFlow)
+        │   └── types.ts                # RootStackParamList (+ WebRecipeImport with optional initialUrl)
         ├── screens/
-        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB, toast on assignment
+        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB, clipboard prompt, toast on assignment
         │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, long-press remove/assign
         │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection)
         │   ├── ImportFlowScreen.tsx     # renders state machine views + URL input gate
+        │   ├── WebRecipeImportScreen.tsx # in-app WebView: browse → Save passes native URL to ImportFlow
         │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button, inline star rating, notes section
         ├── services/
         │   └── api.ts                  # API client (drafts + recipes + collections endpoints)
@@ -1079,6 +1087,7 @@ When you work on `mobile/src/**`, follow **Section 8 — Fast iteration workflow
 - **Image parsing:** Edit `server/src/parsing/image/image-parse.adapter.ts`. This constructs the GPT-5.4 Vision prompt (signal-rich: includes `ingredientSignals`, `stepSignals`, and top-level signal hints for OCR quality detection) and parses the response. The prompt instructs the AI to extract only the most prominent recipe when multiple are visible. The model is set via the `model` field in the `openai.chat.completions.create()` call. Uses `detail: "high"` for accurate fraction/quantity reading. Images are sent as base64 data URLs (downloaded from Supabase at parse time, processed through `optimizeForOcr`, encoded inline) to avoid an extra network hop for OpenAI.
 - **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Two functions: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — called at upload time before storing in Supabase) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — called at parse time before sending to OpenAI). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy — neural vision models perform best on clean, natural color images. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
 - **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. It tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch uses retry with backoff and browser UA fallback on 403. Every extraction logs which method succeeded (`extractionMethod` field on the candidate). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
+- **URL fetch (SSRF mitigation):** `server/src/parsing/url/url-fetch.service.ts` follows redirects manually (max 10 hops) and calls `server/src/parsing/url/url-ssrf-guard.ts` on **each** URL in the chain. The guard allows only `http`/`https`, rejects URLs with embedded credentials, and refuses targets whose addresses fall in private, loopback, link-local, CGNAT, documentation, multicast, or reserved ranges (IPv4 and IPv6, including IPv4-mapped IPv6). For hostnames it uses `dns.promises.lookup` with `{ all: true, verbatim: true }` so checked addresses align with typical `getaddrinfo` behavior used for outbound TCP.
 - **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
 
 ### Adding API endpoints
@@ -1149,7 +1158,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 ### Known gaps
 
-- **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network block server-side fetches. Browser UA fallback partially mitigates 403s. Future: client-side webview extraction or headless browser.
+- **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network block server-side fetches. Browser UA fallback partially mitigates 403s. Future: add headless browser (Puppeteer/Playwright) to the server parsing pipeline so bot-protected sites can be scraped reliably; alternatively, extract HTML from the client-side WebView and send it to the server for parsing.
 - **Recipe metadata UI**: JSON-LD captures servings, prep/cook/total time, and image URL, but these are not yet displayed in the mobile UI.
 - **Authentication**: Single-user MVP. No auth, no user table, no data-ownership. Adding auth requires: user table, session/JWT middleware, user_id FKs, Supabase RLS policies.
 - **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.
@@ -1162,6 +1171,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-03-25** — In-app WebView URL import (Google search, ad-domain blocking, Save → ImportFlow), Home clipboard sheet with session suppression, conditional **Add more** after save, mobile deps (`react-native-webview`, clipboard); README roadmap for bot-protected URL parsing
 - **2026-03-22** — Image optimization pipeline (`sharp`, 3072px, GPT-5.4, `detail: "high"`)
 - **2026-03-22** — User notes and star rating (4 new API endpoints, 3 new mobile components, migration 0004)
 - **2026-03-22** — Homepage collections overhaul (many-to-many join table, search, "All Recipes", toast + undo)

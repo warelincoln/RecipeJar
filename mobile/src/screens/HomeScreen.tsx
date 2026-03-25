@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   ActionSheetIOS,
   Dimensions,
   Platform,
+  AppState,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -85,10 +86,18 @@ import { api } from "../services/api";
 import { ToastQueue, type ToastQueueHandle } from "../components/ToastQueue";
 import { CompactRecipeRating } from "../components/CompactRecipeRating";
 import type { Recipe } from "@recipejar/shared";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import Clipboard from "@react-native-clipboard/clipboard";
+import { ClipboardRecipePrompt } from "../components/ClipboardRecipePrompt";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
+
+// Module-level so it survives Home screen unmount/remount during navigation.
+// Reset only when the app returns from genuine background (user switched apps
+// and may have copied a new URL), NOT from inactive (iOS system dialogs).
+let clipboardPasteUsedThisSession = false;
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const HORIZONTAL_PADDING = 24;
@@ -193,8 +202,58 @@ export function HomeScreen({ navigation }: Props) {
     useCollectionsStore();
   const [jarOpen, setJarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [clipboardPromptVisible, setClipboardPromptVisible] = useState(false);
+  const suppressClipboardPromptRef = useRef(false);
   const fanAnim = useRef(new Animated.Value(0)).current;
   const toastRef = useRef<ToastQueueHandle>(null);
+
+  useEffect(() => {
+    let prev = AppState.currentState;
+    const sub = AppState.addEventListener("change", (next) => {
+      // Only reset when returning from genuine background (user switched apps
+      // and may have copied something new). "inactive" fires for iOS system
+      // dialogs (paste permission, etc.) and must NOT reset the flag.
+      if (prev === "background" && next === "active") {
+        suppressClipboardPromptRef.current = false;
+        clipboardPasteUsedThisSession = false;
+      }
+      prev = next;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const timer = setTimeout(async () => {
+        if (
+          cancelled ||
+          suppressClipboardPromptRef.current ||
+          clipboardPasteUsedThisSession
+        )
+          return;
+        try {
+          const has = await Clipboard.hasString();
+          if (!cancelled && has) {
+            setClipboardPromptVisible(true);
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 600);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+        setClipboardPromptVisible(false);
+      };
+    }, []),
+  );
+
+  const closeClipboardPrompt = useCallback(() => {
+    suppressClipboardPromptRef.current = true;
+    clipboardPasteUsedThisSession = true;
+    setClipboardPromptVisible(false);
+  }, []);
 
   const toggleJar = () => {
     const opening = !jarOpen;
@@ -513,7 +572,7 @@ export function HomeScreen({ navigation }: Props) {
           testID: "jar-fan-url",
           onPress: () => {
             toggleJar();
-            navigation.navigate("ImportFlow", { mode: "url" });
+            navigation.navigate("WebRecipeImport", {});
           },
         },
         {
@@ -590,6 +649,14 @@ export function HomeScreen({ navigation }: Props) {
       </TouchableOpacity>
 
       <ToastQueue ref={toastRef} />
+
+      <ClipboardRecipePrompt
+        visible={clipboardPromptVisible}
+        onClose={closeClipboardPrompt}
+        onPasteUrl={(url) =>
+          navigation.navigate("WebRecipeImport", { initialUrl: url })
+        }
+      />
     </View>
   );
 }

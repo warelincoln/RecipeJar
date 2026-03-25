@@ -1,3 +1,5 @@
+import { assertUrlSafeForSsrf } from "./url-ssrf-guard.js";
+
 const BOT_UA =
   "Mozilla/5.0 (compatible; RecipeJar/1.0; +https://recipejar.app)";
 
@@ -7,6 +9,7 @@ const BROWSER_UA =
 const FETCH_TIMEOUT_MS = 15_000;
 const RETRY_DELAY_MS = 1_500;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_REDIRECTS = 10;
 
 /**
  * Normalizes a URL before fetching:
@@ -41,7 +44,7 @@ async function attemptFetch(
   try {
     return await fetch(url, {
       signal: controller.signal,
-      redirect: "follow",
+      redirect: "manual",
       headers: {
         "User-Agent": userAgent,
         Accept: "text/html,application/xhtml+xml",
@@ -53,46 +56,89 @@ async function attemptFetch(
   }
 }
 
+async function cancelResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
  * Fetches a URL with:
- *  - URL normalization
+ *  - SSRF checks on every redirect hop (manual redirects, max 10)
+ *  - URL normalization per hop
  *  - 1 retry on transient errors (5xx, 429)
  *  - Browser UA fallback on 403
  *  - 5 MB response size guard
  *  - 15 s per-request timeout
  */
 export async function fetchUrl(url: string): Promise<string> {
-  const normalized = normalizeUrl(url);
+  let currentUrl = normalizeUrl(url);
+  let redirectCount = 0;
+  const assertMemo = new Map<string, Promise<void>>();
 
-  let response: Response;
-  try {
-    response = await attemptFetch(normalized, BOT_UA);
-  } catch {
-    await sleep(RETRY_DELAY_MS);
-    response = await attemptFetch(normalized, BOT_UA);
+  function ensureSsrfAssert(urlStr: string): Promise<void> {
+    let p = assertMemo.get(urlStr);
+    if (!p) {
+      p = assertUrlSafeForSsrf(urlStr);
+      assertMemo.set(urlStr, p);
+    }
+    return p;
   }
 
-  if (isRetryable(response.status)) {
-    await sleep(RETRY_DELAY_MS);
-    response = await attemptFetch(normalized, BOT_UA);
-  }
+  while (true) {
+    await ensureSsrfAssert(currentUrl);
 
-  if (response.status === 403) {
-    response = await attemptFetch(normalized, BROWSER_UA);
-  }
+    let response: Response;
+    try {
+      response = await attemptFetch(currentUrl, BOT_UA);
+    } catch {
+      await sleep(RETRY_DELAY_MS);
+      response = await attemptFetch(currentUrl, BOT_UA);
+    }
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
+    if (isRetryable(response.status)) {
+      await sleep(RETRY_DELAY_MS);
+      response = await attemptFetch(currentUrl, BOT_UA);
+    }
 
-  const contentLength = response.headers.get("content-length");
-  if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
-    throw new Error(`Response too large: ${contentLength} bytes`);
-  }
+    if (response.status === 403) {
+      response = await attemptFetch(currentUrl, BROWSER_UA);
+    }
 
-  return await response.text();
+    if (response.status >= 300 && response.status < 400) {
+      await cancelResponseBody(response);
+
+      if (response.status === 304) {
+        throw new Error("Unexpected 304 Not Modified");
+      }
+
+      const rawLoc = response.headers.get("location");
+      if (!rawLoc?.trim()) {
+        throw new Error("Redirect response missing Location");
+      }
+
+      if (redirectCount >= MAX_REDIRECTS) {
+        throw new Error("Too many redirects");
+      }
+
+      currentUrl = normalizeUrl(new URL(rawLoc.trim(), currentUrl).href);
+      redirectCount++;
+      continue;
+    }
+
+    if (!response.ok) {
+      await cancelResponseBody(response);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
+      await cancelResponseBody(response);
+      throw new Error(`Response too large: ${contentLength} bytes`);
+    }
+
+    return await response.text();
+  }
 }

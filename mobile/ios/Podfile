@@ -34,7 +34,40 @@ target 'RecipeJar' do
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
-      :ccache_enabled => true
+      :ccache_enabled => false
     )
+
+    # Paths with spaces break RN's ReactCodegen script: unquoted exports truncate at the first
+    # space, and `sh -c "$A $B"` still word-splits when executing the inner command line.
+    installer.pods_project.targets.each do |target|
+      target.build_phases.each do |phase|
+        next unless phase.respond_to?(:shell_script)
+        script = phase.shell_script
+        next if script.nil? || !script.include?("RCT_SCRIPT_POD_INSTALLATION_ROOT")
+
+        script = script.gsub(
+          "export RCT_SCRIPT_RN_DIR=$RCT_SCRIPT_POD_INSTALLATION_ROOT/../../node_modules/react-native",
+          'export RCT_SCRIPT_RN_DIR="$RCT_SCRIPT_POD_INSTALLATION_ROOT/../../node_modules/react-native"',
+        )
+        script = script.gsub(
+          "export RCT_SCRIPT_APP_PATH=$RCT_SCRIPT_POD_INSTALLATION_ROOT/..",
+          'export RCT_SCRIPT_APP_PATH="$RCT_SCRIPT_POD_INSTALLATION_ROOT/.."',
+        )
+        script = script.gsub(
+          "export RCT_SCRIPT_OUTPUT_DIR=$RCT_SCRIPT_POD_INSTALLATION_ROOT",
+          'export RCT_SCRIPT_OUTPUT_DIR="$RCT_SCRIPT_POD_INSTALLATION_ROOT"',
+        )
+        script = script.gsub(
+          '/bin/sh -c "$WITH_ENVIRONMENT $SCRIPT_PHASES_SCRIPT"',
+          'bash "$WITH_ENVIRONMENT" "$SCRIPT_PHASES_SCRIPT"',
+        )
+        script = script.gsub(
+          '/bin/sh -c "\"$WITH_ENVIRONMENT\" \"$SCRIPT_PHASES_SCRIPT\""',
+          'bash "$WITH_ENVIRONMENT" "$SCRIPT_PHASES_SCRIPT"',
+        )
+        phase.shell_script = script
+      end
+    end
+    installer.pods_project.save
   end
 end
