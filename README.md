@@ -1,5 +1,66 @@
 # RecipeJar
 
+## 0. Fast Handoff
+
+If you are a new developer or an AI agent, start here.
+
+### What this repo is
+
+- Monorepo with 3 workspaces:
+  - `shared/` — domain types
+  - `server/` — Fastify + Drizzle + parsing + validation
+  - `mobile/` — React Native app + XState import flow
+- Main product promise: take a recipe from either **camera**, **photo library**, or **URL**, validate it deterministically, then save only if the result is acceptable.
+
+### Fastest way to get running
+
+1. From the repo root, run `npm install`
+2. Create `server/.env` from `server/.env.example`
+3. Start phone dev services with `npm run dev:phone`
+4. Verify:
+   - API: `curl http://127.0.0.1:3000/health` → `{"status":"ok"}`
+   - Metro: `curl http://127.0.0.1:8081/status` → `packager-status:running`
+5. For native iPhone changes only, run `cd mobile && ./run.sh device`
+
+### Default development assumptions
+
+- Default iOS target is a **physical iPhone over Wi-Fi**, not the simulator.
+- Default local ports:
+  - API: `3000`
+  - Metro: `8081`
+- Most day-to-day edits are **JS-only** and only require Fast Refresh / Reload, not a new native build.
+
+### Start here in the codebase
+
+- `mobile/src/screens/HomeScreen.tsx`
+  - Jar fan actions, Photos picker, photo preview screen, button styling
+- `mobile/src/screens/ImportFlowScreen.tsx`
+  - Route bootstrapping and state-to-view mapping
+- `mobile/src/features/import/machine.ts`
+  - Import flow state machine and actors
+- `mobile/src/services/api.ts`
+  - Mobile API client, image upload metadata passthrough
+- `server/src/api/drafts.routes.ts`
+  - Draft creation, page upload, parse, save endpoints
+- `server/src/parsing/image/`
+  - Upload-time normalization and parse-time OCR prep
+
+### Current image import UX
+
+- `Camera`:
+  - Jar → Camera → capture → reorder → upload → parse → preview → save
+- `Photos`:
+  - Jar → Photos → iOS system picker → full-screen photo preview → `Back` reopens picker, `Import This Photo` starts upload/parse
+- `URL`:
+  - Jar → URL → WebView browser → save current page URL into import flow
+
+### Critical current gotchas
+
+- If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.
+- If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.
+- `mobile/run.sh` is convenient, but its `device` path only prints the final `xcodebuild` line. If you see `(2 failures)` or an invalid bundle, run raw `xcodebuild` to get the real compiler errors.
+- Xcode `26.4` can fail building Hermes' bundled `fmt` pod with `consteval` errors. The project works around this in `mobile/ios/Podfile` by patching `Pods/fmt/include/fmt/base.h` during `pod install` to force `FMT_USE_CONSTEVAL 0`.
+
 ## 1. What This Project Is
 
 RecipeJar converts cookbook page photos and recipe URLs into structured digital recipes. It is a **trust-gated, validation-first** ingestion system. No recipe is saved unless it passes a deterministic validation engine. The system never trusts AI output directly — every parsed result is validated, and the user must explicitly resolve or acknowledge all issues before a save is allowed.
@@ -17,7 +78,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - React Native mobile app with navigation, screens, Zustand stores (recipes + collections), API client
 - Collections feature: create collections, many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder
 - Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment
-- Home screen with search bar, two-column recipe card grid, horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, URL, create collection), three empty states (no recipes, all organized, no search results)
+- Home screen with search bar, two-column recipe card grid, horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, photos, URL, create collection), three empty states (no recipes, all organized, no search results)
 - Long-press recipe cards to assign/move/remove collection membership with toast notification and undo
 - User notes: multiple text notes per recipe (max 250 chars each), add/edit via modal, delete with confirmation, newest-first with date and "Edited" label, displayed on recipe detail screen below steps
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
@@ -25,7 +86,8 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (71 keyword rules covering meal types, cuisines, proteins, drinks, diets, occasions, etc.; falls back to brown folder for unmatched names)
 - **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), **Save to RecipeJar** passes the omnibar URL into `ImportFlow` via stack `replace`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app.
 - **Home clipboard prompt:** If the pasteboard has text (`Clipboard.hasString()` — avoids proactive `getString()` / permission churn on iOS), a bottom sheet offers **Paste**; reading and URL validation happen only on that tap. After **Paste** or dismiss, the sheet stays suppressed until the app returns from **background** (not `inactive`, so system dialogs like paste permission do not re-enable the prompt).
-- **Recipe Saved → Add more:** URL imports return to `WebRecipeImport`; camera/image imports return to `ImportFlow` in image mode.
+- **Photo library import:** Jar "**Photos**" fan action opens the system image picker (`react-native-image-picker`). After the user picks an image, the app shows a full-screen preview with **Back** and **Import This Photo**. **Back** reopens the library picker so the user can choose a different image. **Import This Photo** sends the asset through the same upload → parse → preview → save pipeline as camera-captured images. On parse failure, a "Could Not Read Photo" screen with a "Go Home" button replaces the camera-oriented retake flow. Permission denial shows a gentle alert with an "Open Settings" link.
+- **Recipe Saved → Add more:** URL imports and Photos imports return to Home; camera imports return to `ImportFlow` in image mode.
 - URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). Server-side import remains **URL fetch only** (`fetchUrl`); bot-protected sites may still fail — see **Known gaps** (headless browser / client HTML upload roadmap).
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
@@ -106,7 +168,7 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 
 | What | Evidence |
 |---|---|
-| iOS native build | Xcode 26.3 compiles all native modules and CocoaPods dependencies, installs on physical iPhone |
+| iOS native build | Xcode 26.4 compiles all native modules and CocoaPods dependencies, installs on physical iPhone |
 | Camera capture flow | Photo taken of cookbook page via `react-native-vision-camera`, compressed via `sharp` server-side pipeline (3072px, JPEG 85%), uploaded to Supabase Storage, sent to GPT-5.4 Vision |
 | GPT-5.4 Vision image parsing (real cookbook) | Soy Sauce Marinade recipe: extracted title, 8 ingredients, 1 step from a real cookbook photo. Fraction accuracy verified (⅓, ¼, etc.) |
 | Full import flow on device | capture → reorder → upload → parse → preview → save — all working end-to-end |
@@ -116,6 +178,7 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Recipe list + detail views | HomeScreen displays saved recipes, RecipeDetailScreen shows full recipe content |
 | XCUITest UI tests | 19 of 21 automated UI tests pass on iPhone 16 (iOS 26.2). Tests verify home screen elements, FAB navigation, import flow screens, cancel dialogs, and recipe detail navigation |
 | URL import browser | URL FAB opens in-app browser; user can save native page URL into existing URL import pipeline |
+| Photos import browser flow | Photos FAB opens iOS system picker; selected image opens full-screen preview before import |
 
 ### Not Yet Proven
 
@@ -203,10 +266,11 @@ FLAGs never block saving. They are attention-only — the user can confirm/dismi
 
 ### State Machine
 
-Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 9 states:
+Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 9 states. Supports two image entry paths: camera capture (NEW_IMAGE_IMPORT → capture → reorder → uploading) and photo library import (PHOTOS_SELECTED → uploading directly).
 
 ```
 idle → capture (NEW_IMAGE_IMPORT)
+idle → uploading (PHOTOS_SELECTED — photo library import, skips capture/reorder)
 idle → creatingUrlDraft (NEW_URL_IMPORT)
 idle → resuming (RESUME_DRAFT)
 
@@ -222,6 +286,7 @@ parsing → retakeRequired (RETAKE issues)
 previewEdit → saving (ATTEMPT_SAVE, no blocking issues or retakes)
 
 retakeRequired → parsing (RETAKE_SUBMITTED)
+retakeRequired → idle (RETAKE_GO_HOME — Photos entry only)
 
 saving → saved (success, final state)
 saving → previewEdit (error)
@@ -950,6 +1015,7 @@ RecipeJar/
     ├── .gitignore
     ├── android/                         # Android native project (com.recipejar)
     ├── ios/                             # iOS native project (RecipeJar)
+    │   ├── Podfile                      # CocoaPods config + post_install patches (includes Xcode 26.4 fmt/Hermes workaround)
     │   ├── RecipeJarTests/             # XCTest unit test target (1 test)
     │   │   ├── RecipeJarTests.m        # Verifies home screen renders "RecipeJar" text
     │   │   └── Info.plist
@@ -978,7 +1044,7 @@ RecipeJar/
         ├── navigation/
         │   └── types.ts                # RootStackParamList (+ WebRecipeImport with optional initialUrl)
         ├── screens/
-        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB, clipboard prompt, toast on assignment
+        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB (camera, photos, URL, folder), photos preview/confirm UI, clipboard prompt, toast on assignment
         │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, long-press remove/assign
         │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection)
         │   ├── ImportFlowScreen.tsx     # renders state machine views + URL input gate
@@ -1065,6 +1131,34 @@ RecipeJar/
 
 **Fix:** Run the build with `--no-daemon --no-build-cache --project-cache-dir C:\tmp\rj-gradle`. See Section 8 for the full command. Also ensure Android Studio is closed when building from the command line.
 
+### Xcode 26.4 `fmt` / Hermes Build Failure
+
+**Problem:** iOS builds can fail in the `fmt` pod with errors like `call to consteval function ... is not a constant expression` from `Pods/fmt/include/fmt/format-inl.h`.
+
+**Cause:** Hermes' bundled `fmt` version enables `consteval` under Apple Clang in Xcode 26.4, but that toolchain/path is currently unreliable for this pod.
+
+**Fix:** The project patches `Pods/fmt/include/fmt/base.h` during `pod install` from `mobile/ios/Podfile` so `FMT_USE_CONSTEVAL` is forced to `0`. If you hit this error:
+
+1. Run `cd mobile/ios && pod install`
+2. Rebuild
+3. If the error persists, verify the patch exists in `Pods/fmt/include/fmt/base.h`
+
+### `run.sh device` Hides Real Xcode Errors
+
+**Problem:** `./run.sh device` can print only `(2 failures)` and then fail to install an app bundle, which makes the true cause hard to see.
+
+**Cause:** The device build script pipes `xcodebuild` output through `tail -1`, so you only see the last build line.
+
+**Fix:** Run raw `xcodebuild` from `mobile/` when debugging native build failures:
+
+```bash
+xcodebuild -workspace ios/RecipeJar.xcworkspace \
+  -scheme RecipeJar \
+  -configuration Debug \
+  -destination "id=<YOUR_DEVICE_UDID>" \
+  build
+```
+
 ---
 
 ## 13. Development Workflow
@@ -1072,6 +1166,25 @@ RecipeJar/
 ### Mobile app (fast default)
 
 When you work on `mobile/src/**`, follow **Section 8 — Fast iteration workflow (default)**. For a **physical iPhone**, start **`npm run dev:phone`** from the repo root so **API + Metro** are always up before you open the app. The documented iOS default is **Lincoln Ware's iPhone** over **Wi‑Fi** (`./run.sh device` after one-time pairing), not the simulator. Run **`./run.sh device`** once per session (or after native/Pod changes), then use Fast Refresh. Use `npm run start:reset` or `./run.sh metro-fresh` only when Metro’s cache is suspect; use full native rebuilds for deploys and native changes.
+
+### Tracing the import flow
+
+When changing import behavior, trace it in this order:
+
+1. `mobile/src/screens/HomeScreen.tsx`
+   - Entry-point buttons for Camera, Photos, and URL
+2. `mobile/src/navigation/types.ts`
+   - Route params passed into `ImportFlow`
+3. `mobile/src/screens/ImportFlowScreen.tsx`
+   - Boot logic, route param handling, screen rendering
+4. `mobile/src/features/import/machine.ts`
+   - Events, states, transitions, async actors
+5. `mobile/src/services/api.ts`
+   - Mobile upload/parse/save API calls
+6. `server/src/api/drafts.routes.ts`
+   - Server-side upload, parse, save endpoints
+
+This is the shortest correct mental model for both human contributors and AI agents.
 
 ### Adding a validation rule
 
@@ -1164,6 +1277,8 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 - **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.
 - **Multi-collection assignment UI**: Schema supports many-to-many; UI currently assigns one collection at a time.
 - **Varied cookbook formats**: Only tested on a few printed cookbook pages. Accuracy across handwritten, glossy, multi-column layouts is unverified.
+- **Multi-image photo library import**: MVP photo import supports a single image. Multi-image selection with shared reorder is planned (structural scaffolding in `PHOTOS_SELECTED` event accepts an array of image URIs).
+- **Server image format hardening**: Server-side `optimizeForUpload` silently falls back to the original buffer on failure. Phase 2: throw an error and return 422 so unsupported formats fail clearly instead of producing bad OCR results.
 
 ---
 
@@ -1171,6 +1286,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-03-25** — Photo library import via `react-native-image-picker` (jar "Photos" fan action, HEIC→JPEG via `assetRepresentationMode: "compatible"`, real MIME type/filename passthrough, Photos-aware retake screen with "Go Home" button, permission denial alert with Settings link); structural scaffolding for multi-image photo imports
 - **2026-03-25** — In-app WebView URL import (Google search, ad-domain blocking, Save → ImportFlow), Home clipboard sheet with session suppression, conditional **Add more** after save, mobile deps (`react-native-webview`, clipboard); README roadmap for bot-protected URL parsing
 - **2026-03-22** — Image optimization pipeline (`sharp`, 3072px, GPT-5.4, `detail: "high"`)
 - **2026-03-22** — User notes and star rating (4 new API endpoints, 3 new mobile components, migration 0004)

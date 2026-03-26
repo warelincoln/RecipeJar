@@ -7,11 +7,20 @@ import type {
   DraftStatus,
 } from "@recipejar/shared";
 
+export interface CapturedPage {
+  pageId: string;
+  imageUri: string;
+  orderIndex: number;
+  mimeType?: string;
+  fileName?: string;
+}
+
 export interface ImportContext {
   draftId: string | null;
   sourceType: "image" | "url";
+  imageEntry: "camera" | "photos";
   url: string | null;
-  capturedPages: { pageId: string; imageUri: string; orderIndex: number }[];
+  capturedPages: CapturedPage[];
   parsedCandidate: ParsedRecipeCandidate | null;
   editedCandidate: EditedRecipeCandidate | null;
   validationResult: ValidationResult | null;
@@ -23,6 +32,7 @@ export interface ImportContext {
 type ImportEvent =
   | { type: "NEW_IMAGE_IMPORT" }
   | { type: "NEW_URL_IMPORT"; url: string }
+  | { type: "PHOTOS_SELECTED"; imageUris: { uri: string; type?: string; fileName?: string }[] }
   | { type: "RESUME_DRAFT"; draftId: string }
   | { type: "PAGE_CAPTURED"; imageUri: string }
   | { type: "DONE_CAPTURING" }
@@ -31,6 +41,7 @@ type ImportEvent =
   | { type: "ATTEMPT_SAVE" }
   | { type: "RETAKE_SUBMITTED"; imageUri: string }
   | { type: "RETAKE_PAGE" }
+  | { type: "RETAKE_GO_HOME" }
   | { type: "REORDER"; pageOrder: { pageId: string; orderIndex: number }[] };
 
 const STATUS_TO_STATE: Record<DraftStatus, string> = {
@@ -67,12 +78,12 @@ export const importMachine = setup({
       async ({
         input,
       }: {
-        input: { pages: { imageUri: string; orderIndex: number }[] };
+        input: { pages: { imageUri: string; orderIndex: number; mimeType?: string; fileName?: string }[] };
       }) => {
         const draft = await api.drafts.create();
         const uploadedPages = [];
         for (const page of input.pages) {
-          const uploaded = await api.drafts.addPage(draft.id, page.imageUri);
+          const uploaded = await api.drafts.addPage(draft.id, page.imageUri, page.mimeType, page.fileName);
           uploadedPages.push(uploaded);
         }
         return { draftId: draft.id, pages: uploadedPages };
@@ -109,6 +120,7 @@ export const importMachine = setup({
   context: {
     draftId: null,
     sourceType: "image",
+    imageEntry: "camera",
     url: null,
     capturedPages: [],
     parsedCandidate: null,
@@ -127,6 +139,20 @@ export const importMachine = setup({
           actions: assign({
             sourceType: () => "url" as const,
             url: ({ event }) => event.url,
+          }),
+        },
+        PHOTOS_SELECTED: {
+          target: "uploading",
+          actions: assign({
+            imageEntry: () => "photos" as const,
+            capturedPages: ({ event }) =>
+              event.imageUris.map((img, i) => ({
+                pageId: "",
+                imageUri: img.uri,
+                orderIndex: i,
+                mimeType: img.type,
+                fileName: img.fileName,
+              })),
           }),
         },
         RESUME_DRAFT: {
@@ -247,6 +273,8 @@ export const importMachine = setup({
           pages: context.capturedPages.map((p) => ({
             imageUri: p.imageUri,
             orderIndex: p.orderIndex,
+            mimeType: p.mimeType,
+            fileName: p.fileName,
           })),
         }),
         onDone: {
@@ -338,6 +366,7 @@ export const importMachine = setup({
         RETAKE_SUBMITTED: {
           target: "parsing",
         },
+        RETAKE_GO_HOME: { target: "idle" },
       },
     },
 

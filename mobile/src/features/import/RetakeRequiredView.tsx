@@ -13,12 +13,16 @@ interface RetakeRequiredViewProps {
   pages: { pageId: string; imageUri: string; retakeCount: number }[];
   issues: ValidationIssue[];
   onRetake: (pageId: string) => void;
+  isPhotosEntry?: boolean;
+  onGoHome?: () => void;
 }
 
 export function RetakeRequiredView({
   pages,
   issues,
   onRetake,
+  isPhotosEntry,
+  onGoHome,
 }: RetakeRequiredViewProps) {
   const retakeIssues = issues.filter(
     (i) => i.severity === "RETAKE" || i.code === "POOR_IMAGE_QUALITY",
@@ -26,10 +30,13 @@ export function RetakeRequiredView({
 
   return (
     <View style={styles.container} testID="retake-screen">
-      <Text style={styles.title} testID="retake-title">Retake Required</Text>
+      <Text style={styles.title} testID="retake-title">
+        {isPhotosEntry ? "Could Not Read Photo" : "Retake Required"}
+      </Text>
       <Text style={styles.subtitle}>
-        Image quality or confidence is too low to extract the recipe reliably.
-        Please retake the affected page(s).
+        {isPhotosEntry
+          ? "We weren\u2019t able to extract a recipe from this photo. Try a different photo or use the camera for a clearer shot."
+          : "Image quality or confidence is too low to extract the recipe reliably. Please retake the affected page(s)."}
       </Text>
 
       {retakeIssues.map((issue) => (
@@ -38,32 +45,43 @@ export function RetakeRequiredView({
         </View>
       ))}
 
-      <FlatList
-        data={pages}
-        keyExtractor={(item) => item.pageId}
-        renderItem={({ item, index }) => (
-          <View style={styles.pageRow}>
-            <Image source={{ uri: item.imageUri }} style={styles.thumbnail} />
-            <View style={styles.pageInfo}>
-              <Text style={styles.pageLabel}>Page {index + 1}</Text>
-              <Text style={styles.retakeCount}>
-                Retakes: {item.retakeCount}/2
-              </Text>
+      {isPhotosEntry && onGoHome ? (
+        <TouchableOpacity
+          style={styles.goHomeButton}
+          onPress={onGoHome}
+          testID="retake-go-home"
+          accessibilityRole="button"
+        >
+          <Text style={styles.goHomeText}>Go Home</Text>
+        </TouchableOpacity>
+      ) : (
+        <FlatList
+          data={pages}
+          keyExtractor={(item) => item.pageId}
+          renderItem={({ item, index }) => (
+            <View style={styles.pageRow}>
+              <Image source={{ uri: item.imageUri }} style={styles.thumbnail} />
+              <View style={styles.pageInfo}>
+                <Text style={styles.pageLabel}>Page {index + 1}</Text>
+                <Text style={styles.retakeCount}>
+                  Retakes: {item.retakeCount}/2
+                </Text>
+              </View>
+              {item.retakeCount < 2 && (
+                <TouchableOpacity
+                  style={styles.retakeButton}
+                  onPress={() => onRetake(item.pageId)}
+                  testID={`retake-button-${index}`}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.retakeButtonText}>Retake</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            {item.retakeCount < 2 && (
-              <TouchableOpacity
-                style={styles.retakeButton}
-                onPress={() => onRetake(item.pageId)}
-                testID={`retake-button-${index}`}
-                accessibilityRole="button"
-              >
-                <Text style={styles.retakeButtonText}>Retake</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-        style={styles.list}
-      />
+          )}
+          style={styles.list}
+        />
+      )}
     </View>
   );
 }
@@ -91,4 +109,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8, borderRadius: 8,
   },
   retakeButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  goHomeButton: {
+    backgroundColor: "#2563eb", paddingHorizontal: 24,
+    paddingVertical: 14, borderRadius: 12, alignSelf: "center", marginTop: 24,
+  },
+  goHomeText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

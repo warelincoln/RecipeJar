@@ -18,7 +18,7 @@ import type { RootStackParamList } from "../navigation/types";
 type Props = NativeStackScreenProps<RootStackParamList, "ImportFlow">;
 
 export function ImportFlowScreen({ route, navigation }: Props) {
-  const { mode, url, resumeDraftId } = route.params ?? {
+  const { mode, url, resumeDraftId, photoUri, photoMimeType, photoFileName } = route.params ?? {
     mode: "image" as const,
   };
   const insets = useSafeAreaInsets();
@@ -26,7 +26,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const [awaitingUrl, setAwaitingUrl] = useState(mode === "url" && !url);
   /** Avoid duplicate bootstraps; also avoids retry loops when URL draft creation errors back to idle. */
   const lastBootKeyRef = useRef<string | null>(null);
-  const bootKey = `${mode}|${url ?? ""}|${resumeDraftId ?? ""}`;
+  const bootKey = `${mode}|${url ?? ""}|${resumeDraftId ?? ""}|${photoUri ?? ""}`;
 
   useEffect(() => {
     if (awaitingUrl) return;
@@ -43,11 +43,19 @@ export function ImportFlowScreen({ route, navigation }: Props) {
       send({ type: "NEW_URL_IMPORT", url });
       return;
     }
+    if (mode === "image" && photoUri) {
+      lastBootKeyRef.current = bootKey;
+      send({
+        type: "PHOTOS_SELECTED",
+        imageUris: [{ uri: photoUri, type: photoMimeType, fileName: photoFileName }],
+      });
+      return;
+    }
     if (mode === "image") {
       lastBootKeyRef.current = bootKey;
       send({ type: "NEW_IMAGE_IMPORT" });
     }
-  }, [awaitingUrl, bootKey, mode, url, resumeDraftId, state.value, send]);
+  }, [awaitingUrl, bootKey, mode, url, resumeDraftId, photoUri, photoMimeType, photoFileName, state.value, send]);
 
   const idleErrorAlertedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -188,6 +196,8 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           }))}
           issues={state.context.validationResult?.issues ?? []}
           onRetake={() => send({ type: "RETAKE_PAGE" })}
+          isPhotosEntry={state.context.imageEntry === "photos"}
+          onGoHome={() => navigation.navigate("Home")}
         />
       );
     }
@@ -199,11 +209,14 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           onViewRecipe={(id) =>
             navigation.replace("RecipeDetail", { recipeId: id })
           }
-          onAddMore={() =>
-            mode === "url"
-              ? navigation.replace("WebRecipeImport", {})
-              : navigation.replace("ImportFlow", { mode: "image" })
-          }
+          onAddMore={() => {
+            if (state.context.imageEntry === "photos" || mode === "url") {
+              navigation.navigate("Home");
+            } else {
+              navigation.replace("ImportFlow", { mode: "image" });
+            }
+          }}
+          addMoreLabel={state.context.imageEntry === "photos" ? "Import Another" : "Add More"}
           onDone={() => navigation.navigate("Home")}
         />
       );

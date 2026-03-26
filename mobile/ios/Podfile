@@ -37,6 +37,19 @@ target 'RecipeJar' do
       :ccache_enabled => false
     )
 
+    # Xcode 26+ Apple Clang claims consteval support but fmt's usage triggers
+    # "not a constant expression" errors. Patch base.h to disable consteval.
+    fmt_base = File.join(__dir__, 'Pods', 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      File.chmod(0644, fmt_base)
+      content = File.read(fmt_base)
+      patched = content.sub(
+        /^#elif defined\(__cpp_consteval\)\n#  define FMT_USE_CONSTEVAL 1$/,
+        "#elif defined(__cpp_consteval)\n#  define FMT_USE_CONSTEVAL 0  // patched: consteval broken on Xcode 26+"
+      )
+      File.write(fmt_base, patched) if patched != content
+    end
+
     # Paths with spaces break RN's ReactCodegen script: unquoted exports truncate at the first
     # space, and `sh -c "$A $B"` still word-splits when executing the inner command line.
     installer.pods_project.targets.each do |target|

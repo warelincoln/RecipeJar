@@ -37,6 +37,18 @@ final class ImportFlowUITests: XCTestCase {
         element("jar-modal-url").tap()
     }
 
+    // MARK: - Photos Fan Action
+
+    func testPhotosButtonExistsInJarMenu() {
+        XCTAssertTrue(waitForHomeScreen())
+        element("jar-button").tap()
+
+        let photosButton = element("jar-fan-photos")
+        XCTAssertTrue(photosButton.waitForExistence(timeout: 5),
+                      "Photos fan button should appear in the jar menu")
+        XCTAssertTrue(photosButton.isHittable, "Photos button should be tappable")
+    }
+
     // MARK: - Capture View
 
     func testCaptureViewShowsCancelButton() {

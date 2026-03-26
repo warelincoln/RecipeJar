@@ -7,6 +7,13 @@ export type RootStackParamList = {
     collectionName: string;
     isAllRecipes?: boolean;
   };
-  ImportFlow: { mode: "image" | "url"; url?: string; resumeDraftId?: string };
+  ImportFlow: {
+    mode: "image" | "url";
+    url?: string;
+    resumeDraftId?: string;
+    photoUri?: string;
+    photoMimeType?: string;
+    photoFileName?: string;
+  };
   WebRecipeImport: { initialUrl?: string };
 };

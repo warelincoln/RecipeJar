@@ -13,7 +13,10 @@ import {
   Dimensions,
   Platform,
   AppState,
+  Linking,
+  Image,
 } from "react-native";
+import { launchImageLibrary } from "react-native-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Amphora,
@@ -78,6 +81,7 @@ import {
   HandPlatter,
   GlassWater,
   LeafyGreen,
+  ImageIcon,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useRecipesStore } from "../stores/recipes.store";
@@ -203,6 +207,11 @@ export function HomeScreen({ navigation }: Props) {
   const [jarOpen, setJarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [clipboardPromptVisible, setClipboardPromptVisible] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<{
+    uri: string;
+    type?: string;
+    fileName?: string;
+  } | null>(null);
   const suppressClipboardPromptRef = useRef(false);
   const fanAnim = useRef(new Animated.Value(0)).current;
   const toastRef = useRef<ToastQueueHandle>(null);
@@ -309,6 +318,45 @@ export function HomeScreen({ navigation }: Props) {
       },
     );
   };
+
+  const openPhotoPicker = useCallback(async () => {
+    try {
+      const result = await launchImageLibrary({
+        mediaType: "photo",
+        selectionLimit: 1,
+      });
+
+      if (result.didCancel) return;
+
+      if (result.errorCode) {
+        if (result.errorCode === "permission") {
+          Alert.alert(
+            "Photo Access Required",
+            "RecipeJar needs access to your photo library. You can enable it in Settings.",
+            [
+              { text: "Not Now", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ],
+          );
+        } else {
+          Alert.alert("Could not open photos", result.errorMessage ?? "Unknown error");
+        }
+        return;
+      }
+
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+
+      setPhotoPreview({
+        uri: asset.uri,
+        type: asset.type,
+        fileName: asset.fileName,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert("Could not open photos", msg);
+    }
+  }, []);
 
   const handleLongPressRecipe = (item: Recipe) => {
     if (collections.length === 0) {
@@ -556,9 +604,9 @@ export function HomeScreen({ navigation }: Props) {
 
       {[
         {
-          icon: <Camera size={24} color="#fff" />,
+          icon: <Camera size={24} color="#0ea5e9" />,
           label: "Camera",
-          angle: -140,
+          angle: -155,
           testID: "jar-fan-camera",
           onPress: () => {
             toggleJar();
@@ -566,9 +614,19 @@ export function HomeScreen({ navigation }: Props) {
           },
         },
         {
-          icon: <Link size={24} color="#fff" />,
+          icon: <ImageIcon size={24} color="#ec4899" />,
+          label: "Photos",
+          angle: -114,
+          testID: "jar-fan-photos",
+          onPress: () => {
+            toggleJar();
+            openPhotoPicker();
+          },
+        },
+        {
+          icon: <Link size={24} color="#22c55e" />,
           label: "URL",
-          angle: -90,
+          angle: -66,
           testID: "jar-fan-url",
           onPress: () => {
             toggleJar();
@@ -576,9 +634,9 @@ export function HomeScreen({ navigation }: Props) {
           },
         },
         {
-          icon: <FolderOpen size={24} color="#fff" />,
+          icon: <FolderOpen size={24} color="#a855f7" />,
           label: "Add Folder",
-          angle: -40,
+          angle: -25,
           testID: "jar-fan-collection",
           onPress: () => {
             toggleJar();
@@ -657,6 +715,46 @@ export function HomeScreen({ navigation }: Props) {
           navigation.navigate("WebRecipeImport", { initialUrl: url })
         }
       />
+
+      {photoPreview && (
+        <View style={[styles.photoPreviewOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]} testID="photo-preview">
+          <Image
+            source={{ uri: photoPreview.uri }}
+            style={styles.photoPreviewImage}
+            resizeMode="contain"
+          />
+          <View style={styles.photoPreviewActions}>
+            <TouchableOpacity
+              style={styles.photoPreviewCancel}
+              onPress={() => {
+                setPhotoPreview(null);
+                openPhotoPicker();
+              }}
+              testID="photo-preview-back"
+              accessibilityRole="button"
+            >
+              <Text style={styles.photoPreviewCancelText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.photoPreviewImport}
+              onPress={() => {
+                const { uri, type, fileName } = photoPreview;
+                setPhotoPreview(null);
+                navigation.navigate("ImportFlow", {
+                  mode: "image",
+                  photoUri: uri,
+                  photoMimeType: type,
+                  photoFileName: fileName,
+                });
+              }}
+              testID="photo-preview-import"
+              accessibilityRole="button"
+            >
+              <Text style={styles.photoPreviewImportText}>Import This Photo</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -803,19 +901,61 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#2563eb",
+    backgroundColor: "#e8eaef",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    elevation: 4,
   },
   fanLabel: {
     fontSize: 11,
     fontWeight: "600",
     color: "#374151",
     marginTop: 4,
+  },
+  photoPreviewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  photoPreviewImage: {
+    flex: 1,
+    width: "100%",
+  },
+  photoPreviewActions: {
+    flexDirection: "row",
+    gap: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+  },
+  photoPreviewCancel: {
+    flex: 1,
+    backgroundColor: "#374151",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  photoPreviewCancelText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  photoPreviewImport: {
+    flex: 1,
+    backgroundColor: "#2563eb",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  photoPreviewImportText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "600",
   },
 });

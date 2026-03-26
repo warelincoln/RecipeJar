@@ -6,10 +6,11 @@ interface SavedViewProps {
   recipeId: string | null;
   onViewRecipe: (id: string) => void;
   onAddMore: () => void;
+  addMoreLabel?: string;
   onDone: () => void;
 }
 
-export function SavedView({ recipeId, onViewRecipe, onAddMore, onDone }: SavedViewProps) {
+export function SavedView({ recipeId, onViewRecipe, onAddMore, addMoreLabel, onDone }: SavedViewProps) {
   return (
     <View style={styles.container} testID="saved-screen">
       <Check size={64} color="#16a34a" style={styles.checkmark} />
@@ -37,7 +38,7 @@ export function SavedView({ recipeId, onViewRecipe, onAddMore, onDone }: SavedVi
           accessibilityRole="button"
           accessibilityLabel="saved-add-more"
         >
-          <Text style={styles.addMoreText}>Add More</Text>
+          <Text style={styles.addMoreText}>{addMoreLabel ?? "Add More"}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.doneButton} onPress={onDone} testID="saved-done" accessibilityRole="button" accessibilityLabel="saved-done">
           <Text style={styles.doneText}>Done</Text>

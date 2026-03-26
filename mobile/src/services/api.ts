@@ -55,12 +55,12 @@ export const api = {
       });
     },
 
-    async addPage(draftId: string, imageUri: string) {
+    async addPage(draftId: string, imageUri: string, mimeType?: string, fileName?: string) {
       const formData = new FormData();
       formData.append("file", {
         uri: imageUri,
-        type: "image/jpeg",
-        name: "page.jpg",
+        type: mimeType ?? "image/jpeg",
+        name: fileName ?? "page.jpg",
       } as unknown as Blob);
 
       const response = await fetch(`${BASE_URL}/drafts/${draftId}/pages`, {
