@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   normalizeToCandidate,
   buildErrorCandidate,
@@ -8,9 +8,14 @@ import {
 import { extractStructuredData, extractMicrodata } from "../src/parsing/url/url-structured.adapter.js";
 import { extractDomBoundary } from "../src/parsing/url/url-dom.adapter.js";
 import { normalizeUrl } from "../src/parsing/url/url-fetch.service.js";
-import { smartTruncate } from "../src/parsing/url/url-ai.adapter.js";
+import * as urlAiAdapter from "../src/parsing/url/url-ai.adapter.js";
+import { parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
 import { validateRecipe } from "../src/domain/validation/validation.engine.js";
 import type { SourcePage } from "@recipejar/shared";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const testPages: SourcePage[] = [
   {
@@ -233,6 +238,102 @@ describe("extractStructuredData", () => {
     const result = extractStructuredData(html);
     expect(result).not.toBeNull();
     expect(result!.title).toBe("Soup");
+  });
+});
+
+describe("parseUrlFromHtml", () => {
+  it("uses JSON-LD first when structured data passes the quality gate", async () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Browser Pancakes",
+        "recipeIngredient": ["2 cups flour", "1 cup milk"],
+        "recipeInstructions": [{"text": "Mix the batter."}]
+      }
+      </script>
+      </head><body></body></html>
+    `;
+
+    const result = await parseUrlFromHtml(
+      "https://example.com/pancakes",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result.title).toBe("Browser Pancakes");
+    expect(result.ingredients).toHaveLength(2);
+    expect(result.steps).toHaveLength(1);
+    expect(result.extractionMethod).toBe("json-ld");
+  });
+
+  it("falls back to microdata when JSON-LD is absent", async () => {
+    const html = `
+      <html><body itemscope itemtype="https://schema.org/Recipe">
+        <h1 itemprop="name">Microdata Soup</h1>
+        <ul>
+          <li itemprop="recipeIngredient">2 cups stock</li>
+          <li itemprop="recipeIngredient">1 tsp salt</li>
+        </ul>
+        <div itemprop="recipeInstructions">
+          <p itemprop="text">Simmer everything together.</p>
+        </div>
+      </body></html>
+    `;
+
+    const result = await parseUrlFromHtml(
+      "https://example.com/soup",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result.title).toBe("Microdata Soup");
+    expect(result.extractionMethod).toBe("microdata");
+  });
+
+  it("uses DOM plus AI fallback when structured extraction fails", async () => {
+    vi.spyOn(urlAiAdapter, "parseWithAI").mockResolvedValue({
+      title: "DOM AI Chili",
+      ingredients: [
+        { text: "1 onion", isHeader: false },
+        { text: "1 can beans", isHeader: false },
+      ],
+      steps: [{ text: "Cook until hot.", isHeader: false }],
+      description: null,
+      signals: { descriptionDetected: false },
+      ingredientSignals: [],
+      stepSignals: [],
+    });
+
+    const html = `
+      <html><body>
+        <main>
+          <h1>DOM AI Chili</h1>
+          <p>${"Intro text ".repeat(20)}</p>
+          <h2>Ingredients</h2>
+          <ul>
+            <li>1 onion</li>
+            <li>1 can beans</li>
+          </ul>
+          <h2>Instructions</h2>
+          <p>Cook until hot.</p>
+        </main>
+      </body></html>
+    `;
+
+    const result = await parseUrlFromHtml(
+      "https://example.com/chili",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result.title).toBe("DOM AI Chili");
+    expect(result.extractionMethod).toBe("dom-ai");
+    expect(urlAiAdapter.parseWithAI).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -511,6 +612,7 @@ describe("normalizeUrl", () => {
 });
 
 describe("smartTruncate", () => {
+  const { smartTruncate } = urlAiAdapter;
   it("returns full text when under limit", () => {
     const text = "Short recipe text";
     expect(smartTruncate(text, 8000)).toBe(text);

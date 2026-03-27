@@ -65,6 +65,7 @@ vi.mock("../src/parsing/image/image-parse.adapter.js", () => ({
 
 vi.mock("../src/parsing/url/url-parse.adapter.js", () => ({
   parseUrl: vi.fn(),
+  parseUrlFromHtml: vi.fn(),
 }));
 
 vi.mock("../src/observability/event-logger.js", () => ({
@@ -87,7 +88,7 @@ import { draftsRepository } from "../src/persistence/drafts.repository.js";
 import { recipesRepository } from "../src/persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../src/persistence/recipe-notes.repository.js";
 import { parseImages } from "../src/parsing/image/image-parse.adapter.js";
-import { parseUrl } from "../src/parsing/url/url-parse.adapter.js";
+import { parseUrl, parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
 import type { ParsedRecipeCandidate } from "@recipejar/shared";
 
 const draftRepo = vi.mocked(draftsRepository);
@@ -95,6 +96,7 @@ const recipeRepo = vi.mocked(recipesRepository);
 const notesRepo = vi.mocked(recipeNotesRepository);
 const mockParseImages = vi.mocked(parseImages);
 const mockParseUrl = vi.mocked(parseUrl);
+const mockParseUrlFromHtml = vi.mocked(parseUrlFromHtml);
 
 function cleanCandidate(): ParsedRecipeCandidate {
   return {
@@ -104,8 +106,8 @@ function cleanCandidate(): ParsedRecipeCandidate {
       { id: "i2", text: "1 cup milk", orderIndex: 1, isHeader: false },
     ],
     steps: [
-      { id: "s1", text: "Mix dry ingredients.", orderIndex: 0 },
-      { id: "s2", text: "Add wet ingredients and stir.", orderIndex: 1 },
+      { id: "s1", text: "Mix dry ingredients.", orderIndex: 0, isHeader: false },
+      { id: "s2", text: "Add wet ingredients and stir.", orderIndex: 1, isHeader: false },
     ],
     description: null,
     sourceType: "image",
@@ -280,7 +282,134 @@ describe("API Integration", () => {
       expect(mockParseUrl).toHaveBeenCalledWith(
         "https://example.com/recipe",
         expect.any(Array),
+        "server-fetch",
       );
+    });
+
+    it("parses URL draft with browser-supplied HTML when provided", async () => {
+      const candidate = cleanCandidate();
+      candidate.sourceType = "url";
+
+      draftRepo.findById.mockResolvedValue({
+        id: "d2",
+        status: "READY_FOR_PARSE",
+        sourceType: "url",
+        originalUrl: "https://example.com/recipe",
+      } as never);
+      draftRepo.updateStatus.mockResolvedValue({} as never);
+      draftRepo.getPages.mockResolvedValue([] as never);
+      mockParseUrlFromHtml.mockResolvedValue(candidate);
+      draftRepo.setParsedCandidate.mockResolvedValue({} as never);
+      draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/drafts/d2/parse",
+        payload: {
+          html: "<html><body>Recipe</body></html>",
+          acquisitionMethod: "webview-html",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(mockParseUrlFromHtml).toHaveBeenCalledWith(
+        "https://example.com/recipe",
+        "<html><body>Recipe</body></html>",
+        expect.any(Array),
+        "webview-html",
+      );
+      expect(mockParseUrl).not.toHaveBeenCalled();
+    });
+
+    it("marks technical HTML capture fallback separately from normal server fetch", async () => {
+      const candidate = cleanCandidate();
+      candidate.sourceType = "url";
+
+      draftRepo.findById.mockResolvedValue({
+        id: "d2",
+        status: "READY_FOR_PARSE",
+        sourceType: "url",
+        originalUrl: "https://example.com/recipe",
+      } as never);
+      draftRepo.updateStatus.mockResolvedValue({} as never);
+      draftRepo.getPages.mockResolvedValue([] as never);
+      mockParseUrl.mockResolvedValue(candidate);
+      draftRepo.setParsedCandidate.mockResolvedValue({} as never);
+      draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/drafts/d2/parse",
+        payload: {
+          acquisitionMethod: "server-fetch-fallback",
+          captureFailureReason: "capture_timeout",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(mockParseUrl).toHaveBeenCalledWith(
+        "https://example.com/recipe",
+        expect.any(Array),
+        "server-fetch-fallback",
+      );
+    });
+
+    it("rejects oversized browser HTML before parsing", async () => {
+      draftRepo.findById.mockResolvedValue({
+        id: "d2",
+        status: "READY_FOR_PARSE",
+        sourceType: "url",
+        originalUrl: "https://example.com/recipe",
+      } as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/drafts/d2/parse",
+        payload: {
+          html: "x".repeat(750_001),
+          acquisitionMethod: "webview-html",
+        },
+      });
+
+      expect(res.statusCode).toBe(413);
+      expect(mockParseUrlFromHtml).not.toHaveBeenCalled();
+      expect(mockParseUrl).not.toHaveBeenCalled();
+      expect(draftRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not fall back to server fetch when browser HTML parsing succeeds but yields a weak candidate", async () => {
+      const weakCandidate = {
+        ...cleanCandidate(),
+        sourceType: "url" as const,
+        title: null,
+        ingredients: [],
+        steps: [],
+      };
+
+      draftRepo.findById.mockResolvedValue({
+        id: "d2",
+        status: "READY_FOR_PARSE",
+        sourceType: "url",
+        originalUrl: "https://example.com/recipe",
+      } as never);
+      draftRepo.updateStatus.mockResolvedValue({} as never);
+      draftRepo.getPages.mockResolvedValue([] as never);
+      mockParseUrlFromHtml.mockResolvedValue(weakCandidate);
+      draftRepo.setParsedCandidate.mockResolvedValue({} as never);
+      draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/drafts/d2/parse",
+        payload: {
+          html: "<html><body>Not really a recipe</body></html>",
+          acquisitionMethod: "webview-html",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(mockParseUrlFromHtml).toHaveBeenCalledTimes(1);
+      expect(mockParseUrl).not.toHaveBeenCalled();
     });
 
     it("returns 404 for missing draft", async () => {

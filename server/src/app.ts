@@ -1,11 +1,15 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
+import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
 import { draftsRoutes } from "./api/drafts.routes.js";
 import { recipesRoutes } from "./api/recipes.routes.js";
 import { collectionsRoutes } from "./api/collections.routes.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+  bodyLimit: URL_IMPORT_HTML_MAX_BYTES + 64 * 1024,
+});
 
 app.addContentTypeParser(
   "application/json",

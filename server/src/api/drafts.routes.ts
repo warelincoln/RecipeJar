@@ -11,10 +11,23 @@ import type {
   ValidationResult,
   SourcePage,
 } from "@recipejar/shared";
+import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
 import { parseImages } from "../parsing/image/image-parse.adapter.js";
-import { parseUrl } from "../parsing/url/url-parse.adapter.js";
+import {
+  parseUrl,
+  parseUrlFromHtml,
+  type UrlAcquisitionMethod,
+} from "../parsing/url/url-parse.adapter.js";
 import { logEvent } from "../observability/event-logger.js";
 import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
+
+const URL_PARSE_CAPTURE_FAILURE_REASONS = new Set([
+  "injection_failed",
+  "capture_timeout",
+  "page_not_ready",
+  "payload_too_large",
+  "message_transport_failed",
+]);
 
 const STORAGE_BUCKET = "recipe-pages";
 
@@ -143,9 +156,24 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/parse",
     async (request, reply) => {
       const { draftId } = request.params;
+      const parseBody = (request.body ?? {}) as {
+        html?: string;
+        acquisitionMethod?: UrlAcquisitionMethod;
+        captureFailureReason?: string;
+      };
+      const suppliedHtml =
+        typeof parseBody.html === "string" ? parseBody.html.trim() : "";
       const draft = await draftsRepository.findById(draftId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
+      }
+
+      if (
+        draft.sourceType === "url" &&
+        suppliedHtml &&
+        Buffer.byteLength(suppliedHtml, "utf8") > URL_IMPORT_HTML_MAX_BYTES
+      ) {
+        return reply.status(413).send({ error: "Captured page is too large to import." });
       }
 
       await draftsRepository.updateStatus(draftId, "PARSING");
@@ -164,7 +192,32 @@ export async function draftsRoutes(app: FastifyInstance) {
       let candidate: ParsedRecipeCandidate;
 
       if (draft.sourceType === "url" && draft.originalUrl) {
-        candidate = await parseUrl(draft.originalUrl, sourcePages);
+        if (suppliedHtml) {
+          candidate = await parseUrlFromHtml(
+            draft.originalUrl,
+            suppliedHtml,
+            sourcePages,
+            "webview-html",
+          );
+        } else {
+          const acquisitionMethod: UrlAcquisitionMethod =
+            parseBody.acquisitionMethod === "server-fetch-fallback"
+              ? "server-fetch-fallback"
+              : "server-fetch";
+
+          if (
+            acquisitionMethod === "server-fetch-fallback" &&
+            typeof parseBody.captureFailureReason === "string" &&
+            URL_PARSE_CAPTURE_FAILURE_REASONS.has(parseBody.captureFailureReason)
+          ) {
+            logEvent("url_parse_capture_failed", {
+              draftId,
+              reason: parseBody.captureFailureReason,
+            });
+          }
+
+          candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
+        }
       } else {
         const imageDataUrls = await Promise.all(
           pages.map(async (page) => {
@@ -187,6 +240,17 @@ export async function draftsRoutes(app: FastifyInstance) {
           })
         );
         candidate = await parseImages(imageDataUrls, sourcePages);
+      }
+
+      if (draft.sourceType === "url" && draft.originalUrl) {
+        logEvent("url_parse_source_selected", {
+          draftId,
+          acquisitionMethod: suppliedHtml
+            ? "webview-html"
+            : parseBody.acquisitionMethod === "server-fetch-fallback"
+              ? "server-fetch-fallback"
+              : "server-fetch",
+        });
       }
 
       const validationResult = validateRecipe(candidate);
@@ -215,22 +279,11 @@ export async function draftsRoutes(app: FastifyInstance) {
       logEvent("validation_completed", {
         draftId,
         issueCountBlock: validationResult.issues.filter((i) => i.severity === "BLOCK").length,
-        issueCountCorrectionRequired: validationResult.issues.filter((i) => i.severity === "CORRECTION_REQUIRED").length,
         issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG").length,
         issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE").length,
       });
 
-      let nextStatus: string;
-      if (validationResult.requiresRetake) {
-        nextStatus = "NEEDS_RETAKE";
-      } else if (
-        validationResult.hasBlockingIssues &&
-        validationResult.canEnterCorrectionMode
-      ) {
-        nextStatus = "IN_GUIDED_CORRECTION";
-      } else {
-        nextStatus = "PARSED";
-      }
+      const nextStatus = validationResult.requiresRetake ? "NEEDS_RETAKE" : "PARSED";
       await draftsRepository.updateStatus(draftId, nextStatus);
 
       return reply.send({

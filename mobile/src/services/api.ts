@@ -7,6 +7,17 @@ import type {
   RecipeNote,
 } from "@recipejar/shared";
 
+export interface UrlParseRequest {
+  html?: string;
+  acquisitionMethod?: "webview-html" | "server-fetch" | "server-fetch-fallback";
+  captureFailureReason?:
+    | "injection_failed"
+    | "capture_timeout"
+    | "page_not_ready"
+    | "payload_too_large"
+    | "message_transport_failed";
+}
+
 const BASE_URL = __DEV__
   ? "http://192.168.146.215:3000"
   : "https://api.recipejar.app";
@@ -99,12 +110,14 @@ export const api = {
       return response.json();
     },
 
-    parse(draftId: string) {
+    parse(draftId: string, payload?: UrlParseRequest) {
       return request<{
         status: string;
         candidate: ParsedRecipeCandidate;
         validationResult: ValidationResult;
-      }>(`/drafts/${draftId}/parse`, { method: "POST" });
+      }>(`/drafts/${draftId}/parse`, payload
+        ? { method: "POST", body: JSON.stringify(payload) }
+        : { method: "POST" });
     },
 
     updateCandidate(draftId: string, candidate: EditedRecipeCandidate) {

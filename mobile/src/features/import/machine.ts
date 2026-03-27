@@ -1,5 +1,5 @@
 import { setup, assign, fromPromise } from "xstate";
-import { api } from "../../services/api";
+import { api, type UrlParseRequest } from "../../services/api";
 import type {
   ParsedRecipeCandidate,
   EditedRecipeCandidate,
@@ -20,6 +20,9 @@ export interface ImportContext {
   sourceType: "image" | "url";
   imageEntry: "camera" | "photos";
   url: string | null;
+  urlHtml: string | null;
+  urlAcquisitionMethod: UrlParseRequest["acquisitionMethod"] | null;
+  urlCaptureFailureReason: UrlParseRequest["captureFailureReason"] | null;
   capturedPages: CapturedPage[];
   parsedCandidate: ParsedRecipeCandidate | null;
   editedCandidate: EditedRecipeCandidate | null;
@@ -31,7 +34,13 @@ export interface ImportContext {
 
 type ImportEvent =
   | { type: "NEW_IMAGE_IMPORT" }
-  | { type: "NEW_URL_IMPORT"; url: string }
+  | {
+      type: "NEW_URL_IMPORT";
+      url: string;
+      urlHtml?: string;
+      urlAcquisitionMethod?: UrlParseRequest["acquisitionMethod"];
+      urlCaptureFailureReason?: UrlParseRequest["captureFailureReason"];
+    }
   | { type: "PHOTOS_SELECTED"; imageUris: { uri: string; type?: string; fileName?: string }[] }
   | { type: "RESUME_DRAFT"; draftId: string }
   | { type: "PAGE_CAPTURED"; imageUri: string }
@@ -90,8 +99,30 @@ export const importMachine = setup({
       },
     ),
     parseDraft: fromPromise(
-      async ({ input }: { input: { draftId: string } }) => {
-        return api.drafts.parse(input.draftId);
+      async ({
+        input,
+      }: {
+        input: {
+          draftId: string;
+          urlHtml?: string | null;
+          acquisitionMethod?: UrlParseRequest["acquisitionMethod"] | null;
+          captureFailureReason?: UrlParseRequest["captureFailureReason"] | null;
+        };
+      }) => {
+        const parsePayload: UrlParseRequest | undefined =
+          input.urlHtml || input.acquisitionMethod === "server-fetch-fallback"
+            ? {
+                ...(input.urlHtml ? { html: input.urlHtml } : {}),
+                ...(input.acquisitionMethod
+                  ? { acquisitionMethod: input.acquisitionMethod }
+                  : {}),
+                ...(input.captureFailureReason
+                  ? { captureFailureReason: input.captureFailureReason }
+                  : {}),
+              }
+            : undefined;
+
+        return api.drafts.parse(input.draftId, parsePayload);
       },
     ),
     saveDraft: fromPromise(
@@ -122,6 +153,9 @@ export const importMachine = setup({
     sourceType: "image",
     imageEntry: "camera",
     url: null,
+    urlHtml: null,
+    urlAcquisitionMethod: null,
+    urlCaptureFailureReason: null,
     capturedPages: [],
     parsedCandidate: null,
     editedCandidate: null,
@@ -139,6 +173,11 @@ export const importMachine = setup({
           actions: assign({
             sourceType: () => "url" as const,
             url: ({ event }) => event.url,
+            urlHtml: ({ event }) => event.urlHtml ?? null,
+            urlAcquisitionMethod: ({ event }) =>
+              event.urlAcquisitionMethod ?? (event.urlHtml ? "webview-html" : "server-fetch"),
+            urlCaptureFailureReason: ({ event }) =>
+              event.urlCaptureFailureReason ?? null,
           }),
         },
         PHOTOS_SELECTED: {
@@ -301,7 +340,12 @@ export const importMachine = setup({
       },
       invoke: {
         src: "parseDraft",
-        input: ({ context }) => ({ draftId: context.draftId! }),
+        input: ({ context }) => ({
+          draftId: context.draftId!,
+          urlHtml: context.urlHtml,
+          acquisitionMethod: context.urlAcquisitionMethod,
+          captureFailureReason: context.urlCaptureFailureReason,
+        }),
         onDone: [
           {
             guard: ({ event }) => event.output.status === "NEEDS_RETAKE",

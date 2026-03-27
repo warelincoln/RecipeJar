@@ -242,16 +242,21 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 
 **Input:** URL to a recipe site that blocks server-side fetching (e.g., AllRecipes, Simply Recipes).
 
-**API sequence:** Same as Scenario 7.
+**API sequence (browser-backed path):**
+1. Open the page in `WebRecipeImportScreen`
+2. Tap **Save to RecipeJar**
+3. App attempts WebView HTML capture and calls `POST /drafts/:id/parse` with `{ html, acquisitionMethod: "webview-html" }`
+4. If capture fails technically, app retries once with `POST /drafts/:id/parse` and `{ acquisitionMethod: "server-fetch-fallback", captureFailureReason }`
 
 **Expected behavior:**
-1. First fetch attempt with bot UA returns 403
-2. Automatic retry with browser-like Chrome UA
-3. If browser UA also fails: `buildErrorCandidate()` with error signals
+1. Browser-backed import should prefer captured WebView HTML over server fetch
+2. If HTML capture succeeds, the normal extraction cascade runs on that HTML
+3. If HTML capture fails technically, the app falls back once to server fetch
+4. If server fetch also fails, `buildErrorCandidate()` is returned with error signals
 
-**If browser UA succeeds:** Normal extraction cascade runs on the returned HTML.
+**If browser HTML capture succeeds:** Normal extraction cascade runs on the captured HTML.
 
-**If browser UA also fails:**
+**If browser capture fails and server fetch also fails:**
 
 | Code | Severity | Notes |
 |------|----------|-------|
@@ -266,9 +271,11 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 **Machine state after parse:** `retakeRequired` (due to error-candidate signals)
 
 **Key behavior to verify:**
-- Extraction method logged as `error` with reason
+- Acquisition method logged as `webview-html`, `server-fetch-fallback`, or `server-fetch`
+- Extraction method logged as `json-ld`, `microdata`, `dom-ai`, or `error` with reason
+- Successful HTML capture does not silently re-run server fetch when parsing returns a weak candidate
 - Server doesn't crash on fetch failure
-- Browser UA fallback is attempted before giving up
+- Browser capture failure triggers at most one server-fetch fallback
 - User should be informed the URL could not be accessed
 
 ---

@@ -10,6 +10,10 @@ import {
 } from "../normalize.js";
 
 type ExtractionMethod = "json-ld" | "microdata" | "dom-ai" | "error";
+export type UrlAcquisitionMethod =
+  | "server-fetch"
+  | "webview-html"
+  | "server-fetch-fallback";
 
 /**
  * Quality gate: structured data must meet minimum thresholds
@@ -48,13 +52,32 @@ function logExtraction(
 export async function parseUrl(
   url: string,
   sourcePages: SourcePage[],
+  acquisitionMethod: UrlAcquisitionMethod = "server-fetch",
 ): Promise<ParsedRecipeCandidate> {
   let html: string;
   try {
     html = await fetchUrl(url);
   } catch (err) {
     logExtraction("error", url, {
+      acquisitionMethod,
       reason: err instanceof Error ? err.message : "fetch failed",
+    });
+    return buildErrorCandidate("url", sourcePages);
+  }
+
+  return parseUrlFromHtml(url, html, sourcePages, acquisitionMethod);
+}
+
+export async function parseUrlFromHtml(
+  url: string,
+  html: string,
+  sourcePages: SourcePage[],
+  acquisitionMethod: UrlAcquisitionMethod = "webview-html",
+): Promise<ParsedRecipeCandidate> {
+  if (!html.trim()) {
+    logExtraction("error", url, {
+      acquisitionMethod,
+      reason: "empty_html",
     });
     return buildErrorCandidate("url", sourcePages);
   }
@@ -65,6 +88,7 @@ export async function parseUrl(
 
   if (structured && passesQualityGate(structured)) {
     logExtraction("json-ld", url, {
+      acquisitionMethod,
       ingredients: structured.ingredients?.length,
       steps: structured.steps?.length,
     });
@@ -80,6 +104,7 @@ export async function parseUrl(
       fallbackMetadata = structured.metadata;
     }
     logExtraction("json-ld", url, {
+      acquisitionMethod,
       rejected: true,
       reason: "quality_gate_failed",
       ingredients: structured.ingredients?.length,
@@ -92,6 +117,7 @@ export async function parseUrl(
   const microdata = extractMicrodata(html);
   if (microdata && passesQualityGate(microdata)) {
     logExtraction("microdata", url, {
+      acquisitionMethod,
       ingredients: microdata.ingredients?.length,
       steps: microdata.steps?.length,
     });
@@ -112,6 +138,7 @@ export async function parseUrl(
         aiResult.metadata = fallbackMetadata;
       }
       logExtraction("dom-ai", url, {
+        acquisitionMethod,
         ingredients: aiResult.ingredients?.length,
         steps: aiResult.steps?.length,
         titleFromFallback: !!(fallbackTitle && aiResult.title === fallbackTitle),
@@ -122,6 +149,9 @@ export async function parseUrl(
     }
   }
 
-  logExtraction("error", url, { reason: "all_paths_failed" });
+  logExtraction("error", url, {
+    acquisitionMethod,
+    reason: "all_paths_failed",
+  });
   return buildErrorCandidate("url", sourcePages);
 }

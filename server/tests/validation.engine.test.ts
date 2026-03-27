@@ -11,7 +11,7 @@ function makeCandidate(
       { id: "i1", text: "1 cup flour", orderIndex: 0, isHeader: false },
     ],
     steps: [
-      { id: "s1", text: "Mix ingredients.", orderIndex: 0 },
+      { id: "s1", text: "Mix ingredients.", orderIndex: 0, isHeader: false },
     ],
     description: null,
     sourceType: "image",

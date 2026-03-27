@@ -52,7 +52,7 @@ If you are a new developer or an AI agent, start here.
 - `Photos`:
   - Jar → Photos → iOS system picker → full-screen photo preview → `Back` reopens picker, `Import This Photo` starts upload/parse
 - `URL`:
-  - Jar → URL → WebView browser → save current page URL into import flow
+  - Jar → URL → WebView browser → capture the loaded page HTML when possible → import via the existing URL pipeline
 
 ### Critical current gotchas
 
@@ -84,11 +84,11 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
 - Real-time client-side search by recipe title on home screen and all collection/folder views
 - Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (71 keyword rules covering meal types, cuisines, proteins, drinks, diets, occasions, etc.; falls back to brown folder for unmatched names)
-- **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), **Save to RecipeJar** passes the omnibar URL into `ImportFlow` via stack `replace`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app.
+- **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), and **Save to RecipeJar** now tries to capture the currently loaded page HTML from the WebView before handing off to `ImportFlow`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app. If HTML capture fails for a technical reason (injection failure, timeout, message transport failure, oversized payload), the app falls back once to the existing server-side URL fetch path.
 - **Home clipboard prompt:** If the pasteboard has text (`Clipboard.hasString()` — avoids proactive `getString()` / permission churn on iOS), a bottom sheet offers **Paste**; reading and URL validation happen only on that tap. After **Paste** or dismiss, the sheet stays suppressed until the app returns from **background** (not `inactive`, so system dialogs like paste permission do not re-enable the prompt).
 - **Photo library import:** Jar "**Photos**" fan action opens the system image picker (`react-native-image-picker`). After the user picks an image, the app shows a full-screen preview with **Back** and **Import This Photo**. **Back** reopens the library picker so the user can choose a different image. **Import This Photo** sends the asset through the same upload → parse → preview → save pipeline as camera-captured images. On parse failure, a "Could Not Read Photo" screen with a "Go Home" button replaces the camera-oriented retake flow. Permission denial shows a gentle alert with an "Open Settings" link.
 - **Recipe Saved → Add more:** URL imports and Photos imports return to Home; camera imports return to `ImportFlow` in image mode.
-- URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). Server-side import remains **URL fetch only** (`fetchUrl`); bot-protected sites may still fail — see **Known gaps** (headless browser / client HTML upload roadmap).
+- URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). There are now three URL acquisition modes: **`server-fetch`** (default URL import path), **`webview-html`** (browser-backed import from `WebRecipeImportScreen`), and **`server-fetch-fallback`** (used only when browser HTML capture fails technically). Clipboard and manual URL entry still use the server-fetch path unless they are explicitly routed through the browser first.
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
 
@@ -188,7 +188,7 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | User notes + star rating on device | Notes CRUD (add/edit/delete) and half-star rating with tap-toggle UX — API verified via curl and partial device testing; full end-to-end device QA pending |
 | Multi-page image ordering UX | Single-page capture tested; multi-page reorder not yet tested on device |
 | Real cookbook photo parsing quality at scale | Single recipe tested with good results; accuracy across varied cookbook formats (handwritten, glossy, multi-column) is untested |
-| Bot-protected URL parsing | AllRecipes, Simply Recipes may return 402/403. Browser UA fallback partially mitigates 403s. JSON-LD and Microdata sites work. |
+| Bot-protected URL parsing from pasted/manual URLs | Clipboard/manual URL entry still depends on server fetch; AllRecipes, Simply Recipes may return 402/403 there. Browser-backed URL import is implemented, but broader device QA for blocked sites is still pending. |
 
 ---
 
@@ -1111,9 +1111,11 @@ RecipeJar/
 
 **Problem:** URL drafts for AllRecipes, Simply Recipes, etc. parse but return empty candidates with `NO_SAVE`.
 
-**Cause:** These sites block server-side HTTP requests (402/403). The server-side fetch gets rejected.
+**Cause:** These sites often block server-side HTTP requests (402/403). The plain server-fetch path can still fail there even with the browser-like UA retry.
 
-**Workaround:** Use recipe sites that serve JSON-LD (BBC Good Food, most WordPress recipe blogs). This is a known MVP limitation.
+**Current behavior:** If the user imports from `WebRecipeImportScreen`, the app first tries **`webview-html`** by capturing the loaded page HTML from the in-app browser and sending that HTML into the normal URL parsing cascade. If that capture fails technically, the app falls back once to **`server-fetch-fallback`** and the server retries with its existing `fetchUrl` logic. Clipboard/manual URL entry still uses **`server-fetch`** directly.
+
+**Workaround:** For blocked sites, prefer the in-app browser URL flow over pasted/manual URL entry. If both paths still fail, the site is likely serving a consent wall, challenge page, or other non-recipe HTML to the client/session.
 
 ### react-native-screens / react-native-gesture-handler Build Error
 
@@ -1175,14 +1177,17 @@ When changing import behavior, trace it in this order:
    - Entry-point buttons for Camera, Photos, and URL
 2. `mobile/src/navigation/types.ts`
    - Route params passed into `ImportFlow`
+   - Browser-backed URL imports now pass optional `urlHtml`, `urlAcquisitionMethod`, and capture-failure metadata here
 3. `mobile/src/screens/ImportFlowScreen.tsx`
    - Boot logic, route param handling, screen rendering
 4. `mobile/src/features/import/machine.ts`
    - Events, states, transitions, async actors
 5. `mobile/src/services/api.ts`
-   - Mobile upload/parse/save API calls
+   - Mobile upload/parse/save API calls, including optional URL HTML parse payloads
 6. `server/src/api/drafts.routes.ts`
-   - Server-side upload, parse, save endpoints
+   - Server-side upload, parse, save endpoints and acquisition-source selection (`server-fetch`, `webview-html`, `server-fetch-fallback`)
+7. `server/src/parsing/url/url-parse.adapter.ts`
+   - Shared URL parsing cascade for both fetched HTML and browser-captured HTML
 
 This is the shortest correct mental model for both human contributors and AI agents.
 
@@ -1199,7 +1204,7 @@ This is the shortest correct mental model for both human contributors and AI age
 
 - **Image parsing:** Edit `server/src/parsing/image/image-parse.adapter.ts`. This constructs the GPT-5.4 Vision prompt (signal-rich: includes `ingredientSignals`, `stepSignals`, and top-level signal hints for OCR quality detection) and parses the response. The prompt instructs the AI to extract only the most prominent recipe when multiple are visible. The model is set via the `model` field in the `openai.chat.completions.create()` call. Uses `detail: "high"` for accurate fraction/quantity reading. Images are sent as base64 data URLs (downloaded from Supabase at parse time, processed through `optimizeForOcr`, encoded inline) to avoid an extra network hop for OpenAI.
 - **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Two functions: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — called at upload time before storing in Supabase) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — called at parse time before sending to OpenAI). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy — neural vision models perform best on clean, natural color images. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
-- **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. It tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch uses retry with backoff and browser UA fallback on 403. Every extraction logs which method succeeded (`extractionMethod` field on the candidate). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
+- **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. Both fetched HTML and browser-captured HTML now enter the same shared parser helper. The cascade tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch still uses retry with backoff and browser UA fallback on 403. Structured logs now include both the extraction method and the acquisition method (`server-fetch`, `webview-html`, `server-fetch-fallback`). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
 - **URL fetch (SSRF mitigation):** `server/src/parsing/url/url-fetch.service.ts` follows redirects manually (max 10 hops) and calls `server/src/parsing/url/url-ssrf-guard.ts` on **each** URL in the chain. The guard allows only `http`/`https`, rejects URLs with embedded credentials, and refuses targets whose addresses fall in private, loopback, link-local, CGNAT, documentation, multicast, or reserved ranges (IPv4 and IPv6, including IPv4-mapped IPv6). For hostnames it uses `dns.promises.lookup` with `{ all: true, verbatim: true }` so checked addresses align with typical `getaddrinfo` behavior used for outbound TCP.
 - **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
 
@@ -1271,7 +1276,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 ### Known gaps
 
-- **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network block server-side fetches. Browser UA fallback partially mitigates 403s. Future: add headless browser (Puppeteer/Playwright) to the server parsing pipeline so bot-protected sites can be scraped reliably; alternatively, extract HTML from the client-side WebView and send it to the server for parsing.
+- **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network can block server-side fetches. Browser-backed URL import now mitigates this by sending client-captured HTML from `WebRecipeImportScreen` into the normal URL parsing pipeline, with a one-time fallback to server fetch if capture fails technically. Remaining failures are usually challenge pages, consent walls, or other non-recipe HTML. Clipboard/manual URL entry still relies on server fetch unless those flows are later routed through the browser.
 - **Recipe metadata UI**: JSON-LD captures servings, prep/cook/total time, and image URL, but these are not yet displayed in the mobile UI.
 - **Authentication**: Single-user MVP. No auth, no user table, no data-ownership. Adding auth requires: user table, session/JWT middleware, user_id FKs, Supabase RLS policies.
 - **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.

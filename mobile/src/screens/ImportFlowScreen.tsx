@@ -18,7 +18,17 @@ import type { RootStackParamList } from "../navigation/types";
 type Props = NativeStackScreenProps<RootStackParamList, "ImportFlow">;
 
 export function ImportFlowScreen({ route, navigation }: Props) {
-  const { mode, url, resumeDraftId, photoUri, photoMimeType, photoFileName } = route.params ?? {
+  const {
+    mode,
+    url,
+    urlHtml,
+    urlAcquisitionMethod,
+    urlCaptureFailureReason,
+    resumeDraftId,
+    photoUri,
+    photoMimeType,
+    photoFileName,
+  } = route.params ?? {
     mode: "image" as const,
   };
   const insets = useSafeAreaInsets();
@@ -26,7 +36,15 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const [awaitingUrl, setAwaitingUrl] = useState(mode === "url" && !url);
   /** Avoid duplicate bootstraps; also avoids retry loops when URL draft creation errors back to idle. */
   const lastBootKeyRef = useRef<string | null>(null);
-  const bootKey = `${mode}|${url ?? ""}|${resumeDraftId ?? ""}|${photoUri ?? ""}`;
+  const bootKey = [
+    mode,
+    url ?? "",
+    resumeDraftId ?? "",
+    photoUri ?? "",
+    urlAcquisitionMethod ?? "",
+    urlCaptureFailureReason ?? "",
+    urlHtml ? String(urlHtml.length) : "",
+  ].join("|");
 
   useEffect(() => {
     if (awaitingUrl) return;
@@ -40,7 +58,13 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     }
     if (mode === "url" && url) {
       lastBootKeyRef.current = bootKey;
-      send({ type: "NEW_URL_IMPORT", url });
+      send({
+        type: "NEW_URL_IMPORT",
+        url,
+        urlHtml,
+        urlAcquisitionMethod,
+        urlCaptureFailureReason,
+      });
       return;
     }
     if (mode === "image" && photoUri) {
@@ -55,7 +79,21 @@ export function ImportFlowScreen({ route, navigation }: Props) {
       lastBootKeyRef.current = bootKey;
       send({ type: "NEW_IMAGE_IMPORT" });
     }
-  }, [awaitingUrl, bootKey, mode, url, resumeDraftId, photoUri, photoMimeType, photoFileName, state.value, send]);
+  }, [
+    awaitingUrl,
+    bootKey,
+    mode,
+    url,
+    urlHtml,
+    urlAcquisitionMethod,
+    urlCaptureFailureReason,
+    resumeDraftId,
+    photoUri,
+    photoMimeType,
+    photoFileName,
+    state.value,
+    send,
+  ]);
 
   const idleErrorAlertedRef = useRef<string | null>(null);
   useEffect(() => {

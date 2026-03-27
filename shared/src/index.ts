@@ -32,7 +32,7 @@ export type {
   Recipe,
 } from "./types/recipe.types.js";
 
-export { NOTE_MAX_LENGTH } from "./constants";
+export { NOTE_MAX_LENGTH, URL_IMPORT_HTML_MAX_BYTES } from "./constants";
 
 export type {
   DraftStatus,

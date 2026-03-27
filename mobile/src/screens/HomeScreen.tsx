@@ -219,17 +219,30 @@ export function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     let prev = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
-      // Only reset when returning from genuine background (user switched apps
-      // and may have copied something new). "inactive" fires for iOS system
-      // dialogs (paste permission, etc.) and must NOT reset the flag.
       if (prev === "background" && next === "active") {
         suppressClipboardPromptRef.current = false;
         clipboardPasteUsedThisSession = false;
+
+        if (navigation.isFocused()) {
+          setTimeout(async () => {
+            if (
+              suppressClipboardPromptRef.current ||
+              clipboardPasteUsedThisSession
+            )
+              return;
+            try {
+              const has = await Clipboard.hasString();
+              if (has) setClipboardPromptVisible(true);
+            } catch {
+              /* ignore */
+            }
+          }, 600);
+        }
       }
       prev = next;
     });
     return () => sub.remove();
-  }, []);
+  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {

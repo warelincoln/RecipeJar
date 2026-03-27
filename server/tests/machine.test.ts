@@ -346,5 +346,95 @@ describe("Import flow XState machine", () => {
       expect(snapshot.context.sourceType).toBe("url");
       actor.stop();
     });
+
+    it("passes browser HTML through to parseDraft for WebView-backed imports", async () => {
+      let parseInput: unknown;
+      const machine = importMachine.provide({
+        actors: {
+          createUrlDraft: mockActor({ id: "url-d1" }),
+          parseDraft: fromPromise(async ({ input }) => {
+            parseInput = input;
+            return {
+              status: "PARSED",
+              candidate: {
+                title: "Captured Recipe",
+                ingredients: [{ id: "i1", text: "flour", orderIndex: 0 }],
+                steps: [{ id: "s1", text: "Mix.", orderIndex: 0 }],
+              },
+              validationResult: {
+                issues: [],
+                saveState: "SAVE_CLEAN",
+                hasWarnings: false,
+                hasBlockingIssues: false,
+                requiresRetake: false,
+              },
+            };
+          }) as any,
+        },
+      });
+
+      const actor = createActor(machine);
+      actor.start();
+      actor.send({
+        type: "NEW_URL_IMPORT",
+        url: "https://example.com/recipe",
+        urlHtml: "<html><body>Recipe</body></html>",
+        urlAcquisitionMethod: "webview-html",
+      });
+
+      await waitFor(actor, (s) => s.value === "previewEdit", { timeout: 2000 });
+      expect(parseInput).toEqual({
+        draftId: "url-d1",
+        urlHtml: "<html><body>Recipe</body></html>",
+        acquisitionMethod: "webview-html",
+        captureFailureReason: null,
+      });
+      actor.stop();
+    });
+
+    it("marks technical capture failures as server-fetch-fallback", async () => {
+      let parseInput: unknown;
+      const machine = importMachine.provide({
+        actors: {
+          createUrlDraft: mockActor({ id: "url-d1" }),
+          parseDraft: fromPromise(async ({ input }) => {
+            parseInput = input;
+            return {
+              status: "PARSED",
+              candidate: {
+                title: "Fallback Recipe",
+                ingredients: [{ id: "i1", text: "flour", orderIndex: 0 }],
+                steps: [{ id: "s1", text: "Mix.", orderIndex: 0 }],
+              },
+              validationResult: {
+                issues: [],
+                saveState: "SAVE_CLEAN",
+                hasWarnings: false,
+                hasBlockingIssues: false,
+                requiresRetake: false,
+              },
+            };
+          }) as any,
+        },
+      });
+
+      const actor = createActor(machine);
+      actor.start();
+      actor.send({
+        type: "NEW_URL_IMPORT",
+        url: "https://example.com/recipe",
+        urlAcquisitionMethod: "server-fetch-fallback",
+        urlCaptureFailureReason: "capture_timeout",
+      });
+
+      await waitFor(actor, (s) => s.value === "previewEdit", { timeout: 2000 });
+      expect(parseInput).toEqual({
+        draftId: "url-d1",
+        urlHtml: null,
+        acquisitionMethod: "server-fetch-fallback",
+        captureFailureReason: "capture_timeout",
+      });
+      actor.stop();
+    });
   });
 });

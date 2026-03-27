@@ -3,6 +3,8 @@ export type EventType =
   | "page_added"
   | "pages_reordered"
   | "parse_started"
+  | "url_parse_capture_failed"
+  | "url_parse_source_selected"
   | "parse_completed"
   | "validation_completed"
   | "retake_requested"

@@ -1,5 +1,29 @@
 # RecipeJar Changelog
 
+### 2026-03-26 — Browser-backed URL import for blocked recipe sites
+
+**Mobile — in-app browser (`WebRecipeImportScreen`):**
+
+- **Save to RecipeJar** now attempts to capture the currently loaded page HTML from the WebView before leaving the browser.
+- Save uses the final navigated top-level URL, disables double-submit while capture is in flight, and enforces a client-side HTML size cap before import handoff.
+- If HTML capture fails technically (`injection_failed`, `capture_timeout`, `page_not_ready`, `payload_too_large`, `message_transport_failed`), the browser falls back once to the existing server-fetch URL import path.
+
+**Mobile + server contract:**
+
+- `ImportFlow`, `machine.ts`, and `api.ts` now carry optional browser-captured HTML and acquisition metadata for URL imports.
+- `POST /drafts/:draftId/parse` accepts optional URL HTML plus acquisition metadata without storing raw HTML on the draft.
+
+**Server — URL parsing:**
+
+- Split URL fetch from URL HTML parsing in `server/src/parsing/url/url-parse.adapter.ts` so fetched HTML and browser-captured HTML share the exact same JSON-LD → Microdata → DOM → AI cascade.
+- Added explicit acquisition-source logging for `webview-html`, `server-fetch`, and `server-fetch-fallback`.
+- Added server-side HTML size rejection for oversized browser payloads.
+
+**Tests + docs:**
+
+- Added regression coverage for browser-backed URL parse, technical-failure fallback, and “do not silently retry via server fetch after successful HTML capture.”
+- Updated `README.md` and `QA_CHECKLIST.md` so future agents can quickly trace the new browser-backed URL import path and its fallback rules.
+
 ### 2026-03-25 — WebView URL import, clipboard prompt, import UX
 
 **Mobile — in-app browser (`WebRecipeImportScreen`):**
