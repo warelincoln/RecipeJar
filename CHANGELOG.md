@@ -1,5 +1,48 @@
 # RecipeJar Changelog
 
+### 2026-03-28 — iOS build fixes, draft API wire format, import preview reveal, repo hygiene
+
+**iOS / native (RN 0.76, New Architecture):**
+
+- **`patches/react-native-svg+15.15.4.patch`:** RNSVG Fabric code used removed Yoga type `StyleSizeLength`; patched to `StyleLength` so the pod compiles. Applied on every `npm install` via root `postinstall` (`patch-package`).
+- **`mobile/ios/Podfile` `post_install`:** On case-insensitive APFS, CocoaPods can leave broken `Pods/Headers/Public/RCT-Folly/folly/json` (empty dir, `json 2`, or `dynamic 2.h`). The hook deletes `json` / `json 2` and recreates symlinks from `Pods/RCT-Folly/folly/json` so `#include <folly/json/dynamic.h>` resolves. Re-runs on every `pod install`.
+- **`patches/react-native+0.76.9.patch`:** (existing) upstream RN patch; still applied by `patch-package`.
+
+**Monorepo — `react-native-svg` single copy:**
+
+- Root **`package.json` `overrides`:** `"react-native-svg": "15.15.4"` so Lucide and the app share one version.
+- **`mobile/package.json`:** explicit `react-native-svg@15.15.4` (peer of `lucide-react-native`).
+- **`mobile/metro.config.js`:** `resolver.extraNodeModules["react-native-svg"]` points at one resolved install path so Metro does not bundle two copies (duplicate native registration / LogBox errors).
+
+**Server — draft JSON over the wire matches `RecipeDraft`:**
+
+- Persistence still uses columns `parsed_candidate_json`, `edited_candidate_json`, `validation_result_json`.
+- **`GET /drafts/:draftId`** and **`PATCH /drafts/:draftId/candidate`** responses now expose **`parsedCandidate`**, **`editedCandidate`**, **`validationResult`** (not `*Json` keys), plus `pages` and `warningStates` on GET. Implemented in `server/src/api/drafts.routes.ts` (`draftRowToClientFields` / `draftRowToClientBody`).
+- **Mobile `import` machine** `resumeDraft` assigns from those field names so draft resume works on device.
+
+**Mobile — import preview UX:**
+
+- After a fresh parse, **`PreviewEditView`** runs a **word-by-word “waterfall” reveal** (~**6000 WPM**, `60000/6000` ms per word) via `useRecipeParseReveal` + `recipeParseReveal.ts`; respects **Reduce Motion** (shows full text immediately). **`parseRevealToken`** from `ImportFlowScreen` gates animation vs resume.
+- Earlier experimental SVG edge-glow overlay was **removed** (no `ParseRevealEdgeGlow`).
+
+**Mobile — type / library alignment:**
+
+- **`RecipeRatingInput`:** `Pressable` uses **`unstable_pressDelay={0}`** (RN 0.76 types no longer list `delayPressIn`).
+- **`CaptureView`:** `takePhoto()` without options — current VisionCamera typings dropped `qualityPrioritization` on `TakePhotoOptions`.
+- **`PreviewEditView`:** new steps from **Add Step** include **`isHeader: false`** for `EditableStepEntry`.
+
+**Server — TypeScript fixes (tooling drift):**
+
+- **`url-dom.adapter.ts`:** `cheerio.AnyNode` removed from typings; use **`AnyNode` from `domhandler`**.
+- **`url-ssrf-guard.ts`:** DNS `lookup` with `{ all: true }` typed as **`LookupAddress[]`**.
+
+**Tests:**
+
+- **`server/tests/machine.test.ts`:** resume mocks use `parsedCandidate` / `editedCandidate` / `validationResult` to match API client shape.
+- **`server/tests/integration.test.ts`:** GET draft asserts `parsedCandidate` present and `parsedCandidateJson` absent on JSON body.
+
+**Verification (2026-03-28):** `npx patch-package --check`; `npm run typecheck` in `shared`, `server`, `mobile`; `npm test -w @recipejar/server` (127 tests).
+
 ### 2026-03-26 — Browser-backed URL import for blocked recipe sites
 
 **Mobile — in-app browser (`WebRecipeImportScreen`):**

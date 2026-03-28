@@ -31,6 +31,16 @@
   {
     NSString *host = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"RecipeJarDevPackagerHost"];
     if ([host isKindOfClass:[NSString class]] && host.length > 0) {
+      NSString *trimmed = [host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+      // Loopback on a physical device points at the phone, not the Mac — ignore and use RN default.
+      if ([trimmed isEqualToString:@"127.0.0.1"] || [trimmed isEqualToString:@"localhost"] ||
+          [trimmed isEqualToString:@"::1"]) {
+        host = nil;
+      } else {
+        host = trimmed;
+      }
+    }
+    if ([host isKindOfClass:[NSString class]] && host.length > 0) {
       return [RCTBundleURLProvider jsBundleURLForBundleRoot:@"index"
                                                packagerHost:host
                                              packagerScheme:@"http"

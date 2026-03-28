@@ -14,7 +14,9 @@ If you are a new developer or an AI agent, start here.
 
 ### Fastest way to get running
 
-1. From the repo root, run `npm install`
+1. From the repo root, run `npm install`  
+   - Runs **`patch-package`** (see `patches/*.patch` — required for RN 0.76 + `react-native-svg` iOS build).  
+   - Runs **`scripts/write-recipejar-dev-host.cjs`** (writes gitignored `mobile/src/devLanHost.ts` for LAN API/Metro; edit or re-run if your Mac’s IP changes).
 2. Create `server/.env` from `server/.env.example`
 3. Start phone dev services with `npm run dev:phone`
 4. Verify:
@@ -38,6 +40,8 @@ If you are a new developer or an AI agent, start here.
   - Route bootstrapping and state-to-view mapping
 - `mobile/src/features/import/machine.ts`
   - Import flow state machine and actors
+- `mobile/src/features/import/useRecipeParseReveal.ts` + `recipeParseReveal.ts`
+  - Word-by-word preview reveal after parse (~6000 WPM); `ImportFlowScreen` `parseRevealToken`
 - `mobile/src/services/api.ts`
   - Mobile API client, image upload metadata passthrough
 - `server/src/api/drafts.routes.ts`
@@ -57,7 +61,9 @@ If you are a new developer or an AI agent, start here.
 ### Critical current gotchas
 
 - If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.
-- If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.
+- If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.  
+  **`pod install`** also runs a **`Podfile` `post_install` hook** that rebuilds **`RCT-Folly` public `folly/json` header symlinks** on macOS case-insensitive volumes (fixes missing `folly/json/dynamic.h` during native compile).
+- Do **not** skip **`npm install` at the repo root** after clone: **`patch-package`** applies `patches/react-native+0.76.9.patch` and `patches/react-native-svg+15.15.4.patch` (RNSVG + Yoga on New Architecture).
 - `mobile/run.sh` is convenient, but its `device` path only prints the final `xcodebuild` line. If you see `(2 failures)` or an invalid bundle, run raw `xcodebuild` to get the real compiler errors.
 - Xcode `26.4` can fail building Hermes' bundled `fmt` pod with `consteval` errors. The project works around this in `mobile/ios/Podfile` by patching `Pods/fmt/include/fmt/base.h` during `pod install` to force `FMT_USE_CONSTEVAL 0`.
 
@@ -89,6 +95,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - **Photo library import:** Jar "**Photos**" fan action opens the system image picker (`react-native-image-picker`). After the user picks an image, the app shows a full-screen preview with **Back** and **Import This Photo**. **Back** reopens the library picker so the user can choose a different image. **Import This Photo** sends the asset through the same upload → parse → preview → save pipeline as camera-captured images. On parse failure, a "Could Not Read Photo" screen with a "Go Home" button replaces the camera-oriented retake flow. Permission denial shows a gentle alert with an "Open Settings" link.
 - **Recipe Saved → Add more:** URL imports and Photos imports return to Home; camera imports return to `ImportFlow` in image mode.
 - URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). There are now three URL acquisition modes: **`server-fetch`** (default URL import path), **`webview-html`** (browser-backed import from `WebRecipeImportScreen`), and **`server-fetch-fallback`** (used only when browser HTML capture fails technically). Clipboard and manual URL entry still use the server-fetch path unless they are explicitly routed through the browser first.
+- **Parse preview reveal:** After a successful parse (not draft resume), the preview screen reveals title/ingredients/steps **word-by-word** at ~**6000 WPM**; users with **Reduce Motion** see full text immediately (`useRecipeParseReveal`, `recipeParseReveal.ts`, `parseRevealToken` in `ImportFlowScreen`).
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
 
@@ -114,7 +121,7 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | Fastify server startup | Listens on `0.0.0.0:3000` |
 | `GET /health` | Returns `{"status":"ok"}` |
 | `POST /drafts` | Image draft created in real DB, returns UUID and `CAPTURE_IN_PROGRESS` |
-| `GET /drafts/:id` | Round-trips draft with pages and warningStates arrays |
+| `GET /drafts/:id` | Returns draft with **`parsedCandidate` / `editedCandidate` / `validationResult`** (shared `RecipeDraft` names), plus `pages` and `warningStates` — not raw DB `*Json` column names |
 | `POST /drafts/url` | URL draft created with `sourceType: "url"` |
 | URL parse (JSON-LD) | BBC Good Food "Easy pancakes" — extracted title, 6 ingredients, 5 steps via JSON-LD cascade with quality gate. Validation: `SAVE_CLEAN` |
 | `POST /drafts/:id/save` | Recipe persisted to `recipes` table with ingredients and steps |
@@ -136,7 +143,7 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | Save-decision logic | 8 tests | `SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`, dismissed multi-recipe FLAG |
 | Parsing + normalization | 35 tests | `normalizeToCandidate`, `buildErrorCandidate`, JSON-LD extraction (incl. HowToSection headers, ingredient objects, metadata), Microdata extraction, DOM boundary (structure preservation, noise removal, richest match), URL normalization, smart truncation |
 | API integration | 16+ tests | All 11 draft endpoints + 9 recipe endpoints (CRUD + collection + notes CRUD + rating), full parse-edit-save flow |
-| XState machine | 8 tests | Happy path, resume routing, retake flow, URL import |
+| XState machine | 10 tests | Happy path, resume routing, retake flow, URL import (imports mobile `importMachine`, mock actors) |
 
 All 90 server tests pass.
 
@@ -840,7 +847,8 @@ The project includes an XCUITest target (`RecipeJarUITests`) with 21 automated U
 | `listen EADDRINUSE :::8081` | Another Metro instance running | Kill it: `Get-NetTCPConnection -LocalPort 8081 \| ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }` (PowerShell) |
 | `Unable to resolve module` or SHA-1 error | Metro cache stale | Run `cd mobile && npm run start:reset` or `./run.sh metro-fresh` |
 | `pod install` fails (iOS) | CocoaPods not installed or outdated | `gem install cocoapods` then `cd mobile/ios && pod install --repo-update` |
-| `StyleSizeLength` error in RNSVG (iOS) | `react-native-svg` version incompatible with RN 0.76 | Pin to `react-native-svg@15.12.1`. Versions 15.13+ require RN 0.78+. |
+| `StyleSizeLength` / Yoga errors in **RNSVG** (iOS, New Arch) | Upstream `react-native-svg` C++ vs RN 0.76 Yoga | Repo pins **`react-native-svg@15.15.4`** (root `overrides` + `mobile` dep) and applies **`patches/react-native-svg+15.15.4.patch`** via `patch-package` on `npm install`. Ensure **`metro.config.js`** `extraNodeModules` keeps a **single** SVG copy. |
+| `folly/json/dynamic.h` not found (iOS compile) | Broken `RCT-Folly` header symlinks on **case-insensitive APFS** | Re-run **`cd mobile/ios && pod install`** — `Podfile` rebuilds `Pods/Headers/Public/RCT-Folly/folly/json`. |
 | `No bundle URL present` (iOS) | Metro not running | Start Metro in a separate terminal first |
 | Xcode alert **Unable to boot device in current state: Booted** | Simulator already running; tooling tries to boot it again | Use `./run.sh sim` (it shuts down a booted **iPhone 17 Pro** first), or run `xcrun simctl shutdown all`, then build again |
 | `database is locked` / `unable to attach DB` (DerivedData `build.db`) | Two **concurrent** `xcodebuild` runs (e.g. Xcode + terminal, or two terminals) | **`./run.sh device`** and **`./run.sh sim`** kill other `xcodebuild` processes before starting. Or run `pkill -9 xcodebuild`, wait a few seconds, then build again |
@@ -924,9 +932,12 @@ Full checklist is in `QA_CHECKLIST.md` with 11 scenarios, expected validation is
 
 ```
 RecipeJar/
-├── package.json                          # npm workspace root; `npm run dev:phone` starts API + Metro
+├── package.json                          # npm workspace root; `npm run dev:phone` starts API + Metro; `postinstall` → patch-package + dev LAN host script
+├── patches/                              # patch-package: `react-native@0.76.9`, `react-native-svg@15.15.4` (do not delete; required after `npm install`)
+├── scripts/                              # e.g. `ensure-phone-dev.sh`, `write-recipejar-dev-host.cjs`
 ├── .gitignore
 ├── README.md                             # this file
+├── CHANGELOG.md                          # dated release notes; start here after a long break
 ├── QA_CHECKLIST.md                       # manual QA test scenarios
 │
 ├── shared/                               # shared TypeScript types (no runtime deps)
@@ -1264,11 +1275,11 @@ Non-interactive elements (Text, View containers) only need `testID`:
 
 ### Camera integration
 
-`react-native-vision-camera` is working on a physical iPhone with `qualityPrioritization: "balanced"`. Client-side compression via `react-native-compressor` was tested and removed — it caused native OOM crashes on high-resolution camera output. All image optimization happens server-side via `sharp` (see Section 13 — "Image optimization"). The iOS Simulator does not support camera — use a physical device for camera testing.
+`react-native-vision-camera` is used on a physical iPhone; capture calls **`takePhoto()`** with library defaults (older `qualityPrioritization` options are no longer on current `TakePhotoOptions` typings). Client-side compression via `react-native-compressor` was tested and removed — it caused native OOM crashes on high-resolution camera output. All image optimization happens server-side via `sharp` (see Section 13 — "Image optimization"). The iOS Simulator does not support camera — use a physical device for camera testing.
 
 ### Icon system
 
-All UI icons use `lucide-react-native` (backed by `react-native-svg@15.12.1`). When upgrading React Native, check `react-native-svg` compatibility — v15.13+ requires RN 0.78+. Collection folders auto-assign contextual icons via `getCollectionIcon()` in `HomeScreen.tsx` (71 keyword rules); to add mappings, append to the `ICON_RULES` array.
+All UI icons use `lucide-react-native` (peer: **`react-native-svg@15.15.4`**, hoisted with root **`overrides`** and Metro **`extraNodeModules`** so only one native copy is linked). iOS needs the **`patch-package`** patch for that version under RN **0.76** New Architecture (see `patches/`). When upgrading React Native or SVG, re-verify native build and duplicate-RNSVG LogBox issues. Collection folders auto-assign contextual icons via `getCollectionIcon()` in `HomeScreen.tsx` (71 keyword rules); to add mappings, append to the `ICON_RULES` array.
 
 ### Image parsing quality
 
@@ -1291,6 +1302,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-03-28** — iOS: RNSVG Yoga patch + `patch-package`, RCT-Folly `folly/json` symlink fix in `Podfile`; monorepo SVG dedupe (overrides + Metro); **draft API** GET/PATCH return `RecipeDraft` field names (`parsedCandidate`, etc.); import **word-by-word preview reveal** (~6000 WPM); mobile/server TS fixes; tests updated. Details in changelog.
 - **2026-03-25** — Photo library import via `react-native-image-picker` (jar "Photos" fan action, HEIC→JPEG via `assetRepresentationMode: "compatible"`, real MIME type/filename passthrough, Photos-aware retake screen with "Go Home" button, permission denial alert with Settings link); structural scaffolding for multi-image photo imports
 - **2026-03-25** — In-app WebView URL import (Google search, ad-domain blocking, Save → ImportFlow), Home clipboard sheet with session suppression, conditional **Add more** after save, mobile deps (`react-native-webview`, clipboard); README roadmap for bot-protected URL parsing
 - **2026-03-22** — Image optimization pipeline (`sharp`, 3072px, GPT-5.4, `detail: "high"`)

@@ -35,17 +35,17 @@ describe("Import flow XState machine", () => {
         actors: {
           resumeDraft: mockActor({
             status: "PARSED",
-            parsedCandidateJson: {
+            parsedCandidate: {
               title: "Pasta",
               ingredients: [{ id: "i1", text: "noodles", orderIndex: 0 }],
               steps: [{ id: "s1", text: "Boil.", orderIndex: 0 }],
             },
-            editedCandidateJson: {
+            editedCandidate: {
               title: "Pasta",
               ingredients: [{ id: "i1", text: "noodles", orderIndex: 0, isHeader: false }],
-              steps: [{ id: "s1", text: "Boil.", orderIndex: 0 }],
+              steps: [{ id: "s1", text: "Boil.", orderIndex: 0, isHeader: false }],
             },
-            validationResultJson: {
+            validationResult: {
               issues: [],
               saveState: "SAVE_CLEAN",
               hasWarnings: false,
@@ -77,8 +77,8 @@ describe("Import flow XState machine", () => {
         actors: {
           resumeDraft: mockActor({
             status: "NEEDS_RETAKE",
-            parsedCandidateJson: { title: null, ingredients: [], steps: [] },
-            validationResultJson: {
+            parsedCandidate: { title: null, ingredients: [], steps: [] },
+            validationResult: {
               issues: [{ issueId: "r1", code: "POOR_IMAGE_QUALITY", severity: "RETAKE" }],
               saveState: "NO_SAVE",
               hasWarnings: false,
@@ -105,9 +105,9 @@ describe("Import flow XState machine", () => {
         actors: {
           resumeDraft: mockActor({
             status: "IN_GUIDED_CORRECTION",
-            parsedCandidateJson: { title: "X", ingredients: [], steps: [] },
-            editedCandidateJson: { title: "X", ingredients: [], steps: [] },
-            validationResultJson: {
+            parsedCandidate: { title: "X", ingredients: [], steps: [] },
+            editedCandidate: { title: "X", ingredients: [], steps: [] },
+            validationResult: {
               issues: [],
               saveState: "SAVE_CLEAN",
               hasWarnings: false,

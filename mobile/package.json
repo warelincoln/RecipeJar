@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "CI= react-native start",
-    "start:reset": "CI= react-native start --reset-cache",
+    "start": "node ../scripts/write-recipejar-dev-host.cjs && CI= react-native start --host 0.0.0.0",
+    "start:reset": "node ../scripts/write-recipejar-dev-host.cjs && CI= react-native start --host 0.0.0.0 --reset-cache",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "typecheck": "tsc --noEmit"
@@ -24,7 +24,7 @@
     "react-native-reanimated": "3.16.1",
     "react-native-safe-area-context": "^4.14.0",
     "react-native-screens": "~3.35.0",
-    "react-native-svg": "^15.12.1",
+    "react-native-svg": "15.15.4",
     "react-native-vision-camera": "^4.6.0",
     "react-native-webview": "^13.12.5",
     "xstate": "^5.18.0",

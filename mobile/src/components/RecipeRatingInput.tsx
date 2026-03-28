@@ -79,7 +79,7 @@ export function RecipeRatingInput({ rating, onRate }: RecipeRatingInputProps) {
               style={[styles.starWrapper, { width: STAR_SIZE, height: STAR_SIZE }]}
               testID={`rating-star-${starIndex}`}
               onPressIn={() => handleStarPress(starIndex)}
-              delayPressIn={0}
+              unstable_pressDelay={0}
               accessibilityRole="button"
               accessibilityLabel={`Rate ${starIndex} stars`}
             >

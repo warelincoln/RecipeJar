@@ -1,3 +1,5 @@
+require 'fileutils'
+
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
@@ -36,6 +38,27 @@ target 'RecipeJar' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => false
     )
+
+    # Case-insensitive APFS: CocoaPods can leave broken `folly/json` public headers (empty dir,
+    # duplicate `json 2`, or `dynamic 2.h`-style renamed files). Recreate symlinks from source.
+    folly_json_src = File.join(__dir__, 'Pods', 'RCT-Folly', 'folly', 'json')
+    folly_pub = File.join(__dir__, 'Pods', 'Headers', 'Public', 'RCT-Folly', 'folly')
+    json_pub = File.join(folly_pub, 'json')
+    json_dup = File.join(folly_pub, 'json 2')
+    if File.directory?(folly_json_src)
+      FileUtils.rm_rf(json_pub)
+      FileUtils.rm_rf(json_dup)
+      FileUtils.mkdir_p(json_pub)
+      Dir.children(folly_json_src).each do |name|
+        next if name.start_with?('.')
+        src = File.join(folly_json_src, name)
+        next unless File.file?(src) || File.symlink?(src)
+        dst = File.join(json_pub, name)
+        rel = Pathname.new(src).relative_path_from(Pathname.new(json_pub))
+        FileUtils.ln_sf(rel.to_s, dst)
+      end
+      Pod::UI.puts 'Fixed RCT-Folly public headers: rebuilt folly/json symlinks'.green
+    end
 
     # Xcode 26+ Apple Clang claims consteval support but fmt's usage triggers
     # "not a constant expression" errors. Patch base.h to disable consteval.

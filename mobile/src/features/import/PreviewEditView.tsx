@@ -13,11 +13,19 @@ import type {
   ValidationResult,
   ValidationIssue,
 } from "@recipejar/shared";
+import {
+  blockIndexForField,
+  sliceWordsToText,
+  visibleWordCountForBlock,
+} from "./recipeParseReveal";
+import { useRecipeParseReveal } from "./useRecipeParseReveal";
 
 interface PreviewEditViewProps {
   candidate: EditedRecipeCandidate;
   validationResult: ValidationResult | null;
   dismissedIssueIds: Set<string>;
+  /** >0 after a fresh parse triggers a fast word-by-word reveal (~6000 WPM); 0 skips (e.g. resume draft). */
+  parseRevealToken?: number;
   onEdit: (candidate: EditedRecipeCandidate) => void;
   onSave: () => void;
   onDismissWarning: (issueId: string) => void;
@@ -29,6 +37,7 @@ export function PreviewEditView({
   candidate,
   validationResult,
   dismissedIssueIds,
+  parseRevealToken = 0,
   onEdit,
   onSave,
   onDismissWarning,
@@ -38,6 +47,41 @@ export function PreviewEditView({
   const [title, setTitle] = useState(candidate.title);
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
+
+  const { plan, revealedWordCount, isRevealing } = useRecipeParseReveal(
+    candidate,
+    parseRevealToken,
+  );
+
+  const titleBlockIdx = 0;
+  const titleRevealText = sliceWordsToText(
+    plan.blocks[titleBlockIdx]?.words ?? [],
+    visibleWordCountForBlock(plan, titleBlockIdx, revealedWordCount),
+  );
+
+  const ingredientRevealText = useCallback(
+    (i: number) => {
+      const bi = blockIndexForField(plan, "ingredient", i);
+      if (bi < 0) return candidate.ingredients[i]?.text ?? "";
+      return sliceWordsToText(
+        plan.blocks[bi].words,
+        visibleWordCountForBlock(plan, bi, revealedWordCount),
+      );
+    },
+    [plan, candidate.ingredients, revealedWordCount],
+  );
+
+  const stepRevealText = useCallback(
+    (i: number) => {
+      const bi = blockIndexForField(plan, "step", i);
+      if (bi < 0) return candidate.steps[i]?.text ?? "";
+      return sliceWordsToText(
+        plan.blocks[bi].words,
+        visibleWordCountForBlock(plan, bi, revealedWordCount),
+      );
+    },
+    [plan, candidate.steps, revealedWordCount],
+  );
 
   const issuesByField = useCallback(
     (fieldPath: string): ValidationIssue[] =>
@@ -89,6 +133,7 @@ export function PreviewEditView({
       id: `new-step-${Date.now()}`,
       text: "",
       orderIndex: steps.length,
+      isHeader: false,
     };
     const updated = [...steps, newStep];
     setSteps(updated);
@@ -96,30 +141,45 @@ export function PreviewEditView({
   };
 
   const hasBlockers = validationResult?.hasBlockingIssues;
+  const saveDisabled = !!hasBlockers || isRevealing;
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      automaticallyAdjustKeyboardInsets
-      testID="preview-edit-screen"
-    >
+    <View style={styles.outer}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+        testID="preview-edit-screen"
+      >
       <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>Title</Text>
-      <TextInput
-        style={[
-          styles.input,
-          issuesByField("title").length > 0 && !isFieldDismissed("title") && styles.inputError,
-        ]}
-        value={title}
-        onChangeText={handleTitleChange}
-        placeholder="Recipe title"
-        testID="preview-title-input"
-      />
+      {isRevealing ? (
+        <Text
+          style={[
+            styles.input,
+            styles.inputLikeText,
+            issuesByField("title").length > 0 && !isFieldDismissed("title") && styles.inputError,
+          ]}
+          testID="preview-title-input"
+        >
+          {titleRevealText}
+        </Text>
+      ) : (
+        <TextInput
+          style={[
+            styles.input,
+            issuesByField("title").length > 0 && !isFieldDismissed("title") && styles.inputError,
+          ]}
+          value={title}
+          onChangeText={handleTitleChange}
+          placeholder="Recipe title"
+          testID="preview-title-input"
+        />
+      )}
       {issuesByField("title").map((issue) => (
         <Text key={issue.issueId} style={styles.issueText}>
           {issue.message}
@@ -132,7 +192,21 @@ export function PreviewEditView({
       {ingredients.map((ing, i) => (
         <View key={ing.id}>
           {ing.isHeader ? (
-            <Text style={styles.ingredientHeader}>{ing.text}</Text>
+            <Text style={styles.ingredientHeader}>
+              {isRevealing ? ingredientRevealText(i) : ing.text}
+            </Text>
+          ) : isRevealing ? (
+            <Text
+              style={[
+                styles.input,
+                styles.inputLikeText,
+                issuesByField(`ingredients[${i}]`).length > 0 &&
+                  !isFieldDismissed(`ingredients[${i}]`) &&
+                  styles.inputError,
+              ]}
+            >
+              {ingredientRevealText(i)}
+            </Text>
           ) : (
             <TextInput
               style={[
@@ -153,8 +227,9 @@ export function PreviewEditView({
         </View>
       ))}
       <TouchableOpacity
-        style={styles.addButton}
+        style={[styles.addButton, isRevealing && styles.addButtonDisabled]}
         onPress={handleAddIngredient}
+        disabled={isRevealing}
         testID="preview-add-ingredient"
         accessibilityRole="button"
         accessibilityLabel="preview-add-ingredient"
@@ -171,7 +246,9 @@ export function PreviewEditView({
         return steps.map((step, i) => {
           if (step.isHeader) {
             return (
-              <Text key={step.id} style={styles.stepHeader}>{step.text}</Text>
+              <Text key={step.id} style={styles.stepHeader}>
+                {isRevealing ? stepRevealText(i) : step.text}
+              </Text>
             );
           }
           stepNum++;
@@ -179,17 +256,31 @@ export function PreviewEditView({
             <View key={step.id}>
               <View style={styles.stepRow}>
                 <Text style={styles.stepNumber}>{stepNum}.</Text>
-                <TextInput
-                  style={[
-                    styles.stepInput,
-                    issuesByField(`steps[${i}]`).length > 0 &&
-                      !isFieldDismissed(`steps[${i}]`) &&
-                      styles.inputError,
-                  ]}
-                  value={step.text}
-                  onChangeText={(t) => handleStepChange(i, t)}
-                  multiline
-                />
+                {isRevealing ? (
+                  <Text
+                    style={[
+                      styles.stepInput,
+                      styles.inputLikeText,
+                      issuesByField(`steps[${i}]`).length > 0 &&
+                        !isFieldDismissed(`steps[${i}]`) &&
+                        styles.inputError,
+                    ]}
+                  >
+                    {stepRevealText(i)}
+                  </Text>
+                ) : (
+                  <TextInput
+                    style={[
+                      styles.stepInput,
+                      issuesByField(`steps[${i}]`).length > 0 &&
+                        !isFieldDismissed(`steps[${i}]`) &&
+                        styles.inputError,
+                    ]}
+                    value={step.text}
+                    onChangeText={(t) => handleStepChange(i, t)}
+                    multiline
+                  />
+                )}
               </View>
               {issuesByField(`steps[${i}]`).map((issue) => (
                 <Text key={issue.issueId} style={styles.issueText}>
@@ -201,8 +292,9 @@ export function PreviewEditView({
         });
       })()}
       <TouchableOpacity
-        style={styles.addButton}
+        style={[styles.addButton, isRevealing && styles.addButtonDisabled]}
         onPress={handleAddStep}
+        disabled={isRevealing}
         testID="preview-add-step"
         accessibilityRole="button"
         accessibilityLabel="preview-add-step"
@@ -262,9 +354,9 @@ export function PreviewEditView({
 
       <View style={styles.buttonRow}>
         <TouchableOpacity
-          style={[styles.saveButton, hasBlockers && styles.saveButtonDisabled]}
+          style={[styles.saveButton, saveDisabled && styles.saveButtonDisabled]}
           onPress={onSave}
-          disabled={!!hasBlockers}
+          disabled={saveDisabled}
           testID="preview-save"
           accessibilityRole="button"
           accessibilityLabel="preview-save"
@@ -272,12 +364,14 @@ export function PreviewEditView({
           <Text style={styles.saveText}>Save Recipe</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  outer: { flex: 1, backgroundColor: "#fff" },
+  scroll: { flex: 1, backgroundColor: "#fff" },
   content: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
@@ -285,6 +379,10 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4,
+  },
+  inputLikeText: {
+    color: "#111827",
+    minHeight: 44,
   },
   inputError: { borderColor: "#ef4444" },
   issueText: { color: "#ef4444", fontSize: 12, marginBottom: 4, marginLeft: 4 },
@@ -313,6 +411,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 4,
   },
+  addButtonDisabled: { opacity: 0.45 },
   addButtonContent: { flexDirection: "row", alignItems: "center", gap: 6 },
   addButtonText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
   issuesSummary: {

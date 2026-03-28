@@ -1,3 +1,4 @@
+import type { LookupAddress } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import net from "node:net";
 
@@ -119,7 +120,7 @@ export async function assertUrlSafeForSsrf(urlString: string): Promise<void> {
     return;
   }
 
-  let records: Awaited<ReturnType<typeof dnsLookup>>;
+  let records: LookupAddress[];
   try {
     records = await dnsLookup(host, { all: true, verbatim: true });
   } catch (e) {

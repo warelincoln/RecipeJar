@@ -659,6 +659,9 @@ describe("API Integration", () => {
       const body = res.json();
       expect(body.id).toBe("d1");
       expect(body.status).toBe("PARSED");
+      expect(body.parsedCandidate).toBeDefined();
+      expect(body.parsedCandidate?.title).toBe("Classic Pancakes");
+      expect(body.parsedCandidateJson).toBeUndefined();
       expect(body.pages).toHaveLength(1);
       expect(body.pages[0].imageUri).toBe("d1/p1.jpg");
       expect(body.warningStates).toHaveLength(0);

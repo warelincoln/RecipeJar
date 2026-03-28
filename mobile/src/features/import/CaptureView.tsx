@@ -24,7 +24,7 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
-    const photo = await cameraRef.current.takePhoto({ qualityPrioritization: "balanced" });
+    const photo = await cameraRef.current.takePhoto();
     onCapture(`file://${photo.path}`);
   }, [onCapture]);
 

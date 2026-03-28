@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 
 /**
  * Extracts recipe boundary content from HTML using DOM heuristics.
@@ -87,7 +88,7 @@ export function extractDomBoundary(html: string): string | null {
  */
 function extractStructuredText(
   $: cheerio.CheerioAPI,
-  el: cheerio.Cheerio<cheerio.AnyNode>,
+  el: cheerio.Cheerio<AnyNode>,
 ): string {
   if (el.length === 0) return "";
   const clone = el.clone();

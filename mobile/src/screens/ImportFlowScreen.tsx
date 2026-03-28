@@ -34,6 +34,9 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [state, send] = useMachine(importMachine);
   const [awaitingUrl, setAwaitingUrl] = useState(mode === "url" && !url);
+  /** Increments when entering preview after a successful parse (word-by-word reveal). Unchanged on resume draft. */
+  const [parseRevealToken, setParseRevealToken] = useState(0);
+  const wasParsingRef = useRef(false);
   /** Avoid duplicate bootstraps; also avoids retry loops when URL draft creation errors back to idle. */
   const lastBootKeyRef = useRef<string | null>(null);
   const bootKey = [
@@ -45,6 +48,14 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     urlCaptureFailureReason ?? "",
     urlHtml ? String(urlHtml.length) : "",
   ].join("|");
+
+  useEffect(() => {
+    const inParsing = state.matches("parsing");
+    if (wasParsingRef.current && state.matches("previewEdit") && state.context.editedCandidate) {
+      setParseRevealToken((n) => n + 1);
+    }
+    wasParsingRef.current = inParsing;
+  }, [state, state.context.editedCandidate]);
 
   useEffect(() => {
     if (awaitingUrl) return;
@@ -216,6 +227,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           candidate={state.context.editedCandidate}
           validationResult={state.context.validationResult}
           dismissedIssueIds={dismissedIssueIds}
+          parseRevealToken={parseRevealToken}
           onEdit={handleEdit}
           onSave={() => send({ type: "ATTEMPT_SAVE" })}
           onDismissWarning={handleDismissWarning}

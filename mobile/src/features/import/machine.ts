@@ -211,10 +211,8 @@ export const importMachine = setup({
               STATUS_TO_STATE[event.output.status as DraftStatus] === "capture",
             target: "capture",
             actions: assign({
-              parsedCandidate: ({ event }) =>
-                (event.output.parsedCandidateJson as ParsedRecipeCandidate) ?? null,
-              validationResult: ({ event }) =>
-                (event.output.validationResultJson as ValidationResult) ?? null,
+              parsedCandidate: ({ event }) => event.output.parsedCandidate,
+              validationResult: ({ event }) => event.output.validationResult,
             }),
           },
           {
@@ -222,12 +220,9 @@ export const importMachine = setup({
               STATUS_TO_STATE[event.output.status as DraftStatus] === "previewEdit",
             target: "previewEdit",
             actions: assign({
-              parsedCandidate: ({ event }) =>
-                (event.output.parsedCandidateJson as ParsedRecipeCandidate) ?? null,
-              editedCandidate: ({ event }) =>
-                (event.output.editedCandidateJson as EditedRecipeCandidate) ?? null,
-              validationResult: ({ event }) =>
-                (event.output.validationResultJson as ValidationResult) ?? null,
+              parsedCandidate: ({ event }) => event.output.parsedCandidate,
+              editedCandidate: ({ event }) => event.output.editedCandidate,
+              validationResult: ({ event }) => event.output.validationResult,
             }),
           },
           {
@@ -236,10 +231,8 @@ export const importMachine = setup({
               "retakeRequired",
             target: "retakeRequired",
             actions: assign({
-              parsedCandidate: ({ event }) =>
-                (event.output.parsedCandidateJson as ParsedRecipeCandidate) ?? null,
-              validationResult: ({ event }) =>
-                (event.output.validationResultJson as ValidationResult) ?? null,
+              parsedCandidate: ({ event }) => event.output.parsedCandidate,
+              validationResult: ({ event }) => event.output.validationResult,
             }),
           },
           { target: "capture" },

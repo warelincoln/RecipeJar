@@ -2,6 +2,9 @@
 # Default commands favor fast iteration (Metro keeps its cache).
 # Use metro-fresh when you need a cold Metro cache — not every session.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 IOS_SIM_NAME="iPhone 17 Pro"
 
 # If the target simulator is already booted, Xcode may show:
@@ -63,8 +66,14 @@ case "$1" in
 
     echo "Done. App is running on your iPhone."
     ;;
-  metro)       npx react-native start ;;
-  metro-fresh) npx react-native start --reset-cache ;;
+  metro)
+    node "$REPO_ROOT/scripts/write-recipejar-dev-host.cjs"
+    npx react-native start --host 0.0.0.0
+    ;;
+  metro-fresh)
+    node "$REPO_ROOT/scripts/write-recipejar-dev-host.cjs"
+    npx react-native start --host 0.0.0.0 --reset-cache
+    ;;
   *)
     echo "Usage: ./run.sh [sim|device|metro|metro-fresh]"
     echo "  metro         — start Metro (default, fast; reuses cache)"

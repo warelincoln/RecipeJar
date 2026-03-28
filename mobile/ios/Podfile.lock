@@ -1861,7 +1861,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - RNSVG (15.12.1):
+  - RNSVG (15.15.4):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1881,9 +1881,9 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RNSVG/common (= 15.12.1)
+    - RNSVG/common (= 15.15.4)
     - Yoga
-  - RNSVG/common (15.12.1):
+  - RNSVG/common (15.15.4):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1987,7 +1987,7 @@ DEPENDENCIES:
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNReanimated (from `../../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
-  - RNSVG (from `../node_modules/react-native-svg`)
+  - RNSVG (from `../../node_modules/react-native-svg`)
   - VisionCamera (from `../../node_modules/react-native-vision-camera`)
   - Yoga (from `../../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2140,7 +2140,7 @@ EXTERNAL SOURCES:
   RNScreens:
     :path: "../node_modules/react-native-screens"
   RNSVG:
-    :path: "../node_modules/react-native-svg"
+    :path: "../../node_modules/react-native-svg"
   VisionCamera:
     :path: "../../node_modules/react-native-vision-camera"
   Yoga:
@@ -2218,11 +2218,11 @@ SPEC CHECKSUMS:
   RNGestureHandler: fffddeb8af59709c6d8de11b6461a6af63cad532
   RNReanimated: 6160e93d990465818af00def404f2f7d8fa4eb05
   RNScreens: b31a78e0ad400e1ebca64016a0d3f45cbde507eb
-  RNSVG: 8dd938fb169dd81009b74c2334780d7d2a04a373
+  RNSVG: 868084fcd6670f7aff0b6d70f4ef626c500283b8
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   VisionCamera: 7187b3dac1ff3071234ead959ce311875748e14f
   Yoga: feb4910aba9742cfedc059e2b2902e22ffe9954a
 
-PODFILE CHECKSUM: e3f6cf0629182042f88b8f9a02c0d7d52b2ebb13
+PODFILE CHECKSUM: 8331ffbe3ff8e20092950e47f0e57358e829016c
 
 COCOAPODS: 1.16.2

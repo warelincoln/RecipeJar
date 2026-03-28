@@ -31,6 +31,32 @@ const URL_PARSE_CAPTURE_FAILURE_REASONS = new Set([
 
 const STORAGE_BUCKET = "recipe-pages";
 
+type DraftRow = NonNullable<Awaited<ReturnType<typeof draftsRepository.findById>>>;
+
+/** Map persistence JSON columns to shared `RecipeDraft` field names for the mobile client. */
+function draftRowToClientFields(row: DraftRow) {
+  const {
+    parsedCandidateJson,
+    editedCandidateJson,
+    validationResultJson,
+    ...rest
+  } = row;
+  return {
+    ...rest,
+    parsedCandidate: (parsedCandidateJson ?? null) as ParsedRecipeCandidate | null,
+    editedCandidate: (editedCandidateJson ?? null) as EditedRecipeCandidate | null,
+    validationResult: (validationResultJson ?? null) as ValidationResult | null,
+  };
+}
+
+function draftRowToClientBody(
+  row: DraftRow,
+  pages: Awaited<ReturnType<typeof draftsRepository.getPages>>,
+  warningStates: Awaited<ReturnType<typeof draftsRepository.getWarningStates>>,
+) {
+  return { ...draftRowToClientFields(row), pages, warningStates };
+}
+
 let _supabase: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
   if (!_supabase) {
@@ -346,7 +372,10 @@ export async function draftsRoutes(app: FastifyInstance) {
         );
       }
 
-      return reply.send({ draft: updated, validationResult });
+      return reply.send({
+        draft: draftRowToClientFields(updated),
+        validationResult,
+      });
     },
   );
 
@@ -387,7 +416,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       }
       const pages = await draftsRepository.getPages(draftId);
       const warningStates = await draftsRepository.getWarningStates(draftId);
-      return reply.send({ ...draft, pages, warningStates });
+      return reply.send(draftRowToClientBody(draft, pages, warningStates));
     },
   );
 

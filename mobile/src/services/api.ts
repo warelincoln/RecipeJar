@@ -6,6 +6,7 @@ import type {
   Recipe,
   RecipeNote,
 } from "@recipejar/shared";
+import { RECIPEJAR_LAN_HOST } from "../devLanHost";
 
 export interface UrlParseRequest {
   html?: string;
@@ -19,7 +20,7 @@ export interface UrlParseRequest {
 }
 
 const BASE_URL = __DEV__
-  ? "http://192.168.146.215:3000"
+  ? `http://${RECIPEJAR_LAN_HOST}:3000`
   : "https://api.recipejar.app";
 
 async function request<T>(
