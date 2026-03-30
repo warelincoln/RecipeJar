@@ -3,7 +3,6 @@ import { draftsRepository } from "../persistence/drafts.repository.js";
 import { validateRecipe } from "../domain/validation/validation.engine.js";
 import { decideSave } from "../domain/save-decision.js";
 import { recipesRepository } from "../persistence/recipes.repository.js";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import type {
   ParsedRecipeCandidate,
@@ -20,6 +19,13 @@ import {
 } from "../parsing/url/url-parse.adapter.js";
 import { logEvent } from "../observability/event-logger.js";
 import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
+import { getSupabase } from "../services/supabase.js";
+import {
+  copyFromDraftPage,
+  downloadAndStoreFromUrl,
+  RECIPE_PAGES_BUCKET,
+  resolveImageUrls,
+} from "../services/recipe-image.service.js";
 
 const URL_PARSE_CAPTURE_FAILURE_REASONS = new Set([
   "injection_failed",
@@ -28,8 +34,6 @@ const URL_PARSE_CAPTURE_FAILURE_REASONS = new Set([
   "payload_too_large",
   "message_transport_failed",
 ]);
-
-const STORAGE_BUCKET = "recipe-pages";
 
 type DraftRow = NonNullable<Awaited<ReturnType<typeof draftsRepository.findById>>>;
 
@@ -55,17 +59,6 @@ function draftRowToClientBody(
   warningStates: Awaited<ReturnType<typeof draftsRepository.getWarningStates>>,
 ) {
   return { ...draftRowToClientFields(row), pages, warningStates };
-}
-
-let _supabase: SupabaseClient | null = null;
-function getSupabase(): SupabaseClient {
-  if (!_supabase) {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-    _supabase = createClient(url, key);
-  }
-  return _supabase;
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
@@ -110,7 +103,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       const rawBuffer = await file.toBuffer();
       const buffer = await optimizeForUpload(rawBuffer);
       const { error: uploadError } = await getSupabase().storage
-        .from(STORAGE_BUCKET)
+        .from(RECIPE_PAGES_BUCKET)
         .upload(storagePath, buffer, { contentType: "image/jpeg" });
 
       if (uploadError) {
@@ -126,7 +119,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         logEvent("page_added", { draftId, pageId: page.id, pageCount: orderIndex + 1 });
         return reply.status(201).send(page);
       } catch (dbError) {
-        await getSupabase().storage.from(STORAGE_BUCKET).remove([storagePath]);
+        await getSupabase().storage.from(RECIPE_PAGES_BUCKET).remove([storagePath]);
         throw dbError;
       }
     },
@@ -163,9 +156,9 @@ export async function draftsRoutes(app: FastifyInstance) {
       const rawBuffer = await file.toBuffer();
       const buffer = await optimizeForUpload(rawBuffer);
 
-      await getSupabase().storage.from(STORAGE_BUCKET).remove([storagePath]);
+      await getSupabase().storage.from(RECIPE_PAGES_BUCKET).remove([storagePath]);
       const { error: uploadError } = await getSupabase().storage
-        .from(STORAGE_BUCKET)
+        .from(RECIPE_PAGES_BUCKET)
         .upload(storagePath, buffer, { contentType: "image/jpeg" });
 
       if (uploadError) {
@@ -249,7 +242,7 @@ export async function draftsRoutes(app: FastifyInstance) {
           pages.map(async (page) => {
             try {
               const { data, error } = await getSupabase().storage
-                .from(STORAGE_BUCKET)
+                .from(RECIPE_PAGES_BUCKET)
                 .download(page.imageUri);
               if (error || !data) throw new Error(error?.message ?? "Download returned no data");
               const rawBuffer = Buffer.from(await data.arrayBuffer());
@@ -259,7 +252,7 @@ export async function draftsRoutes(app: FastifyInstance) {
             } catch (err) {
               console.warn(`[parse] OCR optimization failed for ${page.imageUri}, falling back to public URL:`, err);
               const { data: urlData } = getSupabase().storage
-                .from(STORAGE_BUCKET)
+                .from(RECIPE_PAGES_BUCKET)
                 .getPublicUrl(page.imageUri);
               return urlData.publicUrl;
             }
@@ -457,6 +450,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         steps: { text: string; orderIndex: number; isHeader: boolean }[];
         description?: string | null;
       };
+      const parsedCandidate = draft.parsedCandidateJson as ParsedRecipeCandidate | null;
 
       const pages = await draftsRepository.getPages(draftId);
 
@@ -465,6 +459,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         description: edited.description,
         sourceType: draft.sourceType as "image" | "url",
         originalUrl: draft.originalUrl,
+        imageUrl: null,
         saveDecision,
         ingredients: edited.ingredients,
         steps: edited.steps,
@@ -474,6 +469,38 @@ export async function draftsRoutes(app: FastifyInstance) {
           extractedText: p.ocrText,
         })),
       });
+      let resolvedRecipe = {
+        ...recipe,
+        ...resolveImageUrls(recipe.imageUrl ?? null),
+      };
+
+      try {
+        let imagePath: string | null = null;
+        if (draft.sourceType === "url") {
+          const metadataImageUrl = parsedCandidate?.metadata?.imageUrl;
+          if (metadataImageUrl) {
+            imagePath = await downloadAndStoreFromUrl(recipe.id, metadataImageUrl);
+          }
+        } else {
+          const firstPage = pages.find((p) => p.orderIndex === 0);
+          if (firstPage?.imageUri) {
+            imagePath = await copyFromDraftPage(recipe.id, firstPage.imageUri);
+          }
+        }
+
+        if (imagePath) {
+          const updated = await recipesRepository.setImage(recipe.id, imagePath);
+          if (updated) {
+            resolvedRecipe = {
+              ...resolvedRecipe,
+              ...updated,
+              ...resolveImageUrls(imagePath),
+            };
+          }
+        }
+      } catch (err) {
+        request.log.warn({ err, draftId }, "Failed to attach recipe hero image during save");
+      }
 
       await draftsRepository.markSaved(draftId);
 
@@ -485,7 +512,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         warningsDismissed: dismissedIssueIds.length > 0,
       });
 
-      return reply.status(201).send({ recipe, saveDecision });
+      return reply.status(201).send({ recipe: resolvedRecipe, saveDecision });
     },
   );
 }

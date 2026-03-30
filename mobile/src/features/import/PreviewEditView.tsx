@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Plus } from "lucide-react-native";
+import FastImage from "react-native-fast-image";
 import type {
   EditedRecipeCandidate,
   ValidationResult,
@@ -19,11 +20,37 @@ import {
   visibleWordCountForBlock,
 } from "./recipeParseReveal";
 import { useRecipeParseReveal } from "./useRecipeParseReveal";
+import { displayMessageForIssue } from "./issueDisplayMessage";
+import { ShimmerPlaceholder } from "../../components/ShimmerPlaceholder";
+import { RecipeImagePlaceholder } from "../../components/RecipeImagePlaceholder";
+
+/** No badge for FLAG. BLOCK/RETAKE use softer labels than raw severity codes. */
+function issueSummaryBadgeLabel(
+  issue: ValidationIssue,
+  isDismissed: boolean,
+): string | null {
+  if (issue.severity === "FLAG") return null;
+  if (isDismissed) return "Noted";
+  if (issue.severity === "BLOCK") return "Needs attention";
+  if (issue.severity === "RETAKE") return "Photo could be clearer";
+  return null;
+}
+
+function issueSummaryBadgeColor(
+  issue: ValidationIssue,
+  isDismissed: boolean,
+): string {
+  if (isDismissed) return "#9ca3af";
+  if (issue.severity === "BLOCK") return "#b45309";
+  if (issue.severity === "RETAKE") return "#0369a1";
+  return "#6b7280";
+}
 
 interface PreviewEditViewProps {
   candidate: EditedRecipeCandidate;
   validationResult: ValidationResult | null;
   dismissedIssueIds: Set<string>;
+  heroImageUrl?: string | null;
   /** >0 after a fresh parse triggers a fast word-by-word reveal (~6000 WPM); 0 skips (e.g. resume draft). */
   parseRevealToken?: number;
   onEdit: (candidate: EditedRecipeCandidate) => void;
@@ -37,6 +64,7 @@ export function PreviewEditView({
   candidate,
   validationResult,
   dismissedIssueIds,
+  heroImageUrl = null,
   parseRevealToken = 0,
   onEdit,
   onSave,
@@ -47,6 +75,11 @@ export function PreviewEditView({
   const [title, setTitle] = useState(candidate.title);
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
+  const [heroLoaded, setHeroLoaded] = useState(false);
+
+  useEffect(() => {
+    setHeroLoaded(false);
+  }, [heroImageUrl]);
 
   const { plan, revealedWordCount, isRevealing } = useRecipeParseReveal(
     candidate,
@@ -152,6 +185,24 @@ export function PreviewEditView({
         automaticallyAdjustKeyboardInsets
         testID="preview-edit-screen"
       >
+      {heroImageUrl ? (
+        <View style={styles.heroWrap}>
+          {!heroLoaded && (
+            <ShimmerPlaceholder
+              style={StyleSheet.absoluteFillObject}
+              borderRadius={12}
+            />
+          )}
+          <FastImage
+            source={{ uri: heroImageUrl }}
+            style={[styles.heroImage, !heroLoaded && styles.heroImageHidden]}
+            resizeMode={FastImage.resizeMode.cover}
+            onLoadEnd={() => setHeroLoaded(true)}
+          />
+        </View>
+      ) : (
+        <RecipeImagePlaceholder style={styles.heroWrap} />
+      )}
       <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
@@ -182,7 +233,7 @@ export function PreviewEditView({
       )}
       {issuesByField("title").map((issue) => (
         <Text key={issue.issueId} style={styles.issueText}>
-          {issue.message}
+          {displayMessageForIssue(issue)}
         </Text>
       ))}
 
@@ -221,7 +272,7 @@ export function PreviewEditView({
           )}
           {issuesByField(`ingredients[${i}]`).map((issue) => (
             <Text key={issue.issueId} style={styles.issueText}>
-              {issue.message}
+              {displayMessageForIssue(issue)}
             </Text>
           ))}
         </View>
@@ -284,7 +335,7 @@ export function PreviewEditView({
               </View>
               {issuesByField(`steps[${i}]`).map((issue) => (
                 <Text key={issue.issueId} style={styles.issueText}>
-                  {issue.message}
+                  {displayMessageForIssue(issue)}
                 </Text>
               ))}
             </View>
@@ -308,32 +359,47 @@ export function PreviewEditView({
       {validationResult && validationResult.issues.length > 0 && (
         <View style={styles.issuesSummary}>
           <Text style={styles.issuesSummaryTitle}>
-            {hasBlockers ? "Issues to resolve" : "Warnings"}
+            {hasBlockers ? "Before you save" : "Give these a look"}
           </Text>
           {validationResult.issues
             .filter((i) => i.severity !== "PASS")
             .map((issue) => {
               const isDismissed = dismissedIssueIds.has(issue.issueId);
+              const badgeLabel = issueSummaryBadgeLabel(issue, isDismissed);
               return (
-                <View key={issue.issueId} style={[styles.issueBadge, isDismissed && styles.issueDismissed]}>
+                <View
+                  key={issue.issueId}
+                  style={[
+                    styles.issueBadge,
+                    isDismissed && styles.issueDismissed,
+                  ]}
+                >
                   <View style={styles.issueContent}>
+                    {badgeLabel != null ? (
+                      <Text
+                        style={[
+                          styles.issueBadgeLabel,
+                          { color: issueSummaryBadgeColor(issue, isDismissed) },
+                        ]}
+                      >
+                        {badgeLabel}
+                      </Text>
+                    ) : null}
                     <Text
                       style={[
-                        styles.issueSeverity,
-                        issue.severity === "BLOCK" && { color: "#dc2626" },
-                        issue.severity === "FLAG" && { color: "#ca8a04" },
-                        isDismissed && { color: "#9ca3af" },
+                        styles.issueMessage,
+                        isDismissed && styles.issueMessageDismissed,
                       ]}
                     >
-                      {isDismissed ? "ACKNOWLEDGED" : issue.severity}
-                    </Text>
-                    <Text style={[styles.issueMessage, isDismissed && styles.issueMessageDismissed]}>
-                      {issue.message}
+                      {displayMessageForIssue(issue)}
                     </Text>
                   </View>
                   {issue.severity === "FLAG" && issue.userDismissible && (
                     <TouchableOpacity
-                      style={[styles.dismissButton, isDismissed && styles.undismissButton]}
+                      style={[
+                        styles.dismissButton,
+                        isDismissed && styles.undismissButton,
+                      ]}
                       onPress={() =>
                         isDismissed
                           ? onUndismissWarning(issue.issueId)
@@ -341,8 +407,13 @@ export function PreviewEditView({
                       }
                       testID={`preview-confirm-${issue.issueId}`}
                     >
-                      <Text style={[styles.dismissText, isDismissed && styles.undismissText]}>
-                        {isDismissed ? "Undo" : "confirm"}
+                      <Text
+                        style={[
+                          styles.dismissText,
+                          isDismissed && styles.undismissText,
+                        ]}
+                      >
+                        {isDismissed ? "Undo" : "Looks good"}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -373,6 +444,20 @@ const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: "#fff" },
   scroll: { flex: 1, backgroundColor: "#fff" },
   content: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
+  heroWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 10,
+    backgroundColor: "#e5e7eb",
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroImageHidden: {
+    opacity: 0,
+  },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
@@ -384,8 +469,8 @@ const styles = StyleSheet.create({
     color: "#111827",
     minHeight: 44,
   },
-  inputError: { borderColor: "#ef4444" },
-  issueText: { color: "#ef4444", fontSize: 12, marginBottom: 4, marginLeft: 4 },
+  inputError: { borderColor: "#f59e0b" },
+  issueText: { color: "#9a3412", fontSize: 13, marginBottom: 4, marginLeft: 4, lineHeight: 18 },
   ingredientHeader: {
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
     color: "#374151", paddingVertical: 6,
@@ -415,14 +500,24 @@ const styles = StyleSheet.create({
   addButtonContent: { flexDirection: "row", alignItems: "center", gap: 6 },
   addButtonText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
   issuesSummary: {
-    marginTop: 24, padding: 16, backgroundColor: "#fef3c7", borderRadius: 12,
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: "#fffbeb",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#fde68a",
   },
   issuesSummaryTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
-  issueBadge: { flexDirection: "row", alignItems: "center", marginBottom: 10, paddingVertical: 4 },
+  issueBadge: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 10,
+    paddingVertical: 4,
+  },
   issueDismissed: { opacity: 0.7 },
   issueContent: { flex: 1 },
-  issueSeverity: { fontSize: 11, fontWeight: "700", marginBottom: 2 },
-  issueMessage: { fontSize: 13, color: "#374151" },
+  issueBadgeLabel: { fontSize: 11, fontWeight: "700", marginBottom: 4, letterSpacing: 0.2 },
+  issueMessage: { fontSize: 13, color: "#374151", lineHeight: 19 },
   issueMessageDismissed: { textDecorationLine: "line-through", color: "#9ca3af" },
   dismissButton: {
     backgroundColor: "#f59e0b", paddingHorizontal: 12, paddingVertical: 6,

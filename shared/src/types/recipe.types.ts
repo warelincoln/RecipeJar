@@ -43,6 +43,8 @@ export interface Recipe {
   ingredients: RecipeIngredientEntry[];
   steps: RecipeStepEntry[];
   description?: string | null;
+  imageUrl?: string | null;
+  thumbnailUrl?: string | null;
 
   rating: number | null;
   notes: RecipeNote[];

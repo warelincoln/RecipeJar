@@ -11,6 +11,9 @@ vi.mock("@supabase/supabase-js", () => ({
           data: { publicUrl: `http://test.supabase.co/${path}` },
         })),
       })),
+      getBucket: vi.fn().mockResolvedValue({ data: { name: "recipe-images", public: true }, error: null }),
+      createBucket: vi.fn().mockResolvedValue({ data: {}, error: null }),
+      updateBucket: vi.fn().mockResolvedValue({ data: {}, error: null }),
     },
   })),
 }));
@@ -42,6 +45,7 @@ vi.mock("../src/persistence/recipes.repository.js", () => ({
     list: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    setImage: vi.fn(),
     assignToCollection: vi.fn(),
     removeFromCollection: vi.fn(),
     listByCollection: vi.fn(),
@@ -75,6 +79,8 @@ vi.mock("../src/observability/event-logger.js", () => ({
 vi.mock("../src/parsing/image/image-optimizer.js", () => ({
   optimizeForUpload: vi.fn((buf: Buffer) => Promise.resolve(buf)),
   optimizeForOcr: vi.fn((buf: Buffer) => Promise.resolve(buf)),
+  optimizeForHero: vi.fn((buf: Buffer) => Promise.resolve(buf)),
+  optimizeForThumbnail: vi.fn((buf: Buffer) => Promise.resolve(buf)),
 }));
 
 process.env.SUPABASE_URL = "http://test.supabase.co";

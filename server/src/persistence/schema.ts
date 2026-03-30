@@ -106,6 +106,7 @@ export const recipes = pgTable(
     description: text("description"),
     sourceType: text("source_type").notNull(),
     originalUrl: text("original_url"),
+    imageUrl: text("image_url"),
     ratingHalfSteps: integer("rating_half_steps"),
     saveState: text("save_state").notNull(),
     isUserVerified: boolean("is_user_verified").notNull().default(false),

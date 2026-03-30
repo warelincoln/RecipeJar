@@ -227,6 +227,11 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           candidate={state.context.editedCandidate}
           validationResult={state.context.validationResult}
           dismissedIssueIds={dismissedIssueIds}
+          heroImageUrl={
+            state.context.parsedCandidate?.metadata?.imageUrl ??
+            state.context.capturedPages[0]?.imageUri ??
+            null
+          }
           parseRevealToken={parseRevealToken}
           onEdit={handleEdit}
           onSave={() => send({ type: "ATTEMPT_SAVE" })}

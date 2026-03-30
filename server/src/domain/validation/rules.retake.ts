@@ -19,7 +19,7 @@ export function evaluateRetake(
         code: "RETAKE_LIMIT_REACHED",
         severity: "BLOCK",
         message:
-          "Retake limit reached. Enter guided correction to fix issues manually.",
+          "You've used the max retakes—tidy things up below, then save when you're ready.",
         userDismissible: false,
         userResolvable: false,
       });
@@ -29,7 +29,7 @@ export function evaluateRetake(
         code: "LOW_CONFIDENCE_STRUCTURE",
         severity: "RETAKE",
         message:
-          "Low confidence in extracted structure. Consider retaking the image.",
+          "We're not quite confident in the layout—a clearer photo usually helps.",
         userDismissible: false,
         userResolvable: false,
       });
@@ -48,7 +48,7 @@ export function evaluateRetake(
           code: "RETAKE_LIMIT_REACHED",
           severity: "BLOCK",
           message:
-            "Retake limit reached due to poor image quality. Enter guided correction.",
+            "Max retakes reached and the photo's still fuzzy—edit below to finish up.",
           userDismissible: false,
           userResolvable: false,
         });
@@ -58,7 +58,7 @@ export function evaluateRetake(
         issueId: "poor-image-quality",
         code: "POOR_IMAGE_QUALITY",
         severity: "RETAKE",
-        message: "Image quality is too low. Please retake the photo.",
+        message: "This shot's a bit hard to read—try another photo if you can.",
         userDismissible: false,
         userResolvable: false,
       });

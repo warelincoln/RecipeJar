@@ -11,7 +11,8 @@ export function evaluateIntegrity(
       issueId: "confirmed-omission",
       code: "CONFIRMED_OMISSION",
       severity: "BLOCK",
-      message: "Content was confirmed to be missing from the source.",
+      message:
+        "Some of the recipe may not have made it off the page—fill in what's missing before saving.",
       userDismissible: false,
       userResolvable: false,
     });
@@ -23,7 +24,7 @@ export function evaluateIntegrity(
       code: "SUSPECTED_OMISSION",
       severity: "FLAG",
       message:
-        "Some content may be missing. Please review and correct if needed.",
+        "We might be missing a bit of the recipe—peek at the photo and tweak if needed.",
       userDismissible: true,
       userResolvable: true,
     });
@@ -35,7 +36,7 @@ export function evaluateIntegrity(
       code: "MULTI_RECIPE_DETECTED",
       severity: "FLAG",
       message:
-        "Multiple recipes were detected in this image. Only one was extracted — please verify the content below is correct.",
+        "We may have picked up more than one recipe—make sure what's below matches what you want.",
       userDismissible: true,
       userResolvable: true,
     });

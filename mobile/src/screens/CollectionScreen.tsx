@@ -8,15 +8,20 @@ import {
   StyleSheet,
   ActivityIndicator,
   Dimensions,
-  ActionSheetIOS,
   Alert,
-  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, X } from "lucide-react-native";
+import { ChevronLeft, FolderMinus, FolderOpen, Trash2, X } from "lucide-react-native";
 import { api } from "../services/api";
 import { useCollectionsStore } from "../stores/collections.store";
-import { CompactRecipeRating } from "../components/CompactRecipeRating";
+import { useRecipesStore } from "../stores/recipes.store";
+import { RecipeCard } from "../components/RecipeCard";
+import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
+import {
+  RecipeQuickActionsSheet,
+  RecipeDeleteConfirmSheet,
+  type RecipeQuickAction,
+} from "../components/RecipeQuickActionsSheet";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -34,7 +39,16 @@ export function CollectionScreen({ route, navigation }: Props) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [collectionPickerTarget, setCollectionPickerTarget] =
+    useState<Recipe | null>(null);
+  const [recipeQuickActions, setRecipeQuickActions] = useState<{
+    recipe: Recipe;
+    actions: RecipeQuickAction[];
+  } | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] =
+    useState<Recipe | null>(null);
   const { collections } = useCollectionsStore();
+  const deleteRecipe = useRecipesStore((s) => s.deleteRecipe);
 
   const fetchData = () => {
     const fetcher = isAllRecipes
@@ -63,103 +77,68 @@ export function CollectionScreen({ route, navigation }: Props) {
   }, [recipes, searchQuery, isSearching]);
 
   const handleLongPressNormal = (item: Recipe) => {
-    const options = [`Remove from ${collectionName}`, "Cancel"];
-
-    const handleSelection = async (buttonIndex: number) => {
-      if (buttonIndex === 1) return;
-      try {
-        await api.recipes.assignCollection(item.id, null);
-        fetchData();
-      } catch {
-        Alert.alert("Error", "Failed to remove from collection. Please try again.");
-      }
-    };
-
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
+    setRecipeQuickActions({
+      recipe: item,
+      actions: [
         {
-          options,
-          cancelButtonIndex: 1,
-          destructiveButtonIndex: 0,
-          title: "Remove Recipe",
+          key: "remove-from-collection",
+          label: `Remove from ${collectionName}`,
+          icon: <FolderMinus size={22} color="#6b7280" />,
+          onPress: async () => {
+            setRecipeQuickActions(null);
+            try {
+              await api.recipes.assignCollection(item.id, null);
+              fetchData();
+            } catch {
+              Alert.alert(
+                "Error",
+                "Failed to remove from collection. Please try again.",
+              );
+            }
+          },
+          testID: "recipe-quick-action-remove-from-collection",
         },
-        handleSelection,
-      );
-    } else {
-      Alert.alert("Remove Recipe", `Remove from ${collectionName}?`, [
         {
-          text: `Remove from ${collectionName}`,
-          style: "destructive",
-          onPress: () => handleSelection(0),
+          key: "delete",
+          label: "Delete recipe",
+          destructive: true,
+          icon: <Trash2 size={22} color="#dc2626" />,
+          onPress: () => {
+            setRecipeQuickActions(null);
+            setDeleteConfirmTarget(item);
+          },
+          testID: "recipe-quick-action-delete",
         },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    }
+      ],
+    });
   };
 
   const handleLongPressAllRecipes = (item: Recipe) => {
-    if (collections.length === 0) {
-      Alert.alert("No Collections", "Create a collection first.");
-      return;
-    }
-
-    const hasColl = (item.collections?.length ?? 0) > 0;
-    const options = [
-      ...collections.map((c) => c.name),
-      ...(hasColl ? ["Remove from collection"] : []),
-      "Cancel",
-    ];
-    const cancelIndex = options.length - 1;
-    const removeIndex = hasColl ? options.length - 2 : -1;
-
-    const handleSelection = async (buttonIndex: number) => {
-      if (buttonIndex === cancelIndex) return;
-      try {
-        if (buttonIndex === removeIndex) {
-          await api.recipes.assignCollection(item.id, null);
-          fetchData();
-          return;
-        }
-        const selected = collections[buttonIndex];
-        await api.recipes.assignCollection(item.id, selected.id);
-        fetchData();
-      } catch {
-        Alert.alert("Error", "Failed to update collection. Please try again.");
-      }
-    };
-
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: cancelIndex,
-          destructiveButtonIndex: removeIndex >= 0 ? removeIndex : undefined,
-          title: hasColl ? "Move or Remove" : "Assign to Collection",
+    const actions: RecipeQuickAction[] = [];
+    if (collections.length > 0) {
+      actions.push({
+        key: "add-collection",
+        label: "Add to collection",
+        icon: <FolderOpen size={22} color="#2563eb" />,
+        onPress: () => {
+          setRecipeQuickActions(null);
+          setCollectionPickerTarget(item);
         },
-        handleSelection,
-      );
-    } else {
-      Alert.alert(
-        hasColl ? "Move or Remove" : "Assign to Collection",
-        "Select a collection",
-        [
-          ...collections.map((c, i) => ({
-            text: c.name,
-            onPress: () => handleSelection(i),
-          })),
-          ...(hasColl
-            ? [
-                {
-                  text: "Remove from collection",
-                  style: "destructive" as const,
-                  onPress: () => handleSelection(removeIndex),
-                },
-              ]
-            : []),
-          { text: "Cancel", style: "cancel" as const },
-        ],
-      );
+        testID: "recipe-quick-action-add-collection",
+      });
     }
+    actions.push({
+      key: "delete",
+      label: "Delete recipe",
+      destructive: true,
+      icon: <Trash2 size={22} color="#dc2626" />,
+      onPress: () => {
+        setRecipeQuickActions(null);
+        setDeleteConfirmTarget(item);
+      },
+      testID: "recipe-quick-action-delete",
+    });
+    setRecipeQuickActions({ recipe: item, actions });
   };
 
   const handleLongPress = isAllRecipes
@@ -265,29 +244,72 @@ export function CollectionScreen({ route, navigation }: Props) {
         columnWrapperStyle={styles.columnWrapper}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.recipeCard}
+          <RecipeCard
+            recipe={item}
+            width={CARD_WIDTH}
             testID={`recipe-card-${item.id}`}
-            accessibilityRole="button"
             onPress={() =>
               navigation.navigate("RecipeDetail", { recipeId: item.id })
             }
             onLongPress={() => handleLongPress(item)}
-          >
-            <Text style={styles.recipeTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
-            {isAllRecipes && (item.collections?.length ?? 0) > 0 && (
-              <View style={styles.collectionTag}>
-                <Text style={styles.collectionTagText} numberOfLines={1}>
-                  {item.collections[0].name}
-                </Text>
-              </View>
-            )}
-            <CompactRecipeRating rating={item.rating} />
-          </TouchableOpacity>
+          />
         )}
         contentContainerStyle={styles.listContent}
+      />
+
+      <RecipeQuickActionsSheet
+        visible={recipeQuickActions !== null}
+        onClose={() => setRecipeQuickActions(null)}
+        recipeTitle={recipeQuickActions?.recipe.title ?? ""}
+        actions={recipeQuickActions?.actions ?? []}
+      />
+
+      <RecipeDeleteConfirmSheet
+        visible={deleteConfirmTarget !== null}
+        onClose={() => setDeleteConfirmTarget(null)}
+        recipeTitle={deleteConfirmTarget?.title ?? ""}
+        onConfirm={async () => {
+          const item = deleteConfirmTarget;
+          if (!item) return;
+          try {
+            await deleteRecipe(item.id);
+            setDeleteConfirmTarget(null);
+            fetchData();
+          } catch {
+            Alert.alert(
+              "Error",
+              "Could not delete recipe. Please try again.",
+            );
+          }
+        }}
+      />
+
+      <CollectionPickerSheet
+        visible={collectionPickerTarget !== null}
+        onClose={() => setCollectionPickerTarget(null)}
+        title={
+          (collectionPickerTarget?.collections?.length ?? 0) > 0
+            ? "Move or remove"
+            : "Add to collection"
+        }
+        recipeTitle={collectionPickerTarget?.title}
+        subtitle="Choose a folder for this recipe."
+        collections={collections}
+        showRemoveOption={
+          (collectionPickerTarget?.collections?.length ?? 0) > 0
+        }
+        onSelectCollection={async (collectionId) => {
+          const item = collectionPickerTarget;
+          if (!item) return;
+          await api.recipes.assignCollection(item.id, collectionId);
+          fetchData();
+        }}
+        onRemove={async () => {
+          const item = collectionPickerTarget;
+          if (!item) return;
+          await api.recipes.assignCollection(item.id, null);
+          fetchData();
+        }}
       />
     </View>
   );
@@ -345,30 +367,5 @@ const styles = StyleSheet.create({
   columnWrapper: {
     gap: CARD_GAP,
     marginBottom: CARD_GAP,
-  },
-  recipeCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    width: CARD_WIDTH,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  recipeTitle: { fontSize: 15, fontWeight: "600", lineHeight: 20 },
-  collectionTag: {
-    backgroundColor: "#e5e7eb",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginTop: 4,
-    alignSelf: "flex-start",
-  },
-  collectionTagText: {
-    fontSize: 10,
-    color: "#6b7280",
-    fontWeight: "500",
   },
 });

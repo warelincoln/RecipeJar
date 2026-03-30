@@ -20,6 +20,7 @@ export interface SaveRecipeInput {
   description?: string | null;
   sourceType: "image" | "url";
   originalUrl?: string | null;
+  imageUrl?: string | null;
   saveDecision: SaveDecision;
   ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
   steps: { text: string; orderIndex: number; isHeader: boolean }[];
@@ -70,6 +71,7 @@ export const recipesRepository = {
         description: input.description ?? null,
         sourceType: input.sourceType,
         originalUrl: input.originalUrl ?? null,
+        imageUrl: input.imageUrl ?? null,
         saveState: input.saveDecision.saveState,
         isUserVerified: input.saveDecision.isUserVerified,
         hasUnresolvedWarnings: input.saveDecision.hasUnresolvedWarnings,
@@ -196,6 +198,7 @@ export const recipesRepository = {
     input: {
       title: string;
       description?: string | null;
+      imageUrl?: string | null;
       collectionId?: string | null;
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
       steps: { text: string; orderIndex: number; isHeader: boolean }[];
@@ -206,6 +209,7 @@ export const recipesRepository = {
       .set({
         title: input.title,
         description: input.description ?? null,
+        imageUrl: input.imageUrl === undefined ? undefined : input.imageUrl,
         updatedAt: new Date(),
       })
       .where(eq(recipes.id, id))
@@ -301,6 +305,15 @@ export const recipesRepository = {
     const [recipe] = await db
       .update(recipes)
       .set({ ratingHalfSteps, updatedAt: new Date() })
+      .where(eq(recipes.id, recipeId))
+      .returning();
+    return recipe ?? null;
+  },
+
+  async setImage(recipeId: string, imageUrl: string | null) {
+    const [recipe] = await db
+      .update(recipes)
+      .set({ imageUrl, updatedAt: new Date() })
       .where(eq(recipes.id, recipeId))
       .returning();
     return recipe ?? null;

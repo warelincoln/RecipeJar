@@ -185,6 +185,26 @@ export const api = {
       return request(`/recipes/${id}`, { method: "DELETE" });
     },
 
+    async uploadImage(id: string, imageUri: string, mimeType?: string, fileName?: string) {
+      const formData = new FormData();
+      formData.append("file", {
+        uri: imageUri,
+        type: mimeType ?? "image/jpeg",
+        name: fileName ?? "hero.jpg",
+      } as unknown as Blob);
+
+      const response = await fetch(`${BASE_URL}/recipes/${id}/image`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new ApiError(response.status, "Image upload failed");
+      return response.json() as Promise<Recipe>;
+    },
+
+    removeImage(id: string) {
+      return request<Recipe>(`/recipes/${id}/image`, { method: "DELETE" });
+    },
+
     assignCollection(id: string, collectionId: string | null) {
       return request(`/recipes/${id}/collection`, {
         method: "PATCH",

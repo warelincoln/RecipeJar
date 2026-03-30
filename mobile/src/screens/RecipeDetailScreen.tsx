@@ -7,14 +7,17 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
-  ActionSheetIOS,
-  Platform,
 } from "react-native";
+import FastImage from "react-native-fast-image";
 import { api } from "../services/api";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
 import { RecipeRatingInput } from "../components/RecipeRatingInput";
 import { RecipeNotesSection } from "../components/RecipeNotesSection";
+import { ShimmerPlaceholder } from "../components/ShimmerPlaceholder";
+import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
+import { FullScreenImageViewer } from "../components/FullScreenImageViewer";
+import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -25,6 +28,10 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   const { recipeId } = route.params;
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
+  const [heroLoaded, setHeroLoaded] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [imgCacheBuster, setImgCacheBuster] = useState(() => Date.now());
+  const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
   const { deleteRecipe } = useRecipesStore();
   const { collections, fetchCollections } = useCollectionsStore();
 
@@ -35,37 +42,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       Alert.alert("No Collections", "Create a collection first from the home screen.");
       return;
     }
-
-    const options = [...collections.map((c) => c.name), "Cancel"];
-    const cancelIndex = options.length - 1;
-
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: cancelIndex, title: "Add to Collection" },
-        async (buttonIndex) => {
-          if (buttonIndex === cancelIndex) return;
-          await api.recipes.assignCollection(recipeId, collections[buttonIndex].id);
-          const updated = await api.recipes.get(recipeId);
-          setRecipe(updated);
-        },
-      );
-    } else {
-      Alert.alert(
-        "Add to Collection",
-        "Select a collection",
-        [
-          ...collections.map((c) => ({
-            text: c.name,
-            onPress: async () => {
-              await api.recipes.assignCollection(recipeId, c.id);
-              const updated = await api.recipes.get(recipeId);
-              setRecipe(updated);
-            },
-          })),
-          { text: "Cancel", style: "cancel" as const },
-        ],
-      );
-    }
+    setCollectionPickerVisible(true);
   };
 
   const handleDelete = () => {
@@ -87,14 +64,21 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   };
 
   const refreshRecipe = useCallback(() => {
-    api.recipes.get(recipeId).then(setRecipe);
+    api.recipes.get(recipeId).then((r) => {
+      setRecipe(r);
+      setImgCacheBuster(Date.now());
+      setHeroLoaded(false);
+    });
   }, [recipeId]);
 
   useEffect(() => {
     fetchCollections();
     api.recipes
       .get(recipeId)
-      .then(setRecipe)
+      .then((next) => {
+        setRecipe(next);
+        setHeroLoaded(false);
+      })
       .finally(() => setLoading(false));
   }, [recipeId]);
 
@@ -118,8 +102,38 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
     );
   }
 
+  const heroUrl = recipe.imageUrl ? `${recipe.imageUrl}?t=${imgCacheBuster}` : null;
+
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} testID="recipe-detail-screen">
+      <TouchableOpacity
+        style={styles.heroWrap}
+        onPress={() => setViewerVisible(true)}
+        activeOpacity={0.95}
+        testID="recipe-detail-hero"
+      >
+        {heroUrl ? (
+          <>
+            {!heroLoaded && (
+              <ShimmerPlaceholder
+                style={StyleSheet.absoluteFillObject}
+                borderRadius={14}
+              />
+            )}
+            <FastImage
+              source={{ uri: heroUrl }}
+              style={[styles.heroImage, !heroLoaded && styles.heroImageHidden]}
+              resizeMode={FastImage.resizeMode.cover}
+              onLoadEnd={() => setHeroLoaded(true)}
+            />
+          </>
+        ) : (
+          <RecipeImagePlaceholder style={styles.heroImage} />
+        )}
+      </TouchableOpacity>
+
+      <View style={styles.body}>
       <View style={styles.titleRow}>
         <Text style={styles.title} testID="recipe-detail-title">{recipe.title}</Text>
         <View style={styles.titleActions}>
@@ -232,13 +246,48 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       >
         <Text style={styles.deleteButtonText}>Delete Recipe</Text>
       </TouchableOpacity>
+      </View>
+      <FullScreenImageViewer
+        visible={viewerVisible}
+        imageUrl={heroUrl}
+        onClose={() => setViewerVisible(false)}
+      />
     </ScrollView>
+    <CollectionPickerSheet
+      visible={collectionPickerVisible}
+      onClose={() => setCollectionPickerVisible(false)}
+      title="Add to collection"
+      recipeTitle={recipe.title}
+      subtitle="Choose a folder for this recipe."
+      collections={collections}
+      onSelectCollection={async (collectionId) => {
+        await api.recipes.assignCollection(recipeId, collectionId);
+        const updated = await api.recipes.get(recipeId);
+        setRecipe(updated);
+      }}
+    />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 24, paddingBottom: 40 },
+  content: { paddingBottom: 40 },
+  heroWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    marginBottom: 14,
+    backgroundColor: "#e5e7eb",
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroImageHidden: {
+    opacity: 0,
+  },
+  body: {
+    paddingHorizontal: 24,
+  },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
   errorText: { fontSize: 16, color: "#dc2626" },
   titleRow: {

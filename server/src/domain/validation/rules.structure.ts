@@ -12,7 +12,7 @@ export function evaluateStructure(
       code: "STRUCTURE_NOT_SEPARABLE",
       severity: "BLOCK",
       message:
-        "Cannot separate ingredients and steps from the source content.",
+        "We couldn't split ingredients and steps cleanly—edit them in manually to save.",
       userDismissible: false,
       userResolvable: false,
     });

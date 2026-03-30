@@ -43,7 +43,7 @@ If you are a new developer or an AI agent, start here.
 - `mobile/src/features/import/useRecipeParseReveal.ts` + `recipeParseReveal.ts`
   - Word-by-word preview reveal after parse (~6000 WPM); `ImportFlowScreen` `parseRevealToken`
 - `mobile/src/services/api.ts`
-  - Mobile API client, image upload metadata passthrough
+  - Mobile API client: draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`)
 - `server/src/api/drafts.routes.ts`
   - Draft creation, page upload, parse, save endpoints
 - `server/src/parsing/image/`
@@ -78,24 +78,25 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - URL recipe parsing with 4-tier cascade: JSON-LD → Microdata → DOM boundary extraction → AI fallback (with fetch retry, browser UA fallback, quality gate, and extraction logging)
 - Deterministic validation engine with 6 rule modules and 12 issue codes (3 severities: BLOCK, FLAG, RETAKE)
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
-- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes
-- Supabase Storage integration for recipe page images
+- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes; optional **`image_url`** on `recipes` (migration `0005_recipe_image_url`)
+- Supabase Storage integration for **draft page images** (`recipe-pages` bucket) and **saved recipe hero images** (`recipe-images` bucket — server ensures/creates a public bucket and stores `hero.jpg` + `thumb.jpg` per recipe)
 - XState v5 state machine for mobile import flow (9 states — simplified, no correction or warning gate states)
 - React Native mobile app with navigation, screens, Zustand stores (recipes + collections), API client
 - Collections feature: create collections, many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder
-- Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment
-- Home screen with search bar, two-column recipe card grid, horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, photos, URL, create collection), three empty states (no recipes, all organized, no search results)
+- Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment, optional **hero photo** (pick/compress/upload or remove; uses multipart **`POST /recipes/:id/image`**)
+- **Recipe hero image API:** **`POST /recipes/:id/image`** (multipart file) and **`DELETE /recipes/:id/image`**; **`GET /recipes`** and **`GET /recipes/:id`** (and related update responses) include resolved public **`imageUrl`** and **`thumbnailUrl`** fields for clients
+- Home screen with search bar, two-column recipe card grid (thumbnails via **`react-native-fast-image`** when a hero image exists), horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, photos, URL, create collection), three empty states (no recipes, all organized, no search results)
 - Long-press recipe cards to assign/move/remove collection membership with toast notification and undo
 - User notes: multiple text notes per recipe (max 250 chars each), add/edit via modal, delete with confirmation, newest-first with date and "Edited" label, displayed on recipe detail screen below steps
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
 - Real-time client-side search by recipe title on home screen and all collection/folder views
-- Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (71 keyword rules covering meal types, cuisines, proteins, drinks, diets, occasions, etc.; falls back to brown folder for unmatched names)
+- Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (keyword rules live in **`mobile/src/features/collections/collectionIconRules.ts`**; falls back to a neutral folder style for unmatched names)
 - **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), and **Save to RecipeJar** now tries to capture the currently loaded page HTML from the WebView before handing off to `ImportFlow`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app. If HTML capture fails for a technical reason (injection failure, timeout, message transport failure, oversized payload), the app falls back once to the existing server-side URL fetch path.
 - **Home clipboard prompt:** If the pasteboard has text (`Clipboard.hasString()` — avoids proactive `getString()` / permission churn on iOS), a bottom sheet offers **Paste**; reading and URL validation happen only on that tap. After **Paste** or dismiss, the sheet stays suppressed until the app returns from **background** (not `inactive`, so system dialogs like paste permission do not re-enable the prompt).
 - **Photo library import:** Jar "**Photos**" fan action opens the system image picker (`react-native-image-picker`). After the user picks an image, the app shows a full-screen preview with **Back** and **Import This Photo**. **Back** reopens the library picker so the user can choose a different image. **Import This Photo** sends the asset through the same upload → parse → preview → save pipeline as camera-captured images. On parse failure, a "Could Not Read Photo" screen with a "Go Home" button replaces the camera-oriented retake flow. Permission denial shows a gentle alert with an "Open Settings" link.
 - **Recipe Saved → Add more:** URL imports and Photos imports return to Home; camera imports return to `ImportFlow` in image mode.
 - URL input view (`UrlInputView`) remains in `ImportFlow` when URL mode is entered without a pre-filled URL (e.g. deep links later). There are now three URL acquisition modes: **`server-fetch`** (default URL import path), **`webview-html`** (browser-backed import from `WebRecipeImportScreen`), and **`server-fetch-fallback`** (used only when browser HTML capture fails technically). Clipboard and manual URL entry still use the server-fetch path unless they are explicitly routed through the browser first.
-- **Parse preview reveal:** After a successful parse (not draft resume), the preview screen reveals title/ingredients/steps **word-by-word** at ~**6000 WPM**; users with **Reduce Motion** see full text immediately (`useRecipeParseReveal`, `recipeParseReveal.ts`, `parseRevealToken` in `ImportFlowScreen`).
+- **Parse preview reveal:** After a successful parse (not draft resume), the preview screen reveals title/ingredients/steps **word-by-word** at ~**6000 WPM**; users with **Reduce Motion** see full text immediately (`useRecipeParseReveal`, `recipeParseReveal.ts`, `parseRevealToken` in `ImportFlowScreen`). Optional **`ParseRevealEdgeGlow`** accent during reveal; validation issues can use shared **`issueDisplayMessage`** copy.
 - Server-side automated tests (validation, parsing, save-decision, API integration, state machine)
 - iOS UI tests via XCUITest (home screen, navigation, import flow screens, cancel flows)
 
@@ -142,10 +143,10 @@ All of the following were executed against a real Supabase PostgreSQL database a
 | Validation engine | 23 tests | All 12 issue codes, all severity levels (BLOCK, FLAG, RETAKE), multi-recipe FLAG downgrade |
 | Save-decision logic | 8 tests | `SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`, dismissed multi-recipe FLAG |
 | Parsing + normalization | 35 tests | `normalizeToCandidate`, `buildErrorCandidate`, JSON-LD extraction (incl. HowToSection headers, ingredient objects, metadata), Microdata extraction, DOM boundary (structure preservation, noise removal, richest match), URL normalization, smart truncation |
-| API integration | 16+ tests | All 11 draft endpoints + 9 recipe endpoints (CRUD + collection + notes CRUD + rating), full parse-edit-save flow |
+| API integration | 16+ tests | All 11 draft endpoints + 11 recipe endpoints (CRUD + hero image + collection + notes CRUD + rating), full parse-edit-save flow |
 | XState machine | 10 tests | Happy path, resume routing, retake flow, URL import (imports mobile `importMachine`, mock actors) |
 
-All 90 server tests pass.
+All 127 server tests pass.
 
 **iOS UI tests (XCUITest, run on physical iPhone 16):**
 
@@ -428,7 +429,9 @@ Edit `server/.env` and fill in all four required values. See Section 5 above.
 
 In your Supabase dashboard: Storage → New bucket → Name: `recipe-pages` → Public: **enabled** → Create.
 
-This bucket stores uploaded recipe page images.
+This bucket stores uploaded **draft** page images for parsing.
+
+**Recipe hero images** use a separate bucket **`recipe-images`** (also public). With a valid **`SUPABASE_SERVICE_ROLE_KEY`**, the server **creates this bucket on first use** if it does not exist; you can also create it manually the same way as `recipe-pages`.
 
 ### Step 5: Push database schema
 
@@ -446,7 +449,7 @@ Using 'postgres' driver for database querying
 [✓] Changes applied
 ```
 
-This creates 10 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes`, `recipe_collections` (join table with composite PK and cascade deletes), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`, `recipe_notes` (FK to recipes with cascade delete, indexed by recipe_id).
+This applies all migrations through the latest in `server/drizzle/` (including **`0005_recipe_image_url`**, which adds nullable **`image_url`** on **`recipes`**). The baseline schema has 10 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes`, `recipe_collections` (join table with composite PK and cascade deletes), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`, `recipe_notes` (FK to recipes with cascade delete, indexed by recipe_id).
 
 If you see `ECONNREFUSED` or `ENOTFOUND`: your `DATABASE_URL` is wrong, or you are not using the pooler URL. See Section 5.
 
@@ -495,16 +498,17 @@ Expected output:
 
 ```
  ✓ tests/save-decision.test.ts (8 tests)
+ ✓ tests/url-ssrf-guard.test.ts (14 tests)
  ✓ tests/validation.engine.test.ts (23 tests)
- ✓ tests/machine.test.ts (8 tests)
- ✓ tests/parsing.test.ts (35 tests)
- ✓ tests/integration.test.ts (16 tests)
+ ✓ tests/machine.test.ts (10 tests)
+ ✓ tests/integration.test.ts (34 tests)
+ ✓ tests/parsing.test.ts (38 tests)
 
- Test Files  5 passed (5)
-      Tests  90 passed (90)
+ Test Files  6 passed (6)
+      Tests  127 passed (127)
 ```
 
-All 90 tests pass. Tests mock the database, Supabase, and OpenAI — they do not require live credentials.
+All 127 tests pass. Tests mock the database, Supabase, and OpenAI — they do not require live credentials.
 
 ---
 
@@ -965,12 +969,13 @@ RecipeJar/
 │   │   ├── 0001_smart_champions.sql      # collections table + collectionId FK on recipes
 │   │   ├── 0002_numerous_norman_osborn.sql
 │   │   ├── 0003_recipe_collections_join_table.sql  # many-to-many: create join table, migrate data, drop column
-│   │   └── 0004_burly_yellow_claw.sql              # recipe_notes table + rating_half_steps column on recipes
+│   │   ├── 0004_burly_yellow_claw.sql              # recipe_notes table + rating_half_steps column on recipes
+│   │   └── 0005_recipe_image_url.sql               # nullable image_url on recipes (hero image storage path key)
 │   ├── src/
 │   │   ├── app.ts                        # server entry point, Fastify setup, route registration
 │   │   ├── api/
 │   │   │   ├── drafts.routes.ts          # 11 draft endpoints (create, upload, parse, edit, save, etc.)
-│   │   │   ├── recipes.routes.ts         # 9 recipe endpoints (list, get, update, delete, assign collection, notes CRUD, rating)
+│   │   │   ├── recipes.routes.ts         # 11 recipe endpoints (list, get, put, delete, hero image post/delete, assign collection, notes CRUD, rating)
 │   │   │   └── collections.routes.ts     # 4 collection endpoints (create, list, get recipes, delete)
 │   │   ├── domain/
 │   │   │   ├── save-decision.ts          # decideSave() — determines SAVE_CLEAN / SAVE_USER_VERIFIED / NO_SAVE
@@ -985,11 +990,14 @@ RecipeJar/
 │   │   │       └── rules.retake.ts       # LOW_CONFIDENCE_STRUCTURE, POOR_IMAGE_QUALITY, RETAKE_LIMIT_REACHED
 │   │   ├── observability/
 │   │   │   └── event-logger.ts           # structured event logging (draft_created, parse_started, etc.)
+│   │   ├── services/
+│   │   │   ├── supabase.ts               # shared Supabase client (service role)
+│   │   │   └── recipe-image.service.ts   # recipe-images bucket, hero/thumb paths, upload/delete, resolved URLs on recipe JSON
 │   │   ├── parsing/
 │   │   │   ├── normalize.ts             # normalizeToCandidate(), buildErrorCandidate()
 │   │   │   ├── image/
 │   │   │   │   ├── image-parse.adapter.ts # GPT-5.4 Vision: signal-rich prompt, sends page images as base64 data URLs, receives structured extraction with OCR signals
-│   │   │   │   └── image-optimizer.ts    # sharp-based pipeline: optimizeForUpload (3072px, JPEG 85%) and optimizeForOcr (3072px, JPEG 90%, orient-only — no grayscale/CLAHE/sharpen)
+│   │   │   │   └── image-optimizer.ts    # sharp: optimizeForUpload / optimizeForOcr + hero/thumbnail variants for saved recipe images
 │   │   │   └── url/
 │   │   │       ├── url-parse.adapter.ts  # orchestrates 4-tier cascade: JSON-LD → Microdata → DOM → AI (quality-gated, logged)
 │   │   │       ├── url-fetch.service.ts  # fetches URL HTML: manual redirects (max 10), SSRF checks per hop, retry, browser UA fallback, normalization, size cap
@@ -999,7 +1007,7 @@ RecipeJar/
 │   │   │       └── url-ai.adapter.ts     # GPT-5.4 fallback with simplified prompt (no signal arrays), smart truncation, retry, response validation
 │   │   └── persistence/
 │   │       ├── db.ts                     # Drizzle client initialization (lazy, uses DATABASE_URL)
-│   │       ├── schema.ts                # 10 table definitions with indexes, FK cascades, recipe_collections join table, recipe_notes
+│   │       ├── schema.ts                # 10 tables + recipes.image_url for hero image storage key
 │   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states
 │   │       ├── recipes.repository.ts    # CRUD for recipes, ingredients, steps, source pages + assignToCollection/removeFromCollection via join table + rating
 │   │       ├── recipe-notes.repository.ts # CRUD for recipe notes (create, update, delete, list by recipe) + touches parent recipe updatedAt
@@ -1007,10 +1015,10 @@ RecipeJar/
 │   └── tests/
 │       ├── validation.engine.test.ts    # 23 tests — all validation rules
 │       ├── save-decision.test.ts        # 8 tests — save decision logic
-│       ├── parsing.test.ts             # 35 tests — normalization, error candidate, URL extractors
+│       ├── parsing.test.ts             # 38 tests — normalization, error candidate, URL extractors
 │       ├── url-ssrf-guard.test.ts     # SSRF guard + fetchUrl redirect behavior
-│       ├── integration.test.ts         # 16 tests — all API endpoints (mocked DB/storage)
-│       └── machine.test.ts            # 8 tests — XState machine transitions
+│       ├── integration.test.ts         # 34 tests — API endpoints incl. recipe hero image (mocked DB/storage)
+│       └── machine.test.ts            # 10 tests — XState machine transitions
 │
 └── mobile/                              # React Native app
     ├── package.json
@@ -1040,8 +1048,15 @@ RecipeJar/
         │   ├── ToastQueue.tsx           # stackable toast notifications with undo (used for collection assignment feedback)
         │   ├── RecipeRatingInput.tsx    # interactive half-star rating (tap-toggle: half→full→half, debounced API save, onPressIn for instant response)
         │   ├── CompactRecipeRating.tsx  # read-only compact rating for grid cards (gold star icon + numeric value, hidden when unrated)
-        │   └── RecipeNotesSection.tsx   # notes list + add/edit modal (multiline, char counter, KeyboardAvoidingView) + delete confirmation
+        │   ├── RecipeNotesSection.tsx   # notes list + add/edit modal (multiline, char counter, KeyboardAvoidingView) + delete confirmation
+        │   ├── RecipeCard.tsx           # grid card with optional FastImage thumbnail + quick actions entry points
+        │   ├── RecipeImagePlaceholder.tsx / ShimmerPlaceholder.tsx # loading / empty image states
+        │   ├── FullScreenImageViewer.tsx # pinch/zoom hero image viewer
+        │   ├── CollectionPickerSheet.tsx / CreateCollectionSheet.tsx # collection assignment + create flows
+        │   └── RecipeQuickActionsSheet.tsx # contextual actions for a recipe
         ├── features/
+        │   ├── collections/
+        │   │   └── collectionIconRules.ts # Lucide icon + color rules for collection folders (shared by home + collection UI)
         │   └── import/
         │       ├── machine.ts           # XState v5 import flow state machine (9 states)
         │       ├── CaptureView.tsx      # camera capture UI
@@ -1051,18 +1066,20 @@ RecipeJar/
         │       ├── RetakeRequiredView.tsx # retake prompt UI
         │       ├── SavedView.tsx        # success UI (Lucide Check icon)
         │       ├── UrlInputView.tsx     # URL paste screen when ImportFlow has no pre-passed URL
+        │       ├── ParseRevealEdgeGlow.tsx # optional accent during parse preview reveal
+        │       ├── issueDisplayMessage.ts # user-facing strings for validation issues
         │       └── webImportUrl.ts      # neutral search URL, strip credentials, search-result detection helpers
         ├── navigation/
         │   └── types.ts                # RootStackParamList (+ WebRecipeImport with optional initialUrl)
         ├── screens/
-        │   ├── HomeScreen.tsx           # search bar, uncategorized recipe grid, collections row with auto-assigned icons and "All Recipes" virtual folder, jar FAB (camera, photos, URL, folder), photos preview/confirm UI, clipboard prompt, toast on assignment
+        │   ├── HomeScreen.tsx           # search bar, two-column grid (`RecipeCard` + thumbnails), collections row + `collectionIconRules`, jar FAB, photos preview, clipboard prompt, toasts
         │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, long-press remove/assign
         │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection)
         │   ├── ImportFlowScreen.tsx     # renders state machine views + URL input gate
         │   ├── WebRecipeImportScreen.tsx # in-app WebView: browse → Save passes native URL to ImportFlow
         │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button, inline star rating, notes section
         ├── services/
-        │   └── api.ts                  # API client (drafts + recipes + collections endpoints)
+        │   └── api.ts                  # API client (drafts + recipes incl. hero image upload/remove + collections)
         └── stores/
             ├── recipes.store.ts        # Zustand store for recipe list
             └── collections.store.ts    # Zustand store for collections list
@@ -1214,7 +1231,7 @@ This is the shortest correct mental model for both human contributors and AI age
 ### Modifying parsing
 
 - **Image parsing:** Edit `server/src/parsing/image/image-parse.adapter.ts`. This constructs the GPT-5.4 Vision prompt (signal-rich: includes `ingredientSignals`, `stepSignals`, and top-level signal hints for OCR quality detection) and parses the response. The prompt instructs the AI to extract only the most prominent recipe when multiple are visible. The model is set via the `model` field in the `openai.chat.completions.create()` call. Uses `detail: "high"` for accurate fraction/quantity reading. Images are sent as base64 data URLs (downloaded from Supabase at parse time, processed through `optimizeForOcr`, encoded inline) to avoid an extra network hop for OpenAI.
-- **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Two functions: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — called at upload time before storing in Supabase) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — called at parse time before sending to OpenAI). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy — neural vision models perform best on clean, natural color images. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
+- **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Core paths: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — draft page storage) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — before OpenAI Vision). Additional helpers produce **hero** and **thumbnail** JPEGs for saved recipe images (`recipe-images` bucket). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
 - **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. Both fetched HTML and browser-captured HTML now enter the same shared parser helper. The cascade tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch still uses retry with backoff and browser UA fallback on 403. Structured logs now include both the extraction method and the acquisition method (`server-fetch`, `webview-html`, `server-fetch-fallback`). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
 - **URL fetch (SSRF mitigation):** `server/src/parsing/url/url-fetch.service.ts` follows redirects manually (max 10 hops) and calls `server/src/parsing/url/url-ssrf-guard.ts` on **each** URL in the chain. The guard allows only `http`/`https`, rejects URLs with embedded credentials, and refuses targets whose addresses fall in private, loopback, link-local, CGNAT, documentation, multicast, or reserved ranges (IPv4 and IPv6, including IPv4-mapped IPv6). For hostnames it uses `dns.promises.lookup` with `{ all: true, verbatim: true }` so checked addresses align with typical `getaddrinfo` behavior used for outbound TCP.
 - **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
@@ -1279,7 +1296,7 @@ Non-interactive elements (Text, View containers) only need `testID`:
 
 ### Icon system
 
-All UI icons use `lucide-react-native` (peer: **`react-native-svg@15.15.4`**, hoisted with root **`overrides`** and Metro **`extraNodeModules`** so only one native copy is linked). iOS needs the **`patch-package`** patch for that version under RN **0.76** New Architecture (see `patches/`). When upgrading React Native or SVG, re-verify native build and duplicate-RNSVG LogBox issues. Collection folders auto-assign contextual icons via `getCollectionIcon()` in `HomeScreen.tsx` (71 keyword rules); to add mappings, append to the `ICON_RULES` array.
+All UI icons use `lucide-react-native` (peer: **`react-native-svg@15.15.4`**, hoisted with root **`overrides`** and Metro **`extraNodeModules`** so only one native copy is linked). iOS needs the **`patch-package`** patch for that version under RN **0.76** New Architecture (see `patches/`). When upgrading React Native or SVG, re-verify native build and duplicate-RNSVG LogBox issues. Collection folder icons/colors come from **`mobile/src/features/collections/collectionIconRules.ts`** (`getCollectionIcon` + keyword rules); extend that module for new keywords.
 
 ### Image parsing quality
 
@@ -1302,6 +1319,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-03-30** — **Recipe hero images:** migration `0005_recipe_image_url`, Supabase **`recipe-images`** bucket, `POST`/`DELETE` `/recipes/:id/image`, API responses include **`imageUrl`** / **`thumbnailUrl`**; shared `Recipe` fields; refactored **`server/src/services/`** (Supabase client + `recipe-image.service.ts`); draft routes use shared helpers; image optimizer gains hero/thumbnail paths; mobile **Fast Image**, full-screen viewer, edit-screen photo pick/upload, refreshed home/collection/detail flows, new sheets/cards/shimmer; validation rule tweaks; integration tests updated. Details in changelog.
 - **2026-03-28** — iOS: RNSVG Yoga patch + `patch-package`, RCT-Folly `folly/json` symlink fix in `Podfile`; monorepo SVG dedupe (overrides + Metro); **draft API** GET/PATCH return `RecipeDraft` field names (`parsedCandidate`, etc.); import **word-by-word preview reveal** (~6000 WPM); mobile/server TS fixes; tests updated. Details in changelog.
 - **2026-03-25** — Photo library import via `react-native-image-picker` (jar "Photos" fan action, HEIC→JPEG via `assetRepresentationMode: "compatible"`, real MIME type/filename passthrough, Photos-aware retake screen with "Go Home" button, permission denial alert with Settings link); structural scaffolding for multi-image photo imports
 - **2026-03-25** — In-app WebView URL import (Google search, ad-domain blocking, Save → ImportFlow), Home clipboard sheet with session suppression, conditional **Add more** after save, mobile deps (`react-native-webview`, clipboard); README roadmap for bot-protected URL parsing

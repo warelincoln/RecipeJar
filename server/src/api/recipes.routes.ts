@@ -2,13 +2,25 @@ import type { FastifyInstance } from "fastify";
 import { recipesRepository } from "../persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../persistence/recipe-notes.repository.js";
 import { NOTE_MAX_LENGTH } from "@recipejar/shared";
+import {
+  deleteRecipeImage,
+  resolveImageUrls,
+  uploadRecipeImage,
+} from "../services/recipe-image.service.js";
 
 const VALID_RATINGS = new Set([0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]);
+
+function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
+  return {
+    ...recipe,
+    ...resolveImageUrls(recipe.imageUrl ?? null),
+  };
+}
 
 export async function recipesRoutes(app: FastifyInstance) {
   app.get("/recipes", async (_request, reply) => {
     const recipes = await recipesRepository.list();
-    return reply.send(recipes);
+    return reply.send(recipes.map(withImageUrls));
   });
 
   app.get<{ Params: { id: string } }>(
@@ -18,7 +30,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       if (!recipe) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
-      return reply.send(recipe);
+      return reply.send(withImageUrls(recipe));
     },
   );
 
@@ -40,7 +52,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       request.params.id,
       request.body,
     );
-    return reply.send(updated);
+    return reply.send(updated ? withImageUrls(updated) : null);
   });
 
   app.delete<{ Params: { id: string } }>(
@@ -50,8 +62,56 @@ export async function recipesRoutes(app: FastifyInstance) {
       if (!existing) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
+      try {
+        await deleteRecipeImage(request.params.id);
+      } catch (err) {
+        request.log.warn(
+          { err, recipeId: request.params.id },
+          "Failed to delete recipe image from storage",
+        );
+      }
       await recipesRepository.delete(request.params.id);
       return reply.send({ success: true });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/recipes/:id/image",
+    async (request, reply) => {
+      const existing = await recipesRepository.findById(request.params.id);
+      if (!existing) {
+        return reply.status(404).send({ error: "Recipe not found" });
+      }
+
+      const file = await request.file();
+      if (!file) {
+        return reply.status(400).send({ error: "Image file is required" });
+      }
+
+      const buffer = await file.toBuffer();
+      await deleteRecipeImage(request.params.id);
+      const imagePath = await uploadRecipeImage(request.params.id, buffer);
+      if (!imagePath) {
+        return reply.status(500).send({ error: "Failed to upload recipe image" });
+      }
+
+      await recipesRepository.setImage(request.params.id, imagePath);
+      const updated = await recipesRepository.findById(request.params.id);
+      return reply.send(updated ? withImageUrls(updated) : null);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/recipes/:id/image",
+    async (request, reply) => {
+      const existing = await recipesRepository.findById(request.params.id);
+      if (!existing) {
+        return reply.status(404).send({ error: "Recipe not found" });
+      }
+      await deleteRecipeImage(request.params.id);
+      await recipesRepository.setImage(request.params.id, null);
+      const updated = await recipesRepository.findById(request.params.id);
+      return reply.send(updated ? withImageUrls(updated) : null);
     },
   );
 
@@ -75,7 +135,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     }
 
     const updated = await recipesRepository.findById(request.params.id);
-    return reply.send(updated);
+    return reply.send(updated ? withImageUrls(updated) : null);
   });
 
   // --- Notes CRUD ---
@@ -147,6 +207,6 @@ export async function recipesRoutes(app: FastifyInstance) {
     const halfSteps = rating !== null ? Math.round(rating * 2) : null;
     await recipesRepository.setRating(request.params.id, halfSteps);
     const updated = await recipesRepository.findById(request.params.id);
-    return reply.send(updated);
+    return reply.send(updated ? withImageUrls(updated) : null);
   });
 }

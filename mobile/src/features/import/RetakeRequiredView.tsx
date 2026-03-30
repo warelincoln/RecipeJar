@@ -1,4 +1,5 @@
 import React from "react";
+import { displayMessageForIssue } from "./issueDisplayMessage";
 import {
   View,
   Text,
@@ -41,7 +42,7 @@ export function RetakeRequiredView({
 
       {retakeIssues.map((issue) => (
         <View key={issue.issueId} style={styles.issueBanner}>
-          <Text style={styles.issueText}>{issue.message}</Text>
+          <Text style={styles.issueText}>{displayMessageForIssue(issue)}</Text>
         </View>
       ))}
 

@@ -36,6 +36,13 @@
       "when": 1774209568315,
       "tag": "0004_burly_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1774828800000,
+      "tag": "0005_recipe_image_url",
+      "breakpoints": true
     }
   ]
 }

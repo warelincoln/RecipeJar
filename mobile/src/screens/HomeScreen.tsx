@@ -9,9 +9,7 @@ import {
   ActivityIndicator,
   Animated,
   Alert,
-  ActionSheetIOS,
   Dimensions,
-  Platform,
   AppState,
   Linking,
   Image,
@@ -19,82 +17,35 @@ import {
 import { launchImageLibrary } from "react-native-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Amphora,
   Camera,
   Link,
   FolderOpen,
   BookOpen,
-  X,
-  Egg,
-  EggFried,
-  Coffee,
-  Sandwich,
-  UtensilsCrossed,
-  IceCreamCone,
-  CakeSlice,
-  Cake,
-  Wine,
-  Martini,
-  Soup,
-  Salad,
-  Fish,
-  Drumstick,
-  Wheat,
-  Vegan,
-  Heart,
-  Cookie,
-  Utensils,
-  Pizza,
-  Star,
-  Gift,
-  Timer,
-  Flame,
-  Cherry,
-  Apple,
-  Banana,
-  Carrot,
-  Beef,
-  Milk,
-  Croissant,
-  Popcorn,
-  Bean,
-  Citrus,
-  Grape,
-  Ham,
-  Hamburger,
-  Lollipop,
-  Nut,
-  Popsicle,
-  ChefHat,
-  Beer,
-  CupSoda,
-  Donut,
-  Candy,
-  Sprout,
-  Snowflake,
-  Sun,
-  Globe,
-  Zap,
-  PartyPopper,
-  CookingPot,
-  Sparkles,
-  HandPlatter,
-  GlassWater,
-  LeafyGreen,
   ImageIcon,
+  Plus,
+  Minus,
+  Trash2,
+  X,
 } from "lucide-react-native";
-import type { LucideIcon } from "lucide-react-native";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
 import { api } from "../services/api";
 import { ToastQueue, type ToastQueueHandle } from "../components/ToastQueue";
-import { CompactRecipeRating } from "../components/CompactRecipeRating";
+import { RecipeCard } from "../components/RecipeCard";
 import type { Recipe } from "@recipejar/shared";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { ClipboardRecipePrompt } from "../components/ClipboardRecipePrompt";
+import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
+import {
+  RecipeQuickActionsSheet,
+  RecipeDeleteConfirmSheet,
+  type RecipeQuickAction,
+} from "../components/RecipeQuickActionsSheet";
+import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
+import { getCollectionIcon } from "../features/collections/collectionIconRules";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -108,100 +59,31 @@ const HORIZONTAL_PADDING = 24;
 const CARD_GAP = 12;
 const CARD_WIDTH = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - CARD_GAP) / 2;
 
+/** Home import FAB — keep in sync with `styles.jarButton` and its `bottom` offset. */
+const JAR_FAB_BOTTOM_OFFSET = 10;
+const JAR_FAB_SIZE = 60;
+const JAR_FAN_BUTTON_SIZE = 52;
+const JAR_FAN_LABEL_GAP = 4;
+const JAR_FAN_LABEL_LINE = 15;
+const JAR_FAN_COLUMN_HEIGHT =
+  JAR_FAN_BUTTON_SIZE + JAR_FAN_LABEL_GAP + JAR_FAN_LABEL_LINE;
+/** Wide enough for "Add Folder"; keeps transform origin on the vertical centerline for every action. */
+const JAR_FAN_SLOT_WIDTH = 128;
+/** Arc radius from FAB center (px); larger = more space between fan actions. */
+const JAR_FAN_RADIUS = 104;
+/** Even 40° steps, symmetric about -90° (straight up in math coords → translateX balances). */
+const JAR_FAN_ANGLES = [-150, -110, -70, -30] as const;
+
 interface CollectionItem {
   id: string;
   name: string;
   isVirtual?: boolean;
 }
 
-const ICON_RULES: [string[], LucideIcon, string][] = [
-  [["breakfast", "morning", "brunch"], Egg, "#f59e0b"],
-  [["lunch"], Sandwich, "#16a34a"],
-  [["dinner", "supper", "entree"], UtensilsCrossed, "#dc2626"],
-  [["dessert", "sweet"], IceCreamCone, "#ec4899"],
-  [["appetizer", "starter", "tapas"], HandPlatter, "#8b5cf6"],
-  [["soup", "stew", "chili", "chowder"], Soup, "#ea580c"],
-  [["salad"], Salad, "#22c55e"],
-  [["pasta", "noodle"], Wheat, "#ca8a04"],
-  [["pizza"], Pizza, "#dc2626"],
-  [["burger", "hamburger"], Hamburger, "#d97706"],
-  [["sandwich", "wrap"], Sandwich, "#16a34a"],
-  [["curry"], CookingPot, "#f97316"],
-  [["casserole"], CookingPot, "#92400e"],
-  [["stir fry", "stirfry", "wok"], Flame, "#f97316"],
-  [["cake", "cupcake"], CakeSlice, "#a855f7"],
-  [["bread", "loaf"], Croissant, "#92400e"],
-  [["cookie", "biscuit"], Cookie, "#d97706"],
-  [["pie", "tart", "pastry"], Cake, "#a855f7"],
-  [["donut", "doughnut"], Donut, "#ec4899"],
-  [["candy", "chocolate", "fudge"], Candy, "#ec4899"],
-  [["lollipop"], Lollipop, "#f472b6"],
-  [["popsicle", "ice pop"], Popsicle, "#06b6d4"],
-  [["chicken", "poultry", "turkey"], Drumstick, "#d97706"],
-  [["beef", "steak", "meat"], Beef, "#b91c1c"],
-  [["pork", "ham", "bacon"], Ham, "#f97316"],
-  [["fish", "seafood", "shrimp", "salmon", "tuna", "sushi"], Fish, "#0ea5e9"],
-  [["egg", "omelette", "frittata"], EggFried, "#eab308"],
-  [["bean", "lentil", "legume", "chickpea"], Bean, "#92400e"],
-  [["nut", "almond", "walnut", "pecan"], Nut, "#a16207"],
-  [["fruit", "berry"], Cherry, "#e11d48"],
-  [["apple"], Apple, "#16a34a"],
-  [["banana"], Banana, "#eab308"],
-  [["grape"], Grape, "#7c3aed"],
-  [["citrus", "lemon", "lime", "orange"], Citrus, "#f59e0b"],
-  [["carrot", "vegetable", "veggie"], Carrot, "#f97316"],
-  [["coffee", "espresso", "latte"], Coffee, "#78350f"],
-  [["tea", "matcha", "chai"], GlassWater, "#059669"],
-  [["smoothie", "juice", "shake"], CupSoda, "#06b6d4"],
-  [["cocktail", "margarita", "mojito"], Martini, "#6366f1"],
-  [["wine"], Wine, "#7c3aed"],
-  [["beer", "ale", "brew"], Beer, "#d97706"],
-  [["drink", "beverage"], GlassWater, "#3b82f6"],
-  [["milk", "dairy"], Milk, "#78350f"],
-  [["popcorn", "movie night"], Popcorn, "#eab308"],
-  [["vegan", "plant based", "plant-based"], Sprout, "#22c55e"],
-  [["vegetarian"], Vegan, "#16a34a"],
-  [["gluten free", "gluten-free"], Wheat, "#a16207"],
-  [["healthy", "clean", "light", "low cal"], Heart, "#ef4444"],
-  [["keto", "low carb", "low-carb"], Zap, "#f59e0b"],
-  [["italian", "mediterranean"], Pizza, "#dc2626"],
-  [["mexican", "tex-mex", "taco", "burrito"], Flame, "#ea580c"],
-  [["asian", "chinese", "japanese", "korean", "thai", "vietnamese"], Utensils, "#e11d48"],
-  [["indian"], Flame, "#f97316"],
-  [["french"], Croissant, "#3b82f6"],
-  [["greek"], Salad, "#0ea5e9"],
-  [["bbq", "barbecue", "grill"], Flame, "#f97316"],
-  [["bake", "baking"], CakeSlice, "#a855f7"],
-  [["slow cook", "crockpot", "instant pot", "pressure cook"], CookingPot, "#92400e"],
-  [["quick", "fast", "easy", "weeknight", "under 30"], Timer, "#3b82f6"],
-  [["meal prep", "batch", "freezer"], Snowflake, "#0ea5e9"],
-  [["holiday", "christmas", "thanksgiving", "easter", "halloween"], Gift, "#059669"],
-  [["party", "potluck", "entertaining"], PartyPopper, "#ec4899"],
-  [["summer", "spring"], Sun, "#f59e0b"],
-  [["winter", "fall", "autumn", "comfort"], Snowflake, "#64748b"],
-  [["favorite", "best", "top"], Star, "#eab308"],
-  [["family", "kid", "children"], Heart, "#ec4899"],
-  [["date night", "romantic"], Sparkles, "#ec4899"],
-  [["world", "international", "global"], Globe, "#3b82f6"],
-  [["chef", "special", "gourmet"], ChefHat, "#1e293b"],
-  [["try", "new", "experiment"], Sparkles, "#8b5cf6"],
-  [["snack"], Cookie, "#d97706"],
-  [["side", "sides"], LeafyGreen, "#22c55e"],
-];
-
-function getCollectionIcon(name: string): { Icon: LucideIcon; color: string } {
-  const lower = name.toLowerCase();
-  for (const [keywords, Icon, color] of ICON_RULES) {
-    if (keywords.some((kw) => lower.includes(kw))) {
-      return { Icon, color };
-    }
-  }
-  return { Icon: FolderOpen, color: "#b8860b" };
-}
-
 export function HomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { recipes, loading, error, fetchRecipes } = useRecipesStore();
+  const { recipes, loading, error, fetchRecipes, deleteRecipe } =
+    useRecipesStore();
   const { collections, fetchCollections, createCollection } =
     useCollectionsStore();
   const [jarOpen, setJarOpen] = useState(false);
@@ -212,6 +94,16 @@ export function HomeScreen({ navigation }: Props) {
     type?: string;
     fileName?: string;
   } | null>(null);
+  const [collectionPickerTarget, setCollectionPickerTarget] =
+    useState<Recipe | null>(null);
+  const [createCollectionSheetVisible, setCreateCollectionSheetVisible] =
+    useState(false);
+  const [recipeQuickActions, setRecipeQuickActions] = useState<{
+    recipe: Recipe;
+    actions: RecipeQuickAction[];
+  } | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] =
+    useState<Recipe | null>(null);
   const suppressClipboardPromptRef = useRef(false);
   const fanAnim = useRef(new Animated.Value(0)).current;
   const toastRef = useRef<ToastQueueHandle>(null);
@@ -321,15 +213,7 @@ export function HomeScreen({ navigation }: Props) {
 
   const handleCreateCollection = () => {
     setJarOpen(false);
-    Alert.prompt(
-      "New Collection",
-      "Enter a name for the collection",
-      async (name) => {
-        if (name && name.trim().length > 0) {
-          await createCollection(name.trim());
-        }
-      },
-    );
+    setCreateCollectionSheetVisible(true);
   };
 
   const openPhotoPicker = useCallback(async () => {
@@ -372,79 +256,31 @@ export function HomeScreen({ navigation }: Props) {
   }, []);
 
   const handleLongPressRecipe = (item: Recipe) => {
-    if (collections.length === 0) {
-      Alert.alert("No Collections", "Create a collection first.");
-      return;
-    }
-
-    const hasColl = (item.collections?.length ?? 0) > 0;
-
-    const options = [
-      ...collections.map((c) => c.name),
-      ...(hasColl ? ["Remove from collection"] : []),
-      "Cancel",
-    ];
-    const cancelIndex = options.length - 1;
-    const removeIndex = hasColl ? options.length - 2 : -1;
-
-    const handleSelection = async (buttonIndex: number) => {
-      if (buttonIndex === cancelIndex) return;
-
-      try {
-        if (buttonIndex === removeIndex) {
-          await api.recipes.assignCollection(item.id, null);
-          fetchRecipes();
-          return;
-        }
-
-        const selectedCollection = collections[buttonIndex];
-        await api.recipes.assignCollection(item.id, selectedCollection.id);
-        fetchRecipes();
-
-        toastRef.current?.addToast({
-          message: `Added to ${selectedCollection.name}`,
-          onUndo: async () => {
-            await api.recipes.assignCollection(item.id, null);
-            fetchRecipes();
-          },
-        });
-      } catch {
-        Alert.alert("Error", "Failed to update collection. Please try again.");
-      }
-    };
-
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: cancelIndex,
-          destructiveButtonIndex: removeIndex >= 0 ? removeIndex : undefined,
-          title: hasColl ? "Move or Remove" : "Assign to Collection",
+    const actions: RecipeQuickAction[] = [];
+    if (collections.length > 0) {
+      actions.push({
+        key: "add-collection",
+        label: "Add to collection",
+        icon: <FolderOpen size={22} color="#2563eb" />,
+        onPress: () => {
+          setRecipeQuickActions(null);
+          setCollectionPickerTarget(item);
         },
-        handleSelection,
-      );
-    } else {
-      Alert.alert(
-        hasColl ? "Move or Remove" : "Assign to Collection",
-        "Select a collection",
-        [
-          ...collections.map((c, i) => ({
-            text: c.name,
-            onPress: () => handleSelection(i),
-          })),
-          ...(hasColl
-            ? [
-                {
-                  text: "Remove from collection",
-                  style: "destructive" as const,
-                  onPress: () => handleSelection(removeIndex),
-                },
-              ]
-            : []),
-          { text: "Cancel", style: "cancel" as const },
-        ],
-      );
+        testID: "recipe-quick-action-add-collection",
+      });
     }
+    actions.push({
+      key: "delete",
+      label: "Delete recipe",
+      destructive: true,
+      icon: <Trash2 size={22} color="#dc2626" />,
+      onPress: () => {
+        setRecipeQuickActions(null);
+        setDeleteConfirmTarget(item);
+      },
+      testID: "recipe-quick-action-delete",
+    });
+    setRecipeQuickActions({ recipe: item, actions });
   };
 
   const renderEmptyState = () => {
@@ -480,6 +316,11 @@ export function HomeScreen({ navigation }: Props) {
     }
     return null;
   };
+
+  const jarFabCenterFromBottom =
+    insets.bottom + JAR_FAB_BOTTOM_OFFSET + JAR_FAB_SIZE / 2;
+  const jarFanAnchorBottom =
+    jarFabCenterFromBottom - JAR_FAN_COLUMN_HEIGHT / 2;
 
   return (
     <View style={styles.container} testID="home-screen">
@@ -576,31 +417,15 @@ export function HomeScreen({ navigation }: Props) {
         columnWrapperStyle={styles.columnWrapper}
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.recipeCard}
+          <RecipeCard
+            recipe={item}
+            width={CARD_WIDTH}
             testID={`recipe-card-${item.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={`recipe-${item.title}`}
             onPress={() =>
               navigation.navigate("RecipeDetail", { recipeId: item.id })
             }
             onLongPress={() => handleLongPressRecipe(item)}
-          >
-            <Text style={styles.recipeTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
-            {isSearching && (item.collections?.length ?? 0) > 0 && (
-              <View style={styles.collectionTag}>
-                <Text style={styles.collectionTagText} numberOfLines={1}>
-                  {item.collections[0].name}
-                </Text>
-              </View>
-            )}
-            <CompactRecipeRating rating={item.rating} />
-            {item.isUserVerified && (
-              <Text style={styles.verifiedBadge}>Verified</Text>
-            )}
-          </TouchableOpacity>
+          />
         )}
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -619,7 +444,6 @@ export function HomeScreen({ navigation }: Props) {
         {
           icon: <Camera size={24} color="#0ea5e9" />,
           label: "Camera",
-          angle: -155,
           testID: "jar-fan-camera",
           onPress: () => {
             toggleJar();
@@ -629,7 +453,6 @@ export function HomeScreen({ navigation }: Props) {
         {
           icon: <ImageIcon size={24} color="#ec4899" />,
           label: "Photos",
-          angle: -114,
           testID: "jar-fan-photos",
           onPress: () => {
             toggleJar();
@@ -639,7 +462,6 @@ export function HomeScreen({ navigation }: Props) {
         {
           icon: <Link size={24} color="#22c55e" />,
           label: "URL",
-          angle: -66,
           testID: "jar-fan-url",
           onPress: () => {
             toggleJar();
@@ -649,26 +471,26 @@ export function HomeScreen({ navigation }: Props) {
         {
           icon: <FolderOpen size={24} color="#a855f7" />,
           label: "Add Folder",
-          angle: -25,
           testID: "jar-fan-collection",
           onPress: () => {
             toggleJar();
             handleCreateCollection();
           },
         },
-      ].map((item) => {
-        const rad = (item.angle * Math.PI) / 180;
-        const radius = 110;
-        const tx = Math.cos(rad) * radius;
-        const ty = Math.sin(rad) * radius;
+      ].map((item, index) => {
+        const angle = JAR_FAN_ANGLES[index] ?? -90;
+        const rad = (angle * Math.PI) / 180;
+        const tx = Math.cos(rad) * JAR_FAN_RADIUS;
+        const ty = Math.sin(rad) * JAR_FAN_RADIUS;
         return (
           <Animated.View
             key={item.testID}
             pointerEvents={jarOpen ? "auto" : "none"}
             style={[
               styles.fanItem,
-              { bottom: insets.bottom + 50 },
               {
+                bottom: jarFanAnchorBottom,
+                width: JAR_FAN_SLOT_WIDTH,
                 opacity: fanAnim,
                 transform: [
                   {
@@ -702,21 +524,26 @@ export function HomeScreen({ navigation }: Props) {
             >
               {item.icon}
             </TouchableOpacity>
-            <Animated.Text style={[styles.fanLabel, { opacity: fanAnim }]}>
-              {item.label}
-            </Animated.Text>
+            <Text style={styles.fanLabel}>{item.label}</Text>
           </Animated.View>
         );
       })}
 
       <TouchableOpacity
-        style={[styles.jarButton, { bottom: insets.bottom + 20 }]}
+        style={[
+          styles.jarButton,
+          { bottom: insets.bottom + JAR_FAB_BOTTOM_OFFSET },
+        ]}
         testID="jar-button"
         accessibilityRole="button"
-        accessibilityLabel="jar-button"
+        accessibilityLabel={jarOpen ? "Close import menu" : "Open import menu"}
         onPress={toggleJar}
       >
-        <Amphora size={56} color="#fff" />
+        {jarOpen ? (
+          <Minus size={28} color="#fff" />
+        ) : (
+          <Plus size={28} color="#fff" />
+        )}
       </TouchableOpacity>
 
       <ToastQueue ref={toastRef} />
@@ -727,6 +554,80 @@ export function HomeScreen({ navigation }: Props) {
         onPasteUrl={(url) =>
           navigation.navigate("WebRecipeImport", { initialUrl: url })
         }
+      />
+
+      <CreateCollectionSheet
+        visible={createCollectionSheetVisible}
+        onClose={() => setCreateCollectionSheetVisible(false)}
+        onCreate={async (name) => {
+          await createCollection(name);
+        }}
+      />
+
+      <RecipeQuickActionsSheet
+        visible={recipeQuickActions !== null}
+        onClose={() => setRecipeQuickActions(null)}
+        recipeTitle={recipeQuickActions?.recipe.title ?? ""}
+        actions={recipeQuickActions?.actions ?? []}
+      />
+
+      <RecipeDeleteConfirmSheet
+        visible={deleteConfirmTarget !== null}
+        onClose={() => setDeleteConfirmTarget(null)}
+        recipeTitle={deleteConfirmTarget?.title ?? ""}
+        onConfirm={async () => {
+          const item = deleteConfirmTarget;
+          if (!item) return;
+          try {
+            await deleteRecipe(item.id);
+            setDeleteConfirmTarget(null);
+          } catch {
+            Alert.alert(
+              "Error",
+              "Could not delete recipe. Please try again.",
+            );
+          }
+        }}
+      />
+
+      <CollectionPickerSheet
+        visible={collectionPickerTarget !== null}
+        onClose={() => setCollectionPickerTarget(null)}
+        title={
+          (collectionPickerTarget?.collections?.length ?? 0) > 0
+            ? "Move or remove"
+            : "Add to collection"
+        }
+        recipeTitle={collectionPickerTarget?.title}
+        subtitle="Choose a folder for this recipe."
+        collections={collections}
+        showRemoveOption={
+          (collectionPickerTarget?.collections?.length ?? 0) > 0
+        }
+        onSelectCollection={async (collectionId) => {
+          const item = collectionPickerTarget;
+          if (!item) return;
+          const selectedCollection = collections.find(
+            (c) => c.id === collectionId,
+          );
+          await api.recipes.assignCollection(item.id, collectionId);
+          fetchRecipes();
+          if (selectedCollection) {
+            toastRef.current?.addToast({
+              message: `Added to ${selectedCollection.name}`,
+              onUndo: async () => {
+                await api.recipes.assignCollection(item.id, null);
+                fetchRecipes();
+              },
+            });
+          }
+        }}
+        onRemove={async () => {
+          const item = collectionPickerTarget;
+          if (!item) return;
+          await api.recipes.assignCollection(item.id, null);
+          fetchRecipes();
+        }}
       />
 
       {photoPreview && (
@@ -849,57 +750,26 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: {
     paddingHorizontal: HORIZONTAL_PADDING,
-    paddingBottom: 100,
+    paddingBottom: 76,
   },
   columnWrapper: {
     gap: CARD_GAP,
     marginBottom: CARD_GAP,
   },
-  recipeCard: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    padding: 10,
-    width: CARD_WIDTH,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  recipeTitle: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
-  collectionTag: {
-    backgroundColor: "#e5e7eb",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginTop: 4,
-    alignSelf: "flex-start",
-  },
-  collectionTagText: {
-    fontSize: 10,
-    color: "#6b7280",
-    fontWeight: "500",
-  },
-  verifiedBadge: {
-    fontSize: 10,
-    color: "#16a34a",
-    fontWeight: "600",
-    marginTop: 4,
-  },
   jarButton: {
     position: "absolute",
     alignSelf: "center",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#2563eb",
+    width: JAR_FAB_SIZE,
+    height: JAR_FAB_SIZE,
+    borderRadius: JAR_FAB_SIZE / 2,
+    backgroundColor: "#fb923c",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    elevation: 5,
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -911,9 +781,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   fanButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: JAR_FAN_BUTTON_SIZE,
+    height: JAR_FAN_BUTTON_SIZE,
+    borderRadius: JAR_FAN_BUTTON_SIZE / 2,
     backgroundColor: "#e8eaef",
     borderWidth: 1,
     borderColor: "#d1d5db",
@@ -930,6 +800,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#374151",
     marginTop: 4,
+    textAlign: "center",
   },
   photoPreviewOverlay: {
     ...StyleSheet.absoluteFillObject,

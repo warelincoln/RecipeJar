@@ -12,7 +12,7 @@ export function evaluateDescription(
       code: "DESCRIPTION_DETECTED",
       severity: "FLAG",
       message:
-        "A description was detected. Confirm whether to include it with the recipe.",
+        "There's a short blurb here—keep it or remove it if you don't want it.",
       fieldPath: "description",
       userDismissible: true,
       userResolvable: true,

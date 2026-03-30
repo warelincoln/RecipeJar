@@ -8,14 +8,20 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  ActionSheetIOS,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronUp, ChevronDown, X, Plus } from "lucide-react-native";
 import { api } from "../services/api";
 import { useCollectionsStore } from "../stores/collections.store";
+import FastImage from "react-native-fast-image";
+import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import { ShimmerPlaceholder } from "../components/ShimmerPlaceholder";
+import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeEdit">;
 
@@ -41,6 +47,8 @@ export function RecipeEditScreen({ route, navigation }: Props) {
   const [ingredients, setIngredients] = useState<EditableIngredient[]>([]);
   const [steps, setSteps] = useState<EditableStep[]>([]);
   const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
 
   useEffect(() => {
     fetchCollections();
@@ -55,9 +63,83 @@ export function RecipeEditScreen({ route, navigation }: Props) {
       );
       setSteps((recipe.steps ?? []).map((s) => ({ text: s.text, isHeader: s.isHeader })));
       setCollectionId(recipe.collections?.[0]?.id ?? null);
+      setImageUrl(recipe.imageUrl ?? null);
       setLoading(false);
     });
   }, [recipeId]);
+
+  const uploadSelectedImage = async (uri: string) => {
+    setImageBusy(true);
+    try {
+      const updated = await api.recipes.uploadImage(recipeId, uri);
+      const newUrl = updated.imageUrl ?? null;
+      setImageUrl(newUrl ? `${newUrl}?t=${Date.now()}` : null);
+    } catch {
+      Alert.alert("Upload Failed", "Could not update recipe image. Please try again.");
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const chooseFromLibrary = async () => {
+    const result = await launchImageLibrary({
+      mediaType: "photo",
+      selectionLimit: 1,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 0.9,
+    });
+    if (result.didCancel || result.errorCode) return;
+    const uri = result.assets?.[0]?.uri;
+    if (uri) await uploadSelectedImage(uri);
+  };
+
+  const takePhoto = async () => {
+    const result = await launchCamera({
+      mediaType: "photo",
+      cameraType: "back",
+      saveToPhotos: false,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 0.9,
+    });
+    if (result.didCancel || result.errorCode) return;
+    const uri = result.assets?.[0]?.uri;
+    if (uri) await uploadSelectedImage(uri);
+  };
+
+  const removeImage = async () => {
+    setImageBusy(true);
+    try {
+      const updated = await api.recipes.removeImage(recipeId);
+      setImageUrl(updated.imageUrl ?? null);
+    } catch {
+      Alert.alert("Remove Failed", "Could not remove recipe image. Please try again.");
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const openImageActions = () => {
+    if (Platform.OS === "ios") {
+      const options = ["Choose from Library", "Take Photo", "Remove Image", "Cancel"];
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 3, destructiveButtonIndex: 2, title: "Recipe Image" },
+        (buttonIndex) => {
+          if (buttonIndex === 0) void chooseFromLibrary();
+          if (buttonIndex === 1) void takePhoto();
+          if (buttonIndex === 2) void removeImage();
+        },
+      );
+      return;
+    }
+    Alert.alert("Recipe Image", "Choose an action", [
+      { text: "Choose from Library", onPress: () => void chooseFromLibrary() },
+      { text: "Take Photo", onPress: () => void takePhoto() },
+      { text: "Remove Image", style: "destructive", onPress: () => void removeImage() },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -166,6 +248,36 @@ export function RecipeEditScreen({ route, navigation }: Props) {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        style={styles.heroWrap}
+        onPress={openImageActions}
+        disabled={imageBusy}
+        testID="edit-image-button"
+      >
+        {imageUrl ? (
+          <>
+            {imageBusy && (
+              <ShimmerPlaceholder
+                style={StyleSheet.absoluteFillObject}
+                borderRadius={12}
+              />
+            )}
+            <FastImage
+              source={{ uri: imageUrl }}
+              style={[styles.heroImage, imageBusy && styles.heroImageHidden]}
+              resizeMode={FastImage.resizeMode.cover}
+            />
+          </>
+        ) : (
+          <RecipeImagePlaceholder style={styles.heroImage} />
+        )}
+        <View style={styles.heroHint}>
+          <Text style={styles.heroHintText}>
+            {imageBusy ? "Updating..." : "Change Photo"}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>Title</Text>
       <TextInput
@@ -331,6 +443,36 @@ const styles = StyleSheet.create({
   cancelText: { fontSize: 16, color: "#6b7280" },
   saveText: { fontSize: 16, fontWeight: "700", color: "#2563eb" },
   saveTextDisabled: { color: "#9ca3af" },
+  heroWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#e5e7eb",
+    marginBottom: 8,
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroImageHidden: {
+    opacity: 0.4,
+  },
+  heroHint: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 10,
+    alignItems: "flex-start",
+  },
+  heroHintText: {
+    color: "#fff",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "700",

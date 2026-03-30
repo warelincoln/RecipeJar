@@ -1,6 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { collectionsRepository } from "../persistence/collections.repository.js";
 import { recipesRepository } from "../persistence/recipes.repository.js";
+import { resolveImageUrls } from "../services/recipe-image.service.js";
+
+function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
+  return {
+    ...recipe,
+    ...resolveImageUrls(recipe.imageUrl ?? null),
+  };
+}
 
 export async function collectionsRoutes(app: FastifyInstance) {
   app.post<{ Body: { name: string } }>("/collections", async (request, reply) => {
@@ -25,7 +33,7 @@ export async function collectionsRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Collection not found" });
       }
       const recipes = await recipesRepository.listByCollection(request.params.id);
-      return reply.send(recipes);
+      return reply.send(recipes.map(withImageUrls));
     },
   );
 

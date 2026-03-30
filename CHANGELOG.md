@@ -1,5 +1,40 @@
 # RecipeJar Changelog
 
+### 2026-03-30 — Recipe hero images, Supabase services refactor, mobile UI polish
+
+**Database**
+
+- Migration **`0005_recipe_image_url`**: nullable **`image_url`** on **`recipes`** (storage-relative key for hero assets).
+
+**Server**
+
+- **`server/src/services/supabase.ts`**: shared Supabase client (replaces ad-hoc client creation in draft routes).
+- **`server/src/services/recipe-image.service.ts`**: public **`recipe-images`** bucket (auto-created when missing), **`hero.jpg`** + **`thumb.jpg`** per recipe, upload/delete, **`resolveImageUrls`** for API JSON (`imageUrl` / `thumbnailUrl` public URLs).
+- **`recipes.routes.ts`**: **`POST /recipes/:id/image`** (multipart), **`DELETE /recipes/:id/image`**; list/get/put/patch responses enrich recipes with resolved image URLs; **recipe delete** attempts storage cleanup (warns on failure).
+- **`collections.routes.ts`**: recipes-by-collection responses use the same image URL resolution.
+- **`drafts.routes.ts`**: uses shared Supabase + recipe-image helpers for draft page storage and image propagation where applicable.
+- **`image-optimizer.ts`**: hero/thumbnail optimization alongside existing upload/OCR paths.
+- **`recipes.repository.ts`**: **`setImage`** and related persistence.
+- Minor updates across validation **`rules.*`** modules.
+- **`integration.test.ts`**: coverage for new recipe image behavior.
+
+**Shared**
+
+- **`Recipe`**: optional **`imageUrl`** and **`thumbnailUrl`** on API-shaped payloads (resolved URLs for clients).
+
+**Mobile**
+
+- **`api.ts`**: **`uploadImage`**, **`removeImage`** for recipe hero photos.
+- New UI: **`RecipeCard`**, **`RecipeImagePlaceholder`**, **`ShimmerPlaceholder`**, **`FullScreenImageViewer`**, **`CollectionPickerSheet`**, **`CreateCollectionSheet`**, **`RecipeQuickActionsSheet`**.
+- **`features/collections/collectionIconRules.ts`**: collection icon/color rules extracted for reuse.
+- **`ParseRevealEdgeGlow`**, **`issueDisplayMessage`** for import preview polish.
+- **`HomeScreen`**, **`CollectionScreen`**, **`RecipeDetailScreen`**, **`RecipeEditScreen`**, and several import views updated for images, sheets, and layout.
+- Dependencies: **`react-native-fast-image`**, **`react-native-linear-gradient`**, **`react-native-compressor`**, **`react-native-image-picker`** (lockfiles / iOS pods updated as needed).
+
+**Docs**
+
+- **`README.md`**: hero image feature, `recipe-images` bucket, migration note, project tree, API counts.
+
 ### 2026-03-28 — iOS build fixes, draft API wire format, import preview reveal, repo hygiene
 
 **iOS / native (RN 0.76, New Architecture):**
@@ -23,7 +58,7 @@
 **Mobile — import preview UX:**
 
 - After a fresh parse, **`PreviewEditView`** runs a **word-by-word “waterfall” reveal** (~**6000 WPM**, `60000/6000` ms per word) via `useRecipeParseReveal` + `recipeParseReveal.ts`; respects **Reduce Motion** (shows full text immediately). **`parseRevealToken`** from `ImportFlowScreen` gates animation vs resume.
-- Earlier experimental SVG edge-glow overlay was **removed** (no `ParseRevealEdgeGlow`).
+- Earlier experimental SVG edge-glow overlay was **removed** in this release; a dedicated **`ParseRevealEdgeGlow`** component returned in **2026-03-30** as optional import-preview polish.
 
 **Mobile — type / library alignment:**
 

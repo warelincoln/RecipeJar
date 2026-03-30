@@ -6,8 +6,12 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
+  Dimensions,
 } from "react-native";
 import { ChevronUp, ChevronDown } from "lucide-react-native";
+
+const THUMB_W = 48 * 3;
+const THUMB_H = 64 * 3;
 
 interface ReorderViewProps {
   pages: { pageId: string; imageUri: string; orderIndex: number }[];
@@ -37,64 +41,177 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
     onReorder(reindexed.map((p) => ({ pageId: p.pageId, orderIndex: p.orderIndex })));
   };
 
+  const multiplePages = orderedPages.length > 1;
+
+  const { width: winW, height: winH } = Dimensions.get("window");
+  const singlePreviewW = winW - 32;
+  const singlePreviewH = Math.min(winH * 0.52, singlePreviewW * 1.45);
+
   return (
     <View style={styles.container} testID="reorder-screen">
-      <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="reorder-cancel" accessibilityRole="button" accessibilityLabel="reorder-cancel">
+      <TouchableOpacity
+        style={styles.cancelButton}
+        onPress={onCancel}
+        testID="reorder-cancel"
+        accessibilityRole="button"
+        accessibilityLabel="Cancel"
+      >
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
-      <Text style={styles.header} testID="reorder-header">Arrange Pages</Text>
+
+      <Text style={styles.header} testID="reorder-header">
+        {multiplePages ? "Line up your pages" : "Review your photo"}
+      </Text>
       <Text style={styles.subtitle}>
-        Drag to reorder pages so the recipe reads in the correct order.
+        {multiplePages
+          ? "Reorder with the arrows if needed, then tap Import Recipe—we'll turn your photos into a clean recipe."
+          : "Tap Import Recipe and we'll turn this photo into a clean recipe."}
       </Text>
 
-      <FlatList
-        data={orderedPages}
-        keyExtractor={(item) => item.pageId}
-        renderItem={({ item, index }) => (
-          <View style={styles.pageRow}>
-            <Image source={{ uri: item.imageUri }} style={styles.pageThumb} />
-            <Text style={styles.pageLabel}>Page {index + 1}</Text>
-            <View style={styles.arrows}>
-              <TouchableOpacity onPress={() => moveUp(index)} disabled={index === 0}>
-                <ChevronUp size={20} color={index === 0 ? "#d1d5db" : "#2563eb"} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => moveDown(index)}
-                disabled={index === orderedPages.length - 1}
-              >
-                <ChevronDown size={20} color={index === orderedPages.length - 1 ? "#d1d5db" : "#2563eb"} />
-              </TouchableOpacity>
+      {multiplePages ? (
+        <FlatList
+          data={orderedPages}
+          keyExtractor={(item) => item.pageId}
+          renderItem={({ item, index }) => (
+            <View style={styles.pageRow}>
+              <Image
+                source={{ uri: item.imageUri }}
+                style={styles.pageThumb}
+                resizeMode="contain"
+                accessibilityLabel={`Photo ${index + 1} of ${orderedPages.length}`}
+              />
+              <View style={styles.arrows}>
+                <TouchableOpacity
+                  onPress={() => moveUp(index)}
+                  disabled={index === 0}
+                  style={styles.arrowHit}
+                  accessibilityRole="button"
+                  accessibilityLabel="Move photo up"
+                  hitSlop={8}
+                >
+                  <ChevronUp
+                    size={26}
+                    color={index === 0 ? "#d1d5db" : "#2563eb"}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => moveDown(index)}
+                  disabled={index === orderedPages.length - 1}
+                  style={styles.arrowHit}
+                  accessibilityRole="button"
+                  accessibilityLabel="Move photo down"
+                  hitSlop={8}
+                >
+                  <ChevronDown
+                    size={26}
+                    color={
+                      index === orderedPages.length - 1 ? "#d1d5db" : "#2563eb"
+                    }
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        )}
-        style={styles.list}
-      />
+          )}
+          style={styles.list}
+        />
+      ) : orderedPages[0] ? (
+        <View style={styles.singlePreviewArea}>
+          <Image
+            source={{ uri: orderedPages[0].imageUri }}
+            style={[
+              styles.singlePreviewImage,
+              { width: singlePreviewW, height: singlePreviewH },
+            ]}
+            resizeMode="contain"
+            accessibilityLabel="Recipe photo preview"
+          />
+        </View>
+      ) : null}
 
-      <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} testID="reorder-confirm" accessibilityRole="button" accessibilityLabel="reorder-confirm">
-        <Text style={styles.confirmText}>Continue to Parse</Text>
+      <TouchableOpacity
+        style={styles.confirmButton}
+        onPress={onConfirm}
+        testID="reorder-confirm"
+        accessibilityRole="button"
+        accessibilityLabel="Import recipe"
+      >
+        <Text style={styles.confirmText}>Import Recipe</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 16, paddingTop: 8 },
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
-  header: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  subtitle: { fontSize: 14, color: "#6b7280", marginBottom: 16 },
-  list: { flex: 1 },
-  pageRow: {
-    flexDirection: "row", alignItems: "center",
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb",
+  header: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+    color: "#111827",
+    paddingHorizontal: 8,
   },
-  pageThumb: { width: 48, height: 64, borderRadius: 4, marginRight: 12 },
-  pageLabel: { flex: 1, fontSize: 16 },
-  arrows: { gap: 4 },
-  arrow: { paddingHorizontal: 8 },
+  subtitle: {
+    fontSize: 15,
+    color: "#6b7280",
+    marginBottom: 12,
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: 12,
+  },
+  list: { flex: 1 },
+  singlePreviewArea: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+    minHeight: 120,
+  },
+  singlePreviewImage: {
+    borderRadius: 12,
+    backgroundColor: "#f3f4f6",
+  },
+  pageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+    gap: 12,
+  },
+  pageThumb: {
+    width: THUMB_W,
+    height: THUMB_H,
+    borderRadius: 10,
+    backgroundColor: "#f3f4f6",
+    flexShrink: 0,
+  },
+  arrows: {
+    flex: 1,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 8,
+    minWidth: 44,
+  },
+  arrowHit: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
   confirmButton: {
-    backgroundColor: "#2563eb", paddingVertical: 14,
-    borderRadius: 12, alignItems: "center", marginTop: 16, marginBottom: 8,
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 8,
   },
   confirmText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });
