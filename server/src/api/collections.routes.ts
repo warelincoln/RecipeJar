@@ -37,6 +37,25 @@ export async function collectionsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.patch<{ Params: { id: string }; Body: { name: string } }>(
+    "/collections/:id",
+    async (request, reply) => {
+      const { name } = request.body ?? {};
+      if (!name || typeof name !== "string" || name.trim().length === 0) {
+        return reply.status(400).send({ error: "Collection name is required" });
+      }
+      const existing = await collectionsRepository.findById(request.params.id);
+      if (!existing) {
+        return reply.status(404).send({ error: "Collection not found" });
+      }
+      const updated = await collectionsRepository.update(
+        request.params.id,
+        name.trim(),
+      );
+      return reply.send(updated);
+    },
+  );
+
   app.delete<{ Params: { id: string } }>(
     "/collections/:id",
     async (request, reply) => {

@@ -11,6 +11,8 @@ If you are a new developer or an AI agent, start here.
   - `server/` — Fastify + Drizzle + parsing + validation
   - `mobile/` — React Native app + XState import flow
 - Main product promise: take a recipe from either **camera**, **photo library**, or **URL**, validate it deterministically, then save only if the result is acceptable.
+  - **Concurrent import queue**: users can import up to **3 image-based recipes concurrently** — the server parses in the background while the user queues additional imports. A dedicated **Import Hub** screen manages all pending imports, and an app-wide **floating banner** indicates queue status from any screen.
+  - **Servings & ingredient scaling**: every recipe captures a **baseline servings** count. Ingredients are stored as **structured data** (`amount`, `amountMax`, `unit`, `name`, `isScalable`). The detail screen provides an interactive **servings stepper** that scales ingredient amounts in real time (client-side multiplication, mixed-number formatting with unicode fractions rounded to ⅛). No unit conversion — just numeric scaling.
 
 ### Fastest way to get running
 
@@ -35,31 +37,65 @@ If you are a new developer or an AI agent, start here.
 ### Start here in the codebase
 
 - `mobile/src/screens/HomeScreen.tsx`
-  - Jar fan actions, Photos picker, photo preview screen, button styling
+  - Jar fan actions, Photos picker, photo preview screen, button styling, FAB auto-open for concurrent imports; **long-press** folder chips (not the virtual **All Recipes** chip) for rename/delete
 - `mobile/src/screens/ImportFlowScreen.tsx`
-  - Route bootstrapping and state-to-view mapping
+  - Route bootstrapping and state-to-view mapping; concurrent flow uses `enqueueImport` (not XState) for camera/photo imports; XState only for URL imports and hub resume
+- `mobile/src/screens/ImportHubScreen.tsx`
+  - Queue management screen: displays all pending/completed imports, review/retake/cancel actions, "Import Another"
+- `mobile/src/stores/importQueue.store.ts`
+  - Zustand store with AsyncStorage persistence for managing concurrent import entries (up to 3)
+- `mobile/src/features/import/enqueueImport.ts`
+  - Client-side upload + background parse trigger with retry and orphan cleanup
+- `mobile/src/features/import/importQueuePoller.ts`
+  - Polls server for parsing status with exponential backoff, AppState-aware
+- `mobile/src/components/PendingImportsBanner.tsx`
+  - App-wide floating pill indicator (top-right); blinking dot, tappable to Import Hub
 - `mobile/src/features/import/machine.ts`
-  - Import flow state machine and actors
+  - Import flow state machine and actors; `parseDraft` handles `202 Accepted` via polling; resume populates `capturedPages` from server pages
 - `mobile/src/features/import/useRecipeParseReveal.ts` + `recipeParseReveal.ts`
   - Word-by-word preview reveal after parse (~6000 WPM); `ImportFlowScreen` `parseRevealToken`
 - `mobile/src/services/api.ts`
-  - Mobile API client: draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`)
+  - Mobile API client: draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`), `cancel` method for drafts; **`collections.update`** (`PATCH`) and **`collections.delete`** (204-safe, no JSON parse on success); **`request()`** error messages prefer Fastify **`message`** then **`error`**
+- `mobile/src/screens/CollectionScreen.tsx`
+  - Folder **`MoreHorizontal`** menu (rename / delete), **`CreateCollectionSheet`** rename mode, **`DeleteCollectionConfirmSheet`**, **404** handling when folder was deleted elsewhere
+- `mobile/src/components/CreateCollectionSheet.tsx`
+  - **`mode: "create" | "rename"`**, live Lucide preview from **`getCollectionIcon`** while typing
+- `mobile/src/components/RecipeQuickActionsSheet.tsx`
+  - **`RecipeQuickActionsSheet`** + optional **`emphasisLabel`**; **`DeleteCollectionConfirmSheet`** for folder delete confirm
+- `mobile/src/stores/collections.store.ts`
+  - **`updateCollection`**, **`deleteCollection`** (local list + **`fetchRecipes`** after delete)
+- `server/src/api/collections.routes.ts`
+  - **`PATCH /collections/:id`** rename; **`DELETE`** returns 204
+- `server/src/api/recipes.routes.ts`
+  - Assign-to-collection validates collection exists (**404** if missing)
 - `server/src/api/drafts.routes.ts`
-  - Draft creation, page upload, parse, save endpoints
+  - Draft creation, page upload, parse (fire-and-forget `202`), cancel, save endpoints; idempotency guards; resolved page image URLs
+- `server/src/parsing/parse-semaphore.ts`
+  - In-memory semaphore limiting concurrent OpenAI Vision API calls to 2
+- `server/src/parsing/ingredient-parser.ts`
+  - Deterministic regex/rules-based ingredient line decomposer: fractions, unicode, ranges, unit canonicalization, non-scalable detection. Used by URL structured adapter + Rule A (re-parse on saved recipe edit)
+- `server/src/domain/validation/rules.servings.ts`
+  - `SERVINGS_MISSING` (BLOCK) — fires when `candidate.servings` is null or ≤ 0; user must specify servings before saving
+- `mobile/src/utils/scaling.ts`
+  - Client-side scaling engine: `scaleAmount`, `formatAmount` (mixed numbers, unicode fractions, ⅛ rounding), `scaleIngredient` (headers verbatim, non-scalable lines verbatim, range support)
 - `server/src/parsing/image/`
   - Upload-time normalization and parse-time OCR prep
 
 ### Current image import UX
 
-- `Camera`:
-  - Jar → Camera → capture → reorder → upload → parse → preview → save
-- `Photos`:
-  - Jar → Photos → iOS system picker → full-screen photo preview → `Back` reopens picker, `Import This Photo` starts upload/parse
-- `URL`:
-  - Jar → URL → WebView browser → capture the loaded page HTML when possible → import via the existing URL pipeline
+- `Camera` (concurrent queue):
+  - Jar → Camera → capture → reorder → **enqueue** (upload + background parse) → ParsingView with "Import Another" / "Review Recipes" → Import Hub → review each → save
+  - User can queue up to **3 concurrent image imports**. While one parses (~30s), they can start another.
+- `Photos` (concurrent queue):
+  - Jar → Photos → iOS system picker → full-screen photo preview → **enqueue** → same concurrent flow as Camera
+- `URL` (separate, not queued):
+  - Jar → URL → WebView browser → capture the loaded page HTML when possible → import via the existing URL pipeline (synchronous, uses XState machine directly)
+- `Hub review` (from Import Hub):
+  - Tap a "Ready for review" or "Needs retake" card → `ImportFlow` with `resumeDraftId` + `fromHub` → XState resume → preview/edit → save → auto-return to Import Hub
 
 ### Critical current gotchas
 
+- **New API routes (e.g. `PATCH /collections/:id`):** If folder **rename** fails with a generic error or Fastify **`Route PATCH:… not found`**, the Node process on port **3000** is almost certainly **stale**. Kill listeners on **3000**/**8081** and run **`npm run dev:phone`** again from the repo root. Release builds talking to **`api.recipejar.app`** need that backend deployed with the same routes.
 - If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.
 - If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.  
   **`pod install`** also runs a **`Podfile` `post_install` hook** that rebuilds **`RCT-Folly` public `folly/json` header symlinks** on macOS case-insensitive volumes (fixes missing `folly/json/dynamic.h` during native compile).
@@ -74,18 +110,20 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 **What is implemented (MVP):**
 
 - Fastify API server with full draft lifecycle (create, upload pages, parse, edit, validate, save)
-- GPT-5.4 Vision image parsing (sends page photos to OpenAI, receives structured extraction with signal-rich prompt)
-- URL recipe parsing with 4-tier cascade: JSON-LD → Microdata → DOM boundary extraction → AI fallback (with fetch retry, browser UA fallback, quality gate, and extraction logging)
-- Deterministic validation engine with 6 rule modules and 12 issue codes (3 severities: BLOCK, FLAG, RETAKE)
+- GPT-5.4 Vision image parsing (sends page photos to OpenAI, receives structured extraction with signal-rich prompt — including per-ingredient structured fields and servings)
+- URL recipe parsing with 4-tier cascade: JSON-LD → Microdata → DOM boundary extraction → AI fallback (with fetch retry, browser UA fallback, quality gate, extraction logging, and metadata capture for servings)
+- **Servings & ingredient scaling**: every recipe stores `baselineServings`. Ingredients are persisted with structured fields (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). Parsing extracts these from GPT output (image/URL) or via a **deterministic regex/rules-based ingredient parser** (JSON-LD/microdata strings + Rule A re-parse on saved recipe edit). Missing servings is a `BLOCK`-severity validation issue — the user must specify servings before saving. Detail screen provides an interactive servings stepper that scales ingredient amounts client-side (mixed-number formatting with unicode fractions, ⅛ rounding, no unit conversion).
+- Deterministic validation engine with 8 rule modules and 13 issue codes (3 severities: BLOCK, FLAG, RETAKE)
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
-- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes; optional **`image_url`** on `recipes` (migration `0005_recipe_image_url`)
+- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes; optional **`image_url`** on `recipes` (migration `0005`), **`baseline_servings`** + structured ingredient columns on `recipe_ingredients` (migration `0007`)
 - Supabase Storage integration for **draft page images** (`recipe-pages` bucket) and **saved recipe hero images** (`recipe-images` bucket — server ensures/creates a public bucket and stores `hero.jpg` + `thumb.jpg` per recipe)
-- XState v5 state machine for mobile import flow (9 states — simplified, no correction or warning gate states)
-- React Native mobile app with navigation, screens, Zustand stores (recipes + collections), API client
-- Collections feature: create collections, many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder
+- **Concurrent import queue** (up to 3 image-based recipes): fire-and-forget `202 Accepted` parse endpoint, server-side parse concurrency semaphore (max 2 OpenAI Vision calls), client-side Zustand store with AsyncStorage persistence, exponential-backoff poller, Import Hub screen, app-wide floating banner, enqueue function with retry and orphan cleanup, idempotency guards on parse and save, startup cleanup of stuck/cancelled drafts, draft cancel endpoint with Supabase image cleanup
+- XState v5 state machine for mobile import flow (9 states — simplified, no correction or warning gate states); used for URL imports and hub resume; camera/photo imports use the concurrent `enqueueImport` path
+- React Native mobile app with navigation, screens, Zustand stores (recipes + collections + import queue), API client
+- Collections feature: create collections, **rename** (`PATCH /collections/:id`) and **delete** folder (recipes become uncategorized; join rows cascade), many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder; **long-press** folder chips on home or **⋯** on collection screen for folder actions; **`DeleteCollectionConfirmSheet`** for destructive confirm
 - Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment, optional **hero photo** (pick/compress/upload or remove; uses multipart **`POST /recipes/:id/image`**)
 - **Recipe hero image API:** **`POST /recipes/:id/image`** (multipart file) and **`DELETE /recipes/:id/image`**; **`GET /recipes`** and **`GET /recipes/:id`** (and related update responses) include resolved public **`imageUrl`** and **`thumbnailUrl`** fields for clients
-- Home screen with search bar, two-column recipe card grid (thumbnails via **`react-native-fast-image`** when a hero image exists), horizontal collections row (always visible with "All Recipes" first), centered jar FAB with modal (camera, photos, URL, create collection), three empty states (no recipes, all organized, no search results)
+- Home screen with search bar, two-column recipe card grid (thumbnails via **`react-native-fast-image`** when a hero image exists), horizontal collections row (always visible with "All Recipes" first), **long-press real folders** to rename/delete, centered jar FAB with modal (camera, photos, URL, create collection), three empty states (no recipes, all organized, no search results)
 - Long-press recipe cards to assign/move/remove collection membership with toast notification and undo
 - User notes: multiple text notes per recipe (max 250 chars each), add/edit via modal, delete with confirmation, newest-first with date and "Edited" label, displayed on recipe detail screen below steps
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
@@ -107,6 +145,8 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Multi-collection assignment UI (schema supports many-to-many; UI currently assigns one collection at a time)
 - Recipe sharing or export
 - Production deployment configuration
+- Unit conversion (e.g. 15 tbsp → ¾ cup + 3 tbsp) — scaling multiplies the numeric amount only
+- Grocery list (planned: add a recipe to a grocery list with adjustable serving size)
 
 ---
 
@@ -181,12 +221,17 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | GPT-5.4 Vision image parsing (real cookbook) | Soy Sauce Marinade recipe: extracted title, 8 ingredients, 1 step from a real cookbook photo. Fraction accuracy verified (⅓, ¼, etc.) |
 | Full import flow on device | capture → reorder → upload → parse → preview → save — all working end-to-end |
 | Collections | Created collections, assigned recipes via long-press, navigated to collection view |
+| Folder rename & delete | Long-press folder on Home or **⋯** on collection screen: rename (`PATCH` live API), delete with confirm sheet; recipes return to home grid when folder removed |
 | Recipe editing | Edited saved recipes (title, ingredients, steps, collection assignment) via RecipeEditScreen |
 | Lucide icons | All icons render correctly as SVG via `lucide-react-native` |
 | Recipe list + detail views | HomeScreen displays saved recipes, RecipeDetailScreen shows full recipe content |
 | XCUITest UI tests | 19 of 21 automated UI tests pass on iPhone 16 (iOS 26.2). Tests verify home screen elements, FAB navigation, import flow screens, cancel dialogs, and recipe detail navigation |
 | URL import browser | URL FAB opens in-app browser; user can save native page URL into existing URL import pipeline |
 | Photos import browser flow | Photos FAB opens iOS system picker; selected image opens full-screen preview before import |
+| Concurrent import queue (3 recipes) | Imported 3 recipes concurrently: 2 parsed successfully and were reviewed/saved from Import Hub; 1 flagged for retake — retake flow verified (retake button, page thumbnail, re-parse). Floating banner visible on Home, navigates to Import Hub. Queue limit enforced. |
+| Import Hub close / review / cancel | Close button returns to Home. Review navigates to PreviewEditView with hero image from server pages. Cancel with confirmation dialog removes entry and cleans up server-side. |
+| Post-save return from hub | After saving a recipe from hub review, auto-returns to Import Hub, recipes store refreshed — saved recipe appears on Home |
+| Servings & ingredient scaling | Baseline servings captured from URL import (auto-detected from JSON-LD and DOM metadata), displayed in import preview with BLOCK validation when missing. Servings stepper on detail screen: free-type input, ±1 buttons, reset link. Ingredient amounts scale dynamically (mixed-number unicode fractions). Edit screen allows updating baseline servings. |
 
 ### Not Yet Proven
 
@@ -197,6 +242,10 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Multi-page image ordering UX | Single-page capture tested; multi-page reorder not yet tested on device |
 | Real cookbook photo parsing quality at scale | Single recipe tested with good results; accuracy across varied cookbook formats (handwritten, glossy, multi-column) is untested |
 | Bot-protected URL parsing from pasted/manual URLs | Clipboard/manual URL entry still depends on server fetch; AllRecipes, Simply Recipes may return 402/403 there. Browser-backed URL import is implemented, but broader device QA for blocked sites is still pending. |
+| Concurrent import queue — edge cases | App backgrounding/foregrounding with active parses, queue rehydration after app restart, 3-way concurrent parse with server semaphore contention — not yet stress-tested |
+| Servings accuracy across diverse sites | Tested on BBC Good Food (JSON-LD yield), Joshua Weissman (DOM metadata + AI), and several others. Sites with non-standard serving formats or no serving info at all will correctly trigger SERVINGS_MISSING BLOCK. Broader accuracy across recipe sites untested. |
+| Ingredient scaling edge cases | Basic scaling verified (multiply numeric amount, mixed-number formatting). Edge cases: very large scale factors, count-based items (eggs) rounding, deeply nested sub-recipe ingredients — not yet exhaustively tested. |
+| Image import servings extraction | GPT prompts now request servings; not yet tested across a wide range of cookbook photo formats. |
 
 ---
 
@@ -219,25 +268,28 @@ Workspaces are linked via npm workspaces. `shared/` is referenced as `@recipejar
 Input (image or URL)
   → Optimize (sharp: auto-orient, resize ≤3072px, JPEG 85% for storage / 90% for OCR)
   → Parse (GPT-5.4 Vision for images, JSON-LD/Microdata/DOM/GPT-5.4 AI cascade for URLs with retry, quality gate, and extraction logging)
-  → Normalize (raw extraction → ParsedRecipeCandidate with parseSignals)
-  → Validate (7 rule modules run in fixed order → ValidationResult)
-  → Edit (user corrects in PreviewEdit, confirms/dismisses FLAG issues inline)
+  → Structure (GPT returns per-ingredient amount/unit/name directly; JSON-LD/Microdata strings run through deterministic ingredient-parser.ts)
+  → Normalize (raw extraction → ParsedRecipeCandidate with parseSignals, servings, structured ingredients)
+  → Validate (8 rule modules run in fixed order → ValidationResult; SERVINGS_MISSING blocks save)
+  → Edit (user corrects in PreviewEdit, specifies servings if missing, confirms/dismisses FLAG issues inline)
   → Re-validate (PATCH /candidate triggers revalidation)
   → Save Decision (decideSave checks issues + dismissed warnings)
-  → Save (recipe + ingredients + steps + source pages persisted atomically)
+  → Save (recipe + structured ingredients + steps + baselineServings + source pages persisted atomically)
+  → View (detail screen: servings stepper scales ingredient amounts client-side via scaling.ts)
 ```
 
 ### Validation Engine
 
-Located in `server/src/domain/validation/`. Runs 6 rule modules in this exact order:
+Located in `server/src/domain/validation/`. Runs 8 rule modules in this exact order:
 
 ```
 1. rules.structure       → STRUCTURE_NOT_SEPARABLE (BLOCK)
 2. rules.integrity       → CONFIRMED_OMISSION (BLOCK), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, userDismissible)
 3. rules.required-fields → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (BLOCK), STEPS_MISSING (BLOCK)
-4. rules.ingredients     → INGREDIENT_MERGED (FLAG), INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
-5. rules.steps           → OCR artifacts (FLAG)
-6. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE or BLOCK if limit hit), POOR_IMAGE_QUALITY (RETAKE or BLOCK if limit hit)
+4. rules.servings        → SERVINGS_MISSING (BLOCK)
+5. rules.ingredients     → INGREDIENT_MERGED (FLAG), INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
+6. rules.steps           → OCR artifacts (FLAG)
+7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE or BLOCK if limit hit), POOR_IMAGE_QUALITY (RETAKE or BLOCK if limit hit)
 ```
 
 Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline.
@@ -272,15 +324,29 @@ Located in `server/src/domain/save-decision.ts`. Three possible outcomes:
 
 FLAGs never block saving. They are attention-only — the user can confirm/dismiss them inline in the preview screen, but saving is never blocked by FLAGs.
 
-### State Machine
+### State Machine & Concurrent Import Architecture
 
-Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 9 states. Supports two image entry paths: camera capture (NEW_IMAGE_IMPORT → capture → reorder → uploading) and photo library import (PHOTOS_SELECTED → uploading directly).
+The import system has two distinct paths:
+
+**1. Concurrent queue path** (camera and photo library imports):
+
+Camera/photo imports bypass the XState machine for upload and parse. Instead, `ImportFlowScreen` calls `enqueueImport()` which:
+1. Creates a local queue entry in the Zustand `importQueueStore` (with a client-generated `localId` as stable key)
+2. Calls `api.drafts.create()` + `api.drafts.addPage()` (with retry and orphan cleanup on failure)
+3. Triggers `api.drafts.parse()` (server returns `202 Accepted` immediately)
+4. The `importQueuePoller` hook polls `GET /drafts/:id` with exponential backoff (3s → 5s → 10s) until the draft reaches a terminal status
+
+The user sees `ParsingView` with queue context ("Import Another" / "Review Recipes" buttons), and can queue up to 3 concurrent imports. When ready, they review each import via the Import Hub, which launches `ImportFlow` with `resumeDraftId` + `fromHub` — at which point the XState machine takes over for the resume/review/save flow.
+
+**2. XState machine path** (URL imports + hub resume):
+
+Located in `mobile/src/features/import/machine.ts`. XState v5 machine with 9 states. Used for URL imports (which are synchronous and not queued) and for resuming drafts from the Import Hub.
 
 ```
-idle → capture (NEW_IMAGE_IMPORT)
-idle → uploading (PHOTOS_SELECTED — photo library import, skips capture/reorder)
+idle → capture (NEW_IMAGE_IMPORT — used only for retake from hub)
+idle → uploading (PHOTOS_SELECTED — not used in concurrent flow)
 idle → creatingUrlDraft (NEW_URL_IMPORT)
-idle → resuming (RESUME_DRAFT)
+idle → resuming (RESUME_DRAFT — hub review/retake)
 
 capture → reorder (DONE_CAPTURING)
 reorder → uploading (CONFIRM_ORDER)
@@ -293,14 +359,26 @@ parsing → retakeRequired (RETAKE issues)
 
 previewEdit → saving (ATTEMPT_SAVE, no blocking issues or retakes)
 
-retakeRequired → parsing (RETAKE_SUBMITTED)
+retakeRequired → capture (RETAKE_PAGE — retake photo)
 retakeRequired → idle (RETAKE_GO_HOME — Photos entry only)
 
 saving → saved (success, final state)
 saving → previewEdit (error)
 ```
 
+The `parseDraft` actor handles the server's `202 Accepted` response by entering a polling loop (`GET /drafts/:id` every 3s) until the parse completes. This is transparent to the machine — it receives the full parse result regardless of whether the server completed synchronously or asynchronously.
+
+The `resumeDraft` actor populates `capturedPages` from the server's page data (including `resolvedImageUrl` for display and `retakeCount`), which the retake and preview screens need.
+
 The `guidedCorrection` and `finalWarningGate` states were removed. FLAG issues are now handled inline in the preview screen (confirm/dismiss buttons) and never block saving. The machine invokes async actors for API calls (`createDraft`, `createUrlDraft`, `uploadDraft`, `parseDraft`, `saveDraft`, `resumeDraft`, `updateCandidate`).
+
+**Server-side concurrency controls:**
+
+- **Parse semaphore** (`server/src/parsing/parse-semaphore.ts`): max 2 concurrent OpenAI Vision calls; additional requests queue in-memory.
+- **Idempotency guards**: `/parse` rejects unless draft status is `READY_FOR_PARSE`, `CAPTURE_IN_PROGRESS`, or `NEEDS_RETAKE`; `/save` rejects if already `SAVED`.
+- **Race-safe status updates**: `setParsedCandidate()` uses `WHERE status = 'PARSING'` so a cancelled draft isn't overwritten by a completing parse.
+- **Startup cleanup**: resets zombie `PARSING` drafts (stuck >10 min) and deletes `CANCELLED` drafts older than 24 hours.
+- **Postgres pool**: increased to `max: 20` to handle concurrent background parses.
 
 ---
 
@@ -449,7 +527,7 @@ Using 'postgres' driver for database querying
 [✓] Changes applied
 ```
 
-This applies all migrations through the latest in `server/drizzle/` (including **`0005_recipe_image_url`**, which adds nullable **`image_url`** on **`recipes`**). The baseline schema has 10 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes`, `recipe_collections` (join table with composite PK and cascade deletes), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`, `recipe_notes` (FK to recipes with cascade delete, indexed by recipe_id).
+This applies all migrations through the latest in `server/drizzle/` (including **`0007_structured_ingredients_servings`**, which adds `baseline_servings` to `recipes` and structured ingredient columns to `recipe_ingredients`). The baseline schema has 10 tables: `drafts`, `draft_pages`, `draft_warning_states`, `collections`, `recipes`, `recipe_collections` (join table with composite PK and cascade deletes), `recipe_ingredients`, `recipe_steps`, `recipe_source_pages`, `recipe_notes` (FK to recipes with cascade delete, indexed by recipe_id).
 
 If you see `ECONNREFUSED` or `ENOTFOUND`: your `DATABASE_URL` is wrong, or you are not using the pooler URL. See Section 5.
 
@@ -891,8 +969,10 @@ curl -s -X POST http://localhost:3000/drafts -H "Content-Type: application/json"
 # 2. Upload an image page (201 → returns page with imageUri)
 curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/pages -F "page=@/path/to/recipe-photo.jpg"
 
-# 3. Parse the draft (200 → returns {status, candidate, validationResult})
+# 3. Parse the draft (202 → returns {status: "PARSING"} for image drafts; poll GET /drafts/$DRAFT_ID until status is PARSED or NEEDS_RETAKE)
 curl -s -X POST http://localhost:3000/drafts/$DRAFT_ID/parse -H "Content-Type: application/json" -d '{}'
+# Poll until parsing completes:
+# curl -s http://localhost:3000/drafts/$DRAFT_ID | jq '.status'
 
 # 4. (Optional) Edit the candidate — triggers revalidation
 curl -s -X PATCH http://localhost:3000/drafts/$DRAFT_ID/candidate \
@@ -951,9 +1031,9 @@ RecipeJar/
 │       ├── index.ts                      # barrel export
 │       ├── constants.ts                  # shared constants (NOTE_MAX_LENGTH = 250)
 │       └── types/
-│           ├── draft.types.ts            # DraftStatus, RecipeDraft, EditedRecipeCandidate, DraftWarningState
-│           ├── parsed-candidate.types.ts # ParsedRecipeCandidate, parseSignals shape
-│           ├── recipe.types.ts           # Recipe, RecipeNote, RecipeCollectionRef, RecipeIngredientEntry, RecipeStepEntry
+│           ├── draft.types.ts            # DraftStatus, RecipeDraft, EditedRecipeCandidate (incl. servings + structured ingredients), DraftWarningState
+│           ├── parsed-candidate.types.ts # ParsedRecipeCandidate (incl. servings + structured ParsedIngredientEntry), parseSignals shape
+│           ├── recipe.types.ts           # Recipe (incl. baselineServings), RecipeNote, RecipeCollectionRef, RecipeIngredientEntry (structured), RecipeStepEntry
 │           ├── save-decision.types.ts    # SaveDecision, RecipeSaveState
 │           ├── signal.types.ts           # IngredientSignal, StepSignal, SourcePage
 │           └── validation.types.ts       # ValidationResult, ValidationIssue, ValidationSeverity, ValidationIssueCode
@@ -970,33 +1050,38 @@ RecipeJar/
 │   │   ├── 0002_numerous_norman_osborn.sql
 │   │   ├── 0003_recipe_collections_join_table.sql  # many-to-many: create join table, migrate data, drop column
 │   │   ├── 0004_burly_yellow_claw.sql              # recipe_notes table + rating_half_steps column on recipes
-│   │   └── 0005_recipe_image_url.sql               # nullable image_url on recipes (hero image storage path key)
+│   │   ├── 0005_recipe_image_url.sql               # nullable image_url on recipes (hero image storage path key)
+│   │   ├── 0006_outgoing_beast.sql                 # nullable parse_error_message on drafts (concurrent import error tracking)
+│   │   └── 0007_structured_ingredients_servings.sql # baseline_servings on recipes + structured ingredient columns (amount, amount_max, unit, name, raw_text, is_scalable)
 │   ├── src/
-│   │   ├── app.ts                        # server entry point, Fastify setup, route registration
+│   │   ├── app.ts                        # server entry point, Fastify setup, route registration, startup cleanup (stuck parsing + old cancelled drafts)
 │   │   ├── api/
-│   │   │   ├── drafts.routes.ts          # 11 draft endpoints (create, upload, parse, edit, save, etc.)
+│   │   │   ├── drafts.routes.ts          # 13 draft endpoints (create, upload, parse [202 fire-and-forget], edit, save [idempotent], cancel, etc.); resolved page image URLs on GET
 │   │   │   ├── recipes.routes.ts         # 11 recipe endpoints (list, get, put, delete, hero image post/delete, assign collection, notes CRUD, rating)
-│   │   │   └── collections.routes.ts     # 4 collection endpoints (create, list, get recipes, delete)
+│   │   │   └── collections.routes.ts     # 5 collection behaviors: POST create, GET list, GET :id/recipes, PATCH :id rename, DELETE :id (204)
 │   │   ├── domain/
 │   │   │   ├── save-decision.ts          # decideSave() — determines SAVE_CLEAN / SAVE_USER_VERIFIED / NO_SAVE
 │   │   │   └── validation/
-│   │   │       ├── validation.engine.ts  # validateRecipe() — runs all 7 rule modules
+│   │   │       ├── validation.engine.ts  # validateRecipe() — runs all 8 rule modules
 │   │   │       ├── rules.structure.ts    # STRUCTURE_NOT_SEPARABLE
 │   │   │       ├── rules.integrity.ts    # CONFIRMED_OMISSION, SUSPECTED_OMISSION, MULTI_RECIPE_DETECTED (FLAG)
 │   │   │       ├── rules.required-fields.ts # TITLE_MISSING, INGREDIENTS_MISSING, STEPS_MISSING
+│   │   │       ├── rules.servings.ts     # SERVINGS_MISSING (BLOCK) — requires baseline servings before save
 │   │   │       ├── rules.ingredients.ts  # per-ingredient signals (merged, missing name, qty, OCR)
 │   │   │       ├── rules.steps.ts        # per-step signals (merged, OCR)
 │   │   │       ├── rules.description.ts  # DESCRIPTION_DETECTED
 │   │   │       └── rules.retake.ts       # LOW_CONFIDENCE_STRUCTURE, POOR_IMAGE_QUALITY, RETAKE_LIMIT_REACHED
 │   │   ├── observability/
-│   │   │   └── event-logger.ts           # structured event logging (draft_created, parse_started, etc.)
+│   │   │   └── event-logger.ts           # structured event logging (draft_created, parse_started, parse_failed, draft_cancelled, startup cleanup, etc.)
 │   │   ├── services/
 │   │   │   ├── supabase.ts               # shared Supabase client (service role)
 │   │   │   └── recipe-image.service.ts   # recipe-images bucket, hero/thumb paths, upload/delete, resolved URLs on recipe JSON
 │   │   ├── parsing/
-│   │   │   ├── normalize.ts             # normalizeToCandidate(), buildErrorCandidate()
+│   │   │   ├── normalize.ts             # normalizeToCandidate(), buildErrorCandidate() — maps structured ingredients + servings
+│   │   │   ├── ingredient-parser.ts     # deterministic regex/rules-based ingredient line parser (fractions, ranges, units, non-scalable detection); used by URL structured adapter + Rule A
+│   │   │   ├── parse-semaphore.ts       # in-memory semaphore limiting concurrent OpenAI Vision calls to 2 (FIFO queue, release in finally)
 │   │   │   ├── image/
-│   │   │   │   ├── image-parse.adapter.ts # GPT-5.4 Vision: signal-rich prompt, sends page images as base64 data URLs, receives structured extraction with OCR signals
+│   │   │   │   ├── image-parse.adapter.ts # GPT-5.4 Vision: signal-rich prompt, module-scoped singleton OpenAI client (maxRetries: 2), sends page images as base64 data URLs
 │   │   │   │   └── image-optimizer.ts    # sharp: optimizeForUpload / optimizeForOcr + hero/thumbnail variants for saved recipe images
 │   │   │   └── url/
 │   │   │       ├── url-parse.adapter.ts  # orchestrates 4-tier cascade: JSON-LD → Microdata → DOM → AI (quality-gated, logged)
@@ -1006,12 +1091,12 @@ RecipeJar/
 │   │   │       ├── url-dom.adapter.ts    # Cheerio-based DOM boundary extraction with structure-preserving text
 │   │   │       └── url-ai.adapter.ts     # GPT-5.4 fallback with simplified prompt (no signal arrays), smart truncation, retry, response validation
 │   │   └── persistence/
-│   │       ├── db.ts                     # Drizzle client initialization (lazy, uses DATABASE_URL)
-│   │       ├── schema.ts                # 10 tables + recipes.image_url for hero image storage key
-│   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states
-│   │       ├── recipes.repository.ts    # CRUD for recipes, ingredients, steps, source pages + assignToCollection/removeFromCollection via join table + rating
+│   │       ├── db.ts                     # Drizzle client initialization (lazy, uses DATABASE_URL, pool max: 20)
+│   │       ├── schema.ts                # 10 tables + recipes.baseline_servings + structured ingredient columns + drafts.parse_error_message
+│   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states + setParsedCandidate (race-safe, includes servings), setParseError, resetStuckParsingDrafts, deleteOldCancelledDrafts
+│   │       ├── recipes.repository.ts    # CRUD for recipes, structured ingredients, steps, source pages + assignToCollection/removeFromCollection via join table + rating; update() runs Rule A (ingredient re-parse)
 │   │       ├── recipe-notes.repository.ts # CRUD for recipe notes (create, update, delete, list by recipe) + touches parent recipe updatedAt
-│   │       └── collections.repository.ts # CRUD for collections
+│   │       └── collections.repository.ts # collections: create, list, findById, update (name + updatedAt), delete
 │   └── tests/
 │       ├── validation.engine.test.ts    # 23 tests — all validation rules
 │       ├── save-decision.test.ts        # 8 tests — save decision logic
@@ -1025,7 +1110,7 @@ RecipeJar/
     ├── tsconfig.json
     ├── app.json                         # native project name: "RecipeJar"
     ├── index.js                         # app entry point
-    ├── App.tsx                          # root component, NavigationContainer, stack navigator (5 screens)
+    ├── App.tsx                          # root component, SafeAreaProvider, NavigationContainer (with navigationRef), stack navigator (6 screens incl. ImportHub), PendingImportsBanner + AppPoller at root
     ├── run.sh                           # convenience script: metro (default), metro-fresh, sim, device
     ├── babel.config.js                  # RN babel preset + reanimated plugin
     ├── metro.config.js                  # monorepo watch folders, shared alias
@@ -1044,6 +1129,7 @@ RecipeJar/
     │       └── Info.plist
     └── src/
         ├── components/
+        │   ├── PendingImportsBanner.tsx  # app-wide floating pill (top-right): blinking status dot, tappable → ImportHub; hidden on import screens
         │   ├── ClipboardRecipePrompt.tsx # Home clipboard sheet: Paste reads clipboard → WebRecipeImport
         │   ├── ToastQueue.tsx           # stackable toast notifications with undo (used for collection assignment feedback)
         │   ├── RecipeRatingInput.tsx    # interactive half-star rating (tap-toggle: half→full→half, debounced API save, onPressIn for instant response)
@@ -1052,37 +1138,44 @@ RecipeJar/
         │   ├── RecipeCard.tsx           # grid card with optional FastImage thumbnail + quick actions entry points
         │   ├── RecipeImagePlaceholder.tsx / ShimmerPlaceholder.tsx # loading / empty image states
         │   ├── FullScreenImageViewer.tsx # pinch/zoom hero image viewer
-        │   ├── CollectionPickerSheet.tsx / CreateCollectionSheet.tsx # collection assignment + create flows
-        │   └── RecipeQuickActionsSheet.tsx # contextual actions for a recipe
+        │   ├── CollectionPickerSheet.tsx # assign/move recipe to folder
+        │   ├── CreateCollectionSheet.tsx # create folder or rename (`mode`); live `getCollectionIcon` preview
+        │   └── RecipeQuickActionsSheet.tsx # recipe quick actions; optional `emphasisLabel`; `DeleteCollectionConfirmSheet` for folder delete
         ├── features/
         │   ├── collections/
         │   │   └── collectionIconRules.ts # Lucide icon + color rules for collection folders (shared by home + collection UI)
         │   └── import/
-        │       ├── machine.ts           # XState v5 import flow state machine (9 states)
+        │       ├── machine.ts           # XState v5 import flow state machine (9 states); parseDraft handles 202 via polling; resume populates capturedPages
+        │       ├── enqueueImport.ts     # concurrent flow: create draft + upload page + trigger parse, with retry and orphan cleanup
+        │       ├── importQueuePoller.ts # useImportQueuePoller hook: exponential backoff (3s→5s→10s), AppState-aware
         │       ├── CaptureView.tsx      # camera capture UI
         │       ├── ReorderView.tsx      # page reorder UI (Lucide ChevronUp/ChevronDown icons)
-        │       ├── ParsingView.tsx      # loading/parsing UI
-        │       ├── PreviewEditView.tsx  # recipe preview/edit with inline FLAG confirm/dismiss
-        │       ├── RetakeRequiredView.tsx # retake prompt UI
+        │       ├── ParsingView.tsx      # loading/parsing UI + queue context (thumbnails, "Import Another", "Review Recipes" with delayed fade-in)
+        │       ├── PreviewEditView.tsx  # recipe preview/edit with inline FLAG confirm/dismiss + servings input + "more recipes ready" indicator
+        │       ├── RetakeRequiredView.tsx # retake prompt UI (uses capturedPages from server on resume)
         │       ├── SavedView.tsx        # success UI (Lucide Check icon)
         │       ├── UrlInputView.tsx     # URL paste screen when ImportFlow has no pre-passed URL
         │       ├── ParseRevealEdgeGlow.tsx # optional accent during parse preview reveal
         │       ├── issueDisplayMessage.ts # user-facing strings for validation issues
         │       └── webImportUrl.ts      # neutral search URL, strip credentials, search-result detection helpers
         ├── navigation/
-        │   └── types.ts                # RootStackParamList (+ WebRecipeImport with optional initialUrl)
+        │   └── types.ts                # RootStackParamList (Home with openFab, ImportFlow with fromHub, ImportHub, WebRecipeImport with initialUrl)
         ├── screens/
-        │   ├── HomeScreen.tsx           # search bar, two-column grid (`RecipeCard` + thumbnails), collections row + `collectionIconRules`, jar FAB, photos preview, clipboard prompt, toasts
-        │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, long-press remove/assign
-        │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection)
-        │   ├── ImportFlowScreen.tsx     # renders state machine views + URL input gate
+        │   ├── HomeScreen.tsx           # search bar, two-column grid (`RecipeCard` + thumbnails), collections row + `collectionIconRules` + long-press folder rename/delete, jar FAB (auto-open on openFab, queue limit check), photos preview, clipboard prompt, toasts
+        │   ├── ImportHubScreen.tsx      # concurrent import queue management: QueueCards by status, review/retake/cancel, "Import Another", close button, completion animation
+        │   ├── CollectionScreen.tsx     # recipes in a collection or "All Recipes" (isAllRecipes flag), search bar, folder ⋯ menu (rename/delete), long-press remove/assign recipes, 404 → goBack if folder gone
+        │   ├── RecipeEditScreen.tsx     # edit saved recipes (title, description, ingredients, steps, collection, **servings**); `useFocusEffect` refetches `fetchCollections` for renamed folder labels
+        │   ├── ImportFlowScreen.tsx     # dual-path: camera/photo → enqueueImport (concurrent), URL/resume → XState; fromHub param controls post-save navigation; candidateSyncPending guards save during revalidation
         │   ├── WebRecipeImportScreen.tsx # in-app WebView: browse → Save passes native URL to ImportFlow
-        │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button, inline star rating, notes section
+        │   └── RecipeDetailScreen.tsx   # single recipe view with Edit button, inline star rating, notes section, **servings stepper** (±1, free-type, reset), scaled ingredient display
+        ├── utils/
+        │   └── scaling.ts              # client-side ingredient scaling: scaleAmount, formatAmount (mixed numbers, unicode fractions, ⅛ rounding), scaleIngredient (headers/non-scalable verbatim, range support)
         ├── services/
-        │   └── api.ts                  # API client (drafts + recipes incl. hero image upload/remove + collections)
+        │   └── api.ts                  # API client (drafts incl. parse 202 + cancel; recipes incl. hero image + collection assign w/ 404 + update w/ baselineServings; collections list/create/update/PATCH + delete w/o JSON on 204)
         └── stores/
             ├── recipes.store.ts        # Zustand store for recipe list
-            └── collections.store.ts    # Zustand store for collections list
+            ├── collections.store.ts    # Zustand: fetch, create, updateCollection, deleteCollection (+ refetch recipes after delete)
+            └── importQueue.store.ts    # Zustand store with AsyncStorage persistence for concurrent import queue (QueueEntry with localId, nullable draftId, status, thumbnailUri; max 3 entries; reconcileQueue on rehydrate)
 ```
 
 ---
@@ -1122,6 +1215,16 @@ RecipeJar/
 **How to detect:** After making server-side changes, look for the `Server listening at ...` log message in the terminal. If it only appears once (from the original startup), the server never restarted. You can also add or change a `console.log` and verify it appears.
 
 **Fix:** Manually restart the server. Kill the process (`lsof -iTCP:3000 -sTCP:LISTEN -t | xargs kill -9`) and re-run `npm run dev -w @recipejar/server` or `npm run dev:phone`. Always restart after major changes to server code — do not trust `tsx watch` to catch everything.
+
+### Folder rename fails (or `Route PATCH:/collections/... not found`)
+
+**Problem:** Mobile shows **Could not rename folder** / generic failure, or a dev sees Fastify **404** with **`Route PATCH:/collections/:id not found`** in the response body.
+
+**Cause:** The API process does not include **`PATCH /collections/:id`** (stale server before pull, or production host not deployed).
+
+**Fix:** Restart local API from current repo (**`npm run dev:phone`**). Verify with  
+`curl -X PATCH http://127.0.0.1:3000/collections/<uuid> -H "Content-Type: application/json" -d '{"name":"x"}'`  
+— expect **`{"error":"Collection not found"}`** for a fake UUID (route exists), not a Fastify route-not-found JSON shape. Deploy the same server revision for release builds using **`api.recipejar.app`**.
 
 ### Metro Port Conflict
 
@@ -1199,23 +1302,44 @@ When you work on `mobile/src/**`, follow **Section 8 — Fast iteration workflow
 
 ### Tracing the import flow
 
-When changing import behavior, trace it in this order:
+When changing import behavior, trace it in this order. The import system has **two paths** depending on the source:
+
+**Camera/Photos (concurrent queue path):**
 
 1. `mobile/src/screens/HomeScreen.tsx`
-   - Entry-point buttons for Camera, Photos, and URL
-2. `mobile/src/navigation/types.ts`
-   - Route params passed into `ImportFlow`
-   - Browser-backed URL imports now pass optional `urlHtml`, `urlAcquisitionMethod`, and capture-failure metadata here
-3. `mobile/src/screens/ImportFlowScreen.tsx`
-   - Boot logic, route param handling, screen rendering
-4. `mobile/src/features/import/machine.ts`
-   - Events, states, transitions, async actors
-5. `mobile/src/services/api.ts`
-   - Mobile upload/parse/save API calls, including optional URL HTML parse payloads
-6. `server/src/api/drafts.routes.ts`
-   - Server-side upload, parse, save endpoints and acquisition-source selection (`server-fetch`, `webview-html`, `server-fetch-fallback`)
-7. `server/src/parsing/url/url-parse.adapter.ts`
-   - Shared URL parsing cascade for both fetched HTML and browser-captured HTML
+   - Entry-point buttons for Camera and Photos; checks `canImportMore()` before launching; FAB auto-open via `openFab` param
+2. `mobile/src/screens/ImportFlowScreen.tsx`
+   - Boot logic detects `mode === "image" && photoUri` → calls `enqueueImport()` instead of XState; sets `isConcurrentFlow`
+3. `mobile/src/features/import/enqueueImport.ts`
+   - Creates local queue entry, uploads to server, triggers background parse
+4. `mobile/src/stores/importQueue.store.ts`
+   - Queue state management (entries, statuses, persistence); `canImportMore()` enforces 3-recipe limit
+5. `mobile/src/features/import/importQueuePoller.ts`
+   - Polls `GET /drafts/:id` for parsing entries until terminal status; updates store
+6. `mobile/src/features/import/ParsingView.tsx`
+   - Renders queue summaries, "Import Another" / "Review Recipes" buttons
+7. `mobile/src/screens/ImportHubScreen.tsx`
+   - Queue management: review, retake, cancel; launches `ImportFlow` with `resumeDraftId` + `fromHub`
+8. `server/src/api/drafts.routes.ts`
+   - `POST /parse` returns `202 Accepted`, runs `runParseInBackground`; `POST /cancel` sets `CANCELLED`
+9. `server/src/parsing/parse-semaphore.ts`
+   - Limits concurrent OpenAI Vision calls to 2
+
+**URL imports (XState path):**
+
+1. `mobile/src/screens/HomeScreen.tsx` → URL fan action
+2. `mobile/src/navigation/types.ts` — Route params including optional `urlHtml`, `urlAcquisitionMethod`, capture-failure metadata
+3. `mobile/src/screens/ImportFlowScreen.tsx` — detects URL mode → XState machine
+4. `mobile/src/features/import/machine.ts` — events, states, transitions, async actors; `parseDraft` handles `202` via polling
+5. `mobile/src/services/api.ts` — upload/parse/save API calls
+6. `server/src/api/drafts.routes.ts` — upload, parse, save endpoints; acquisition-source selection
+7. `server/src/parsing/url/url-parse.adapter.ts` — 4-tier cascade for both fetched and browser-captured HTML
+
+**Hub review/retake (XState resume path):**
+
+1. `mobile/src/screens/ImportHubScreen.tsx` — taps card → `navigation.push("ImportFlow", { resumeDraftId, fromHub: true })`
+2. `mobile/src/screens/ImportFlowScreen.tsx` — detects `resumeDraftId` → sends `RESUME_DRAFT` to XState; `fromHub` controls post-save navigation (skip SavedView, return to hub)
+3. `mobile/src/features/import/machine.ts` — `resumeDraft` actor fetches draft, populates `capturedPages` from server pages, transitions to appropriate state
 
 This is the shortest correct mental model for both human contributors and AI agents.
 
@@ -1225,7 +1349,7 @@ This is the shortest correct mental model for both human contributors and AI age
 2. The function signature must be: `(candidate: ParsedRecipeCandidate) => ValidationIssue[]`
 3. Use only `BLOCK`, `FLAG`, or `RETAKE` severity (CORRECTION_REQUIRED does not exist)
 4. Add the issue code to `shared/src/types/validation.types.ts` → `ValidationIssueCode` union
-5. Import and add your rule to the `issues` array in `validation.engine.ts` — order matters (rules run top to bottom)
+5. Import and add your rule to the `issues` array in `validation.engine.ts` — order matters (rules run top to bottom, currently 8 modules)
 6. Add tests in `server/tests/validation.engine.test.ts`
 
 ### Modifying parsing
@@ -1234,7 +1358,9 @@ This is the shortest correct mental model for both human contributors and AI age
 - **Image optimization:** Edit `server/src/parsing/image/image-optimizer.ts`. Core paths: `optimizeForUpload` (auto-orient, resize ≤3072px, JPEG 85% — draft page storage) and `optimizeForOcr` (auto-orient, resize ≤3072px, JPEG 90% — before OpenAI Vision). Additional helpers produce **hero** and **thumbnail** JPEGs for saved recipe images (`recipe-images` bucket). Both use `sharp`. Classical OCR preprocessing (grayscale, CLAHE, sharpen) was tested and found to degrade OpenAI Vision accuracy. The 3072px resolution is required for accurate fraction reading (⅓ vs ½); 2048px caused consistent misreads across multiple OpenAI models.
 - **URL parsing:** The cascade is in `server/src/parsing/url/url-parse.adapter.ts`. Both fetched HTML and browser-captured HTML now enter the same shared parser helper. The cascade tries JSON-LD structured data first (`extractStructuredData`), then Microdata (`extractMicrodata`), then DOM boundary extraction (`url-dom.adapter.ts`) piped to AI fallback via GPT-5.4 (`url-ai.adapter.ts`). The URL AI prompt is intentionally simplified compared to the image prompt — it requests only `title`, `ingredients`, `steps`, `description`, and `signals.descriptionDetected`, with no signal arrays. This reduces output tokens by ~40% and prevents token-limit failures on complex recipes. All structured extraction paths are quality-gated (min 2 ingredients, 1 step, title > 2 chars). Fetch still uses retry with backoff and browser UA fallback on 403. Structured logs now include both the extraction method and the acquisition method (`server-fetch`, `webview-html`, `server-fetch-fallback`). To change priority or add a new extraction method, modify the cascade in `url-parse.adapter.ts`.
 - **URL fetch (SSRF mitigation):** `server/src/parsing/url/url-fetch.service.ts` follows redirects manually (max 10 hops) and calls `server/src/parsing/url/url-ssrf-guard.ts` on **each** URL in the chain. The guard allows only `http`/`https`, rejects URLs with embedded credentials, and refuses targets whose addresses fall in private, loopback, link-local, CGNAT, documentation, multicast, or reserved ranges (IPv4 and IPv6, including IPv4-mapped IPv6). For hostnames it uses `dns.promises.lookup` with `{ all: true, verbatim: true }` so checked addresses align with typical `getaddrinfo` behavior used for outbound TCP.
-- **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
+- **Ingredient parser:** `server/src/parsing/ingredient-parser.ts` is a deterministic regex/rules-based decomposer for free-text ingredient lines. It extracts `amount`, `amountMax` (for ranges like "1-2 tbsp"), `unit`, `name`, and `isScalable`. Handles unicode fractions (⅓, ¼, ¾, etc.), mixed numbers ("1 ½"), ranges ("2-3", "2 to 3"), unit canonicalization (case-insensitive, supports metric + imperial), and non-scalable detection ("salt to taste", "vegetable oil for deep frying", "a pinch of"). Used in two places: (1) by the URL structured adapter to parse JSON-LD/microdata ingredient strings, and (2) by `recipes.repository.update()` for **Rule A** — when a user edits an ingredient line on a saved recipe and saves, the server re-parses that line to update its structured fields. If parsing fails, the line is saved as non-scalable without blocking the save.
+- **Servings extraction:** Servings are captured from three sources: (1) GPT prompts request a `servings: { min, max }` object and the `min` value becomes `ParsedRecipeCandidate.servings`, (2) JSON-LD `recipeYield` is parsed by `parseYieldToServings()` in `url-structured.adapter.ts` which accepts keywords like "serves", "people", "portions", "makes", "yields" and rejects non-person yields ("1 loaf", "24 cookies"), (3) the DOM boundary extractor performs a secondary scan for recipe metadata elements to capture serving counts that live outside the main recipe body. If all sources fail, `servings` is null and `SERVINGS_MISSING` fires as a BLOCK — the user must manually enter servings in the import preview before saving.
+- **Normalization:** `server/src/parsing/normalize.ts` converts raw extraction output into `ParsedRecipeCandidate` with `parseSignals`, `servings`, and structured ingredient fields. Signal arrays from the image parser are populated; URL-sourced results (JSON-LD, Microdata, simplified AI) have empty signal arrays, which is safe — all signal fields are optional. To add new signals, extend the `parseSignals` interface in `shared/src/types/parsed-candidate.types.ts`.
 
 ### Adding API endpoints
 
@@ -1244,6 +1370,10 @@ This is the shortest correct mental model for both human contributors and AI age
 
 ### Extending the state machine
 
+The XState machine is now used only for **URL imports** and **hub resume** (review/retake). Camera/photo imports use the `enqueueImport` → `importQueueStore` → `importQueuePoller` path and bypass XState for upload/parse.
+
+To add new states or events to the XState machine:
+
 1. Edit `mobile/src/features/import/machine.ts`
 2. Add new states to the `states` object
 3. Add new events to the `ImportEvent` union type
@@ -1251,6 +1381,40 @@ This is the shortest correct mental model for both human contributors and AI age
 5. Create the corresponding view component in `mobile/src/features/import/`
 6. Add the state→component mapping in `mobile/src/screens/ImportFlowScreen.tsx`
 7. Add tests in `server/tests/machine.test.ts`
+
+To modify the concurrent queue behavior:
+
+1. Queue limits and entry shape: `mobile/src/stores/importQueue.store.ts`
+2. Upload/parse trigger: `mobile/src/features/import/enqueueImport.ts`
+3. Polling behavior: `mobile/src/features/import/importQueuePoller.ts`
+4. Queue UI: `mobile/src/screens/ImportHubScreen.tsx` (hub), `mobile/src/features/import/ParsingView.tsx` (inline), `mobile/src/components/PendingImportsBanner.tsx` (app-wide indicator)
+5. Server concurrency: `server/src/parsing/parse-semaphore.ts` (semaphore limit), `server/src/api/drafts.routes.ts` (idempotency guards, background parse)
+
+### Servings & ingredient scaling architecture
+
+**Data model:**
+
+- `recipes.baseline_servings` (nullable numeric) — the canonical serving count. Set once during import, editable via `RecipeEditScreen`.
+- `recipe_ingredients` has structured columns: `amount` (numeric), `amount_max` (numeric, for ranges), `unit` (text), `name` (text), `raw_text` (text, original line), `is_scalable` (boolean).
+- At the shared type level: `Recipe.baselineServings`, `RecipeIngredientEntry.amount/amountMax/unit/name/raw/isScalable`, `ParsedRecipeCandidate.servings`, `EditedRecipeCandidate.servings`.
+
+**How structured ingredients are populated:**
+
+1. **GPT parsing** (image + URL AI fallback): the prompt JSON schema requests `amount`, `amountMax`, `unit`, `name` per ingredient. GPT returns structured data directly.
+2. **JSON-LD / Microdata**: these sources provide ingredient text strings. `parseIngredientLine()` from `server/src/parsing/ingredient-parser.ts` decomposes them.
+3. **Rule A (saved recipe edit)**: when a user edits an ingredient in `RecipeEditScreen` and saves, `recipes.repository.update()` runs `parseIngredientLine()` on each ingredient `text` to re-populate structured fields. If parsing fails, the ingredient is saved as non-scalable (`isScalable: false`, structured fields null) — the save is never blocked by a parse failure.
+
+**Client-side scaling (ephemeral, no persistence):**
+
+- `mobile/src/utils/scaling.ts`: `scaleAmount(amount, factor)` multiplies, `formatAmount(value)` renders as mixed numbers with unicode fractions (⅛ rounding), `scaleIngredient(ingredient, factor)` combines them.
+- `RecipeDetailScreen` maintains a local `displayServingsText` state (reset to baseline on recipe open). The scale factor is `displayServings / baselineServings`. Each ingredient is rendered through `scaleIngredient()`.
+- Headers (`isHeader: true`) and non-scalable lines (`isScalable: false`) are never scaled — they render verbatim.
+- No unit conversion: 15 tbsp stays 15 tbsp (not converted to cups).
+
+**Validation:**
+
+- `SERVINGS_MISSING` (BLOCK severity, `rules.servings.ts`): fires when `candidate.servings` is null or ≤ 0. The user must enter servings in the import preview before saving.
+- `PreviewEditView` shows the servings input and validation warning. `candidateSyncPending` in `ImportFlowScreen` disables save while the `PATCH /candidate` revalidation is in flight.
 
 ### Adding testID props for iOS UI testing
 
@@ -1305,12 +1469,12 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 ### Known gaps
 
 - **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network can block server-side fetches. Browser-backed URL import now mitigates this by sending client-captured HTML from `WebRecipeImportScreen` into the normal URL parsing pipeline, with a one-time fallback to server fetch if capture fails technically. Remaining failures are usually challenge pages, consent walls, or other non-recipe HTML. Clipboard/manual URL entry still relies on server fetch unless those flows are later routed through the browser.
-- **Recipe metadata UI**: JSON-LD captures servings, prep/cook/total time, and image URL, but these are not yet displayed in the mobile UI.
+- **Recipe metadata UI**: JSON-LD captures prep/cook/total time and image URL, but these timing fields are not yet displayed in the mobile UI. Servings are now captured and displayed.
 - **Authentication**: Single-user MVP. No auth, no user table, no data-ownership. Adding auth requires: user table, session/JWT middleware, user_id FKs, Supabase RLS policies.
 - **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.
 - **Multi-collection assignment UI**: Schema supports many-to-many; UI currently assigns one collection at a time.
 - **Varied cookbook formats**: Only tested on a few printed cookbook pages. Accuracy across handwritten, glossy, multi-column layouts is unverified.
-- **Multi-image photo library import**: MVP photo import supports a single image. Multi-image selection with shared reorder is planned (structural scaffolding in `PHOTOS_SELECTED` event accepts an array of image URIs).
+- **Multi-image photo library import**: MVP photo import supports a single image per import action, but the concurrent import queue allows users to quickly import multiple single-image recipes back-to-back (up to 3 concurrently). Multi-image selection with shared reorder within a single import action is planned (structural scaffolding in `PHOTOS_SELECTED` event accepts an array of image URIs).
 - **Server image format hardening**: Server-side `optimizeForUpload` silently falls back to the original buffer on failure. Phase 2: throw an error and return 422 so unsupported formats fail clearly instead of producing bad OCR results.
 
 ---
@@ -1319,6 +1483,9 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-03-31** — **Servings, structured ingredients & dynamic scaling:** every recipe stores `baselineServings`; ingredients persisted with structured fields (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). New deterministic ingredient parser (`ingredient-parser.ts`) for JSON-LD/microdata strings and Rule A (re-parse on saved recipe edit). `SERVINGS_MISSING` validation rule (BLOCK severity). GPT prompts updated for structured output. URL DOM extractor captures serving metadata from auxiliary elements. Client-side scaling engine (`scaling.ts`) with mixed-number formatting and unicode fractions. Servings stepper on detail screen, servings input on import preview and edit screen. Migration `0007`. Details in changelog.
+- **2026-03-30** — **Collection folder rename & delete:** `PATCH /collections/:id`, mobile long-press folders + collection-screen ⋯ menu, `DeleteCollectionConfirmSheet`, assign-to-collection **404** if folder missing, `RecipeEditScreen` refetches collections on focus; **restart API** after pull so `PATCH` is registered. Details in changelog.
+- **2026-03-30** — **Concurrent import queue:** users can import up to 3 image-based recipes concurrently. Server returns `202 Accepted` for parse requests and processes in background with a concurrency semaphore (max 2 OpenAI Vision calls). Client-side Zustand store with AsyncStorage persistence, exponential-backoff poller, Import Hub screen, app-wide floating banner, enqueue function with retry/orphan cleanup. New endpoints: `POST /cancel`, idempotency guards, startup cleanup. New draft statuses: `PARSE_FAILED`, `CANCELLED`. Migration `0006` adds `parse_error_message`. Dependencies: `@react-native-async-storage/async-storage`. Details in changelog.
 - **2026-03-30** — **Recipe hero images:** migration `0005_recipe_image_url`, Supabase **`recipe-images`** bucket, `POST`/`DELETE` `/recipes/:id/image`, API responses include **`imageUrl`** / **`thumbnailUrl`**; shared `Recipe` fields; refactored **`server/src/services/`** (Supabase client + `recipe-image.service.ts`); draft routes use shared helpers; image optimizer gains hero/thumbnail paths; mobile **Fast Image**, full-screen viewer, edit-screen photo pick/upload, refreshed home/collection/detail flows, new sheets/cards/shimmer; validation rule tweaks; integration tests updated. Details in changelog.
 - **2026-03-28** — iOS: RNSVG Yoga patch + `patch-package`, RCT-Folly `folly/json` symlink fix in `Podfile`; monorepo SVG dedupe (overrides + Metro); **draft API** GET/PATCH return `RecipeDraft` field names (`parsedCandidate`, etc.); import **word-by-word preview reveal** (~6000 WPM); mobile/server TS fixes; tests updated. Details in changelog.
 - **2026-03-25** — Photo library import via `react-native-image-picker` (jar "Photos" fan action, HEIC→JPEG via `assetRepresentationMode: "compatible"`, real MIME type/filename passthrough, Photos-aware retake screen with "Go Home" button, permission denial alert with Settings link); structural scaffolding for multi-image photo imports

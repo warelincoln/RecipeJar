@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "../services/api";
+import { useRecipesStore } from "./recipes.store";
 
 interface Collection {
   id: string;
@@ -12,6 +13,8 @@ interface CollectionsState {
   error: string | null;
   fetchCollections: () => Promise<void>;
   createCollection: (name: string) => Promise<Collection>;
+  updateCollection: (id: string, name: string) => Promise<Collection>;
+  deleteCollection: (id: string) => Promise<void>;
 }
 
 export const useCollectionsStore = create<CollectionsState>((set, get) => ({
@@ -36,5 +39,26 @@ export const useCollectionsStore = create<CollectionsState>((set, get) => ({
     const collection = await api.collections.create(name);
     set({ collections: [...get().collections, collection] });
     return collection;
+  },
+
+  async updateCollection(id: string, name: string) {
+    const updated = await api.collections.update(id, name);
+    if (!updated?.id) {
+      throw new Error("Invalid response from server");
+    }
+    set({
+      collections: get().collections.map((c) =>
+        c.id === id ? { id: updated.id, name: updated.name } : c,
+      ),
+    });
+    return updated;
+  },
+
+  async deleteCollection(id: string) {
+    await api.collections.delete(id);
+    set({
+      collections: get().collections.filter((c) => c.id !== id),
+    });
+    await useRecipesStore.getState().fetchRecipes();
   },
 }));

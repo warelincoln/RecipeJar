@@ -10,13 +10,17 @@ const SYSTEM_PROMPT = `You are a recipe extraction engine. Given one or more ima
 
 Rules:
 - Extract the recipe title exactly as written.
+- Extract the number of servings the recipe makes. If a range is given (e.g. "serves 6-8"), return min and max. If a single number (e.g. "serves 4"), return min only. If not visible, set servings to null.
 - Extract every ingredient line as a separate entry. Preserve ingredient headers like "For the sauce:" with isHeader: true.
+- For each non-header ingredient, decompose into structured fields: amount (numeric, e.g. 1.5), amountMax (numeric, only for ranges like "1-2"), unit (e.g. "cup", "tbsp", "oz"), and name (the ingredient itself, e.g. "all-purpose flour"). Keep the full original text in the "text" field.
+- If an ingredient has no measurable amount (e.g. "salt and pepper to taste", "oil for frying"), set amount, amountMax, and unit to null.
 - Extract every step/instruction as a separate entry. Preserve inline step notes.
 - Mark sub-recipe section headers in steps (e.g. "To make the boba pearls:", "For the frosting:") with isHeader: true. These are not actual instructions.
 - Strip original step numbers from the beginning of extracted step text. The app adds its own numbering.
 - Preserve original wording. Only fix obvious OCR errors.
 - Pay close attention to fractions in quantities (e.g. ⅓, ¼, ⅔, ¾). Distinguish carefully between visually similar fractions like ⅓ vs ½. When uncertain, zoom in mentally and prefer the fraction that matches the surrounding characters' style.
-- Do NOT rewrite, standardize units, or infer missing values.
+- Convert fractions to decimals in the amount field (e.g. ½ → 0.5, ⅓ → 0.333, ¼ → 0.25). Keep the original text with fractions in the "text" field.
+- Do NOT rewrite, standardize units, or infer missing values in the "text" field.
 - Do NOT include stories, ads, or non-recipe content.
 - Cross-references like "See page 28" should be preserved as-is.
 - If you detect a description paragraph before the recipe, include it separately.
@@ -45,7 +49,8 @@ Also report top-level signal hints:
 Return ONLY valid JSON matching this schema:
 {
   "title": string | null,
-  "ingredients": [{ "text": string, "isHeader": boolean }],
+  "servings": { "min": number, "max": number | null } | null,
+  "ingredients": [{ "text": string, "isHeader": boolean, "amount": number | null, "amountMax": number | null, "unit": string | null, "name": string | null }],
   "steps": [{ "text": string, "isHeader": boolean }],
   "description": string | null,
   "signals": {
@@ -61,13 +66,17 @@ Return ONLY valid JSON matching this schema:
   "stepSignals": [{ "index": number, "text": string, "mergedWhenSeparable": boolean, "minorOcrArtifact": boolean, "majorOcrArtifact": boolean }]
 }`;
 
-const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), ingredients (array of {text, isHeader}), steps (array of {text, isHeader}), description (string|null). Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. Return ONLY valid JSON.`;
+const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), servings ({min: number, max: number|null}|null), ingredients (array of {text, isHeader, amount: number|null, amountMax: number|null, unit: string|null, name: string|null}), steps (array of {text, isHeader}), description (string|null). For each ingredient, "text" is the full original line; amount/unit/name decompose it for scaling. Convert fractions to decimals in amount. Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. Return ONLY valid JSON.`;
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  maxRetries: 2,
+});
 
 export async function parseImages(
   imageUrls: string[],
   sourcePages: SourcePage[],
 ): Promise<ParsedRecipeCandidate> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] =
     imageUrls.map((url) => ({

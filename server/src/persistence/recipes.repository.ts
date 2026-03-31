@@ -10,6 +10,7 @@ import {
   collections,
 } from "./schema.js";
 import type { SaveDecision } from "@recipejar/shared";
+import { parseIngredientLine } from "../parsing/ingredient-parser.js";
 
 function mapRating(halfSteps: number | null): number | null {
   return halfSteps != null ? halfSteps / 2 : null;
@@ -21,8 +22,19 @@ export interface SaveRecipeInput {
   sourceType: "image" | "url";
   originalUrl?: string | null;
   imageUrl?: string | null;
+  baselineServings: number | null;
   saveDecision: SaveDecision;
-  ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
+  ingredients: {
+    text: string;
+    orderIndex: number;
+    isHeader: boolean;
+    amount: number | null;
+    amountMax: number | null;
+    unit: string | null;
+    name: string | null;
+    rawText: string | null;
+    isScalable: boolean;
+  }[];
   steps: { text: string; orderIndex: number; isHeader: boolean }[];
   sourcePages: {
     orderIndex: number;
@@ -56,6 +68,7 @@ async function attachCollections(
 
   return recipeRows.map((r) => ({
     ...r,
+    baselineServings: r.baselineServings != null ? Number(r.baselineServings) : null,
     rating: mapRating(r.ratingHalfSteps),
     notes: [],
     collections: map.get(r.id) ?? [],
@@ -72,6 +85,10 @@ export const recipesRepository = {
         sourceType: input.sourceType,
         originalUrl: input.originalUrl ?? null,
         imageUrl: input.imageUrl ?? null,
+        baselineServings:
+          input.baselineServings != null
+            ? String(input.baselineServings)
+            : null,
         saveState: input.saveDecision.saveState,
         isUserVerified: input.saveDecision.isUserVerified,
         hasUnresolvedWarnings: input.saveDecision.hasUnresolvedWarnings,
@@ -85,6 +102,12 @@ export const recipesRepository = {
           orderIndex: ing.orderIndex,
           text: ing.text,
           isHeader: ing.isHeader,
+          amount: ing.amount != null ? String(ing.amount) : null,
+          amountMax: ing.amountMax != null ? String(ing.amountMax) : null,
+          unit: ing.unit,
+          name: ing.name,
+          rawText: ing.rawText ?? ing.text,
+          isScalable: ing.isScalable,
         })),
       );
     }
@@ -111,7 +134,13 @@ export const recipesRepository = {
       );
     }
 
-    return { ...recipe, rating: mapRating(recipe.ratingHalfSteps), notes: [], collections: [] };
+    return {
+      ...recipe,
+      baselineServings: recipe.baselineServings != null ? Number(recipe.baselineServings) : null,
+      rating: mapRating(recipe.ratingHalfSteps),
+      notes: [],
+      collections: [],
+    };
   },
 
   async findById(id: string) {
@@ -159,9 +188,15 @@ export const recipesRepository = {
 
     return {
       ...recipe,
+      baselineServings: recipe.baselineServings != null ? Number(recipe.baselineServings) : null,
       rating: mapRating(recipe.ratingHalfSteps),
       notes,
-      ingredients,
+      ingredients: ingredients.map((ing) => ({
+        ...ing,
+        amount: ing.amount != null ? Number(ing.amount) : null,
+        amountMax: ing.amountMax != null ? Number(ing.amountMax) : null,
+        raw: ing.rawText,
+      })),
       steps,
       sourcePages: pages,
       collections: recipeCollectionsList,
@@ -200,18 +235,27 @@ export const recipesRepository = {
       description?: string | null;
       imageUrl?: string | null;
       collectionId?: string | null;
+      baselineServings?: number | null;
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
       steps: { text: string; orderIndex: number; isHeader: boolean }[];
     },
   ) {
+    const recipeSet: Record<string, unknown> = {
+      title: input.title,
+      description: input.description ?? null,
+      updatedAt: new Date(),
+    };
+    if (input.imageUrl !== undefined) recipeSet.imageUrl = input.imageUrl;
+    if (input.baselineServings !== undefined) {
+      recipeSet.baselineServings =
+        input.baselineServings != null
+          ? String(input.baselineServings)
+          : null;
+    }
+
     const [recipe] = await db
       .update(recipes)
-      .set({
-        title: input.title,
-        description: input.description ?? null,
-        imageUrl: input.imageUrl === undefined ? undefined : input.imageUrl,
-        updatedAt: new Date(),
-      })
+      .set(recipeSet)
       .where(eq(recipes.id, id))
       .returning();
 
@@ -234,12 +278,35 @@ export const recipesRepository = {
       .where(eq(recipeIngredients.recipeId, id));
     if (input.ingredients.length > 0) {
       await db.insert(recipeIngredients).values(
-        input.ingredients.map((ing) => ({
-          recipeId: id,
-          orderIndex: ing.orderIndex,
-          text: ing.text,
-          isHeader: ing.isHeader,
-        })),
+        input.ingredients.map((ing) => {
+          if (ing.isHeader) {
+            return {
+              recipeId: id,
+              orderIndex: ing.orderIndex,
+              text: ing.text,
+              isHeader: true,
+              amount: null,
+              amountMax: null,
+              unit: null,
+              name: null,
+              rawText: ing.text,
+              isScalable: false,
+            };
+          }
+          const parsed = parseIngredientLine(ing.text);
+          return {
+            recipeId: id,
+            orderIndex: ing.orderIndex,
+            text: ing.text,
+            isHeader: false,
+            amount: parsed.amount != null ? String(parsed.amount) : null,
+            amountMax: parsed.amountMax != null ? String(parsed.amountMax) : null,
+            unit: parsed.unit,
+            name: parsed.name,
+            rawText: ing.text,
+            isScalable: parsed.isScalable,
+          };
+        }),
       );
     }
 

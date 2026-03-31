@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Plus } from "lucide-react-native";
+import { LUCIDE } from "../../theme/lucideSizes";
 import FastImage from "react-native-fast-image";
 import type {
   EditedRecipeCandidate,
@@ -58,6 +59,9 @@ interface PreviewEditViewProps {
   onDismissWarning: (issueId: string) => void;
   onUndismissWarning: (issueId: string) => void;
   onCancel: () => void;
+  otherReadyCount?: number;
+  /** True while PATCH /drafts/:id/candidate is in flight (avoid save with stale validation). */
+  candidateSyncPending?: boolean;
 }
 
 export function PreviewEditView({
@@ -71,8 +75,13 @@ export function PreviewEditView({
   onDismissWarning,
   onUndismissWarning,
   onCancel,
+  otherReadyCount = 0,
+  candidateSyncPending = false,
 }: PreviewEditViewProps) {
   const [title, setTitle] = useState(candidate.title);
+  const [servingsText, setServingsText] = useState(
+    candidate.servings != null ? String(candidate.servings) : "",
+  );
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
   const [heroLoaded, setHeroLoaded] = useState(false);
@@ -130,6 +139,13 @@ export function PreviewEditView({
     [issuesByField, dismissedIssueIds],
   );
 
+  const handleServingsChange = (text: string) => {
+    setServingsText(text);
+    const parsed = parseFloat(text);
+    const servings = !isNaN(parsed) && parsed > 0 ? parsed : null;
+    onEdit({ ...candidate, servings });
+  };
+
   const handleTitleChange = (text: string) => {
     setTitle(text);
     onEdit({ ...candidate, title: text });
@@ -155,6 +171,12 @@ export function PreviewEditView({
       text: "",
       orderIndex: ingredients.length,
       isHeader: false,
+      amount: null,
+      amountMax: null,
+      unit: null,
+      name: null,
+      raw: null,
+      isScalable: false,
     };
     const updated = [...ingredients, newIngredient];
     setIngredients(updated);
@@ -174,7 +196,8 @@ export function PreviewEditView({
   };
 
   const hasBlockers = validationResult?.hasBlockingIssues;
-  const saveDisabled = !!hasBlockers || isRevealing;
+  const saveDisabled =
+    !!hasBlockers || isRevealing || candidateSyncPending;
 
   return (
     <View style={styles.outer}>
@@ -202,6 +225,15 @@ export function PreviewEditView({
         </View>
       ) : (
         <RecipeImagePlaceholder style={styles.heroWrap} />
+      )}
+      {otherReadyCount > 0 && (
+        <View style={styles.otherReadyBar}>
+          <Text style={styles.otherReadyText}>
+            {otherReadyCount === 1
+              ? "1 more recipe ready"
+              : `${otherReadyCount} more recipes ready`}
+          </Text>
+        </View>
       )}
       <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
@@ -232,6 +264,27 @@ export function PreviewEditView({
         />
       )}
       {issuesByField("title").map((issue) => (
+        <Text key={issue.issueId} style={styles.issueText}>
+          {displayMessageForIssue(issue)}
+        </Text>
+      ))}
+
+      <Text style={styles.sectionTitle}>Servings</Text>
+      <TextInput
+        style={[
+          styles.input,
+          styles.servingsInput,
+          issuesByField("servings").length > 0 &&
+            !isFieldDismissed("servings") &&
+            styles.inputError,
+        ]}
+        value={servingsText}
+        onChangeText={handleServingsChange}
+        placeholder="e.g. 4"
+        keyboardType="numeric"
+        testID="preview-servings-input"
+      />
+      {issuesByField("servings").map((issue) => (
         <Text key={issue.issueId} style={styles.issueText}>
           {displayMessageForIssue(issue)}
         </Text>
@@ -286,7 +339,7 @@ export function PreviewEditView({
         accessibilityLabel="preview-add-ingredient"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={16} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color="#2563eb" />
           <Text style={styles.addButtonText}>Add Ingredient</Text>
         </View>
       </TouchableOpacity>
@@ -351,7 +404,7 @@ export function PreviewEditView({
         accessibilityLabel="preview-add-step"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={16} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color="#2563eb" />
           <Text style={styles.addButtonText}>Add Step</Text>
         </View>
       </TouchableOpacity>
@@ -458,12 +511,28 @@ const styles = StyleSheet.create({
   heroImageHidden: {
     opacity: 0,
   },
+  otherReadyBar: {
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  otherReadyText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#2563eb",
+  },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
   input: {
     borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4,
+  },
+  servingsInput: {
+    width: 100,
   },
   inputLikeText: {
     color: "#111827",

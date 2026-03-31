@@ -5,6 +5,12 @@ export interface ParsedIngredientEntry {
   text: string;
   orderIndex: number;
   isHeader: boolean;
+  amount: number | null;
+  amountMax: number | null;
+  unit: string | null;
+  name: string | null;
+  raw: string | null;
+  isScalable: boolean;
 }
 
 export interface ParsedStepEntry {
@@ -19,6 +25,7 @@ export interface ParsedRecipeCandidate {
   ingredients: ParsedIngredientEntry[];
   steps: ParsedStepEntry[];
   description?: string | null;
+  servings: number | null;
 
   sourceType: "image" | "url";
   sourcePages: SourcePage[];

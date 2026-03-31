@@ -4,6 +4,7 @@ import {
   text,
   boolean,
   integer,
+  numeric,
   timestamp,
   jsonb,
   uniqueIndex,
@@ -21,6 +22,7 @@ export const drafts = pgTable(
     parsedCandidateJson: jsonb("parsed_candidate_json"),
     editedCandidateJson: jsonb("edited_candidate_json"),
     validationResultJson: jsonb("validation_result_json"),
+    parseErrorMessage: text("parse_error_message"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -108,6 +110,7 @@ export const recipes = pgTable(
     originalUrl: text("original_url"),
     imageUrl: text("image_url"),
     ratingHalfSteps: integer("rating_half_steps"),
+    baselineServings: numeric("baseline_servings"),
     saveState: text("save_state").notNull(),
     isUserVerified: boolean("is_user_verified").notNull().default(false),
     hasUnresolvedWarnings: boolean("has_unresolved_warnings")
@@ -154,6 +157,12 @@ export const recipeIngredients = pgTable(
     orderIndex: integer("order_index").notNull(),
     text: text("text").notNull(),
     isHeader: boolean("is_header").notNull().default(false),
+    amount: numeric("amount"),
+    amountMax: numeric("amount_max"),
+    unit: text("unit"),
+    name: text("name"),
+    rawText: text("raw_text"),
+    isScalable: boolean("is_scalable").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

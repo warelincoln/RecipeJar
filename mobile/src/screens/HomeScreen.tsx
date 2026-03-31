@@ -26,10 +26,12 @@ import {
   Minus,
   Trash2,
   X,
+  Pencil,
 } from "lucide-react-native";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
-import { api } from "../services/api";
+import { useImportQueueStore } from "../stores/importQueue.store";
+import { api, ApiError } from "../services/api";
 import { ToastQueue, type ToastQueueHandle } from "../components/ToastQueue";
 import { RecipeCard } from "../components/RecipeCard";
 import type { Recipe } from "@recipejar/shared";
@@ -42,10 +44,12 @@ import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import {
   RecipeQuickActionsSheet,
   RecipeDeleteConfirmSheet,
+  DeleteCollectionConfirmSheet,
   type RecipeQuickAction,
 } from "../components/RecipeQuickActionsSheet";
 import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
+import { LUCIDE } from "../theme/lucideSizes";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -61,16 +65,16 @@ const CARD_WIDTH = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - CARD_GAP) / 2;
 
 /** Home import FAB — keep in sync with `styles.jarButton` and its `bottom` offset. */
 const JAR_FAB_BOTTOM_OFFSET = 10;
-const JAR_FAB_SIZE = 60;
-const JAR_FAN_BUTTON_SIZE = 52;
-const JAR_FAN_LABEL_GAP = 4;
-const JAR_FAN_LABEL_LINE = 15;
+const JAR_FAB_SIZE = 80;
+const JAR_FAN_BUTTON_SIZE = 72;
+const JAR_FAN_LABEL_GAP = 6;
+const JAR_FAN_LABEL_LINE = 16;
 const JAR_FAN_COLUMN_HEIGHT =
   JAR_FAN_BUTTON_SIZE + JAR_FAN_LABEL_GAP + JAR_FAN_LABEL_LINE;
 /** Wide enough for "Add Folder"; keeps transform origin on the vertical centerline for every action. */
 const JAR_FAN_SLOT_WIDTH = 128;
 /** Arc radius from FAB center (px); larger = more space between fan actions. */
-const JAR_FAN_RADIUS = 104;
+const JAR_FAN_RADIUS = 118;
 /** Even 40° steps, symmetric about -90° (straight up in math coords → translateX balances). */
 const JAR_FAN_ANGLES = [-150, -110, -70, -30] as const;
 
@@ -80,12 +84,18 @@ interface CollectionItem {
   isVirtual?: boolean;
 }
 
-export function HomeScreen({ navigation }: Props) {
+export function HomeScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { recipes, loading, error, fetchRecipes, deleteRecipe } =
     useRecipesStore();
-  const { collections, fetchCollections, createCollection } =
-    useCollectionsStore();
+  const {
+    collections,
+    fetchCollections,
+    createCollection,
+    updateCollection,
+    deleteCollection,
+  } = useCollectionsStore();
+  const canImportMore = useImportQueueStore((s) => s.canImportMore);
   const [jarOpen, setJarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [clipboardPromptVisible, setClipboardPromptVisible] = useState(false);
@@ -104,6 +114,19 @@ export function HomeScreen({ navigation }: Props) {
   } | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] =
     useState<Recipe | null>(null);
+  const [folderQuickActions, setFolderQuickActions] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [renameFolderTarget, setRenameFolderTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<{
+    id: string;
+    name: string;
+    count: number;
+  } | null>(null);
   const suppressClipboardPromptRef = useRef(false);
   const fanAnim = useRef(new Animated.Value(0)).current;
   const toastRef = useRef<ToastQueueHandle>(null);
@@ -168,6 +191,19 @@ export function HomeScreen({ navigation }: Props) {
     clipboardPasteUsedThisSession = true;
     setClipboardPromptVisible(false);
   }, []);
+
+  useEffect(() => {
+    if (route.params?.openFab && !jarOpen) {
+      setJarOpen(true);
+      Animated.spring(fanAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 6,
+        tension: 120,
+      }).start();
+      navigation.setParams({ openFab: undefined } as any);
+    }
+  }, [route.params?.openFab]);
 
   const toggleJar = () => {
     const opening = !jarOpen;
@@ -261,7 +297,7 @@ export function HomeScreen({ navigation }: Props) {
       actions.push({
         key: "add-collection",
         label: "Add to collection",
-        icon: <FolderOpen size={22} color="#2563eb" />,
+        icon: <FolderOpen size={LUCIDE.row} color="#2563eb" />,
         onPress: () => {
           setRecipeQuickActions(null);
           setCollectionPickerTarget(item);
@@ -273,7 +309,7 @@ export function HomeScreen({ navigation }: Props) {
       key: "delete",
       label: "Delete recipe",
       destructive: true,
-      icon: <Trash2 size={22} color="#dc2626" />,
+      icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
       onPress: () => {
         setRecipeQuickActions(null);
         setDeleteConfirmTarget(item);
@@ -349,7 +385,7 @@ export function HomeScreen({ navigation }: Props) {
             onPress={() => setSearchQuery("")}
             testID="home-search-clear"
           >
-            <X size={18} color="#6b7280" />
+            <X size={LUCIDE.md} color="#6b7280" />
           </TouchableOpacity>
         )}
       </View>
@@ -367,6 +403,7 @@ export function HomeScreen({ navigation }: Props) {
             testID={`collection-card-${item.id}`}
             accessibilityRole="button"
             accessibilityLabel={`collection-${item.name}`}
+            delayLongPress={400}
             onPress={() =>
               navigation.navigate("Collection", {
                 collectionId: item.id,
@@ -374,13 +411,22 @@ export function HomeScreen({ navigation }: Props) {
                 isAllRecipes: !!(item as CollectionItem).isVirtual,
               })
             }
+            onLongPress={
+              (item as CollectionItem).isVirtual
+                ? undefined
+                : () =>
+                    setFolderQuickActions({
+                      id: item.id,
+                      name: item.name,
+                    })
+            }
           >
             {(item as CollectionItem).isVirtual ? (
-              <BookOpen size={22} color="#2563eb" />
+              <BookOpen size={LUCIDE.collectionCardHome} color="#2563eb" />
             ) : (
               (() => {
                 const { Icon, color } = getCollectionIcon(item.name);
-                return <Icon size={22} color={color} />;
+                return <Icon size={LUCIDE.collectionCardHome} color={color} />;
               })()
             )}
             <Text style={styles.collectionName} numberOfLines={2}>
@@ -442,25 +488,33 @@ export function HomeScreen({ navigation }: Props) {
 
       {[
         {
-          icon: <Camera size={24} color="#0ea5e9" />,
+          icon: <Camera size={LUCIDE.jarFanAction} color="#0ea5e9" />,
           label: "Camera",
           testID: "jar-fan-camera",
           onPress: () => {
             toggleJar();
+            if (!canImportMore()) {
+              navigation.navigate("ImportHub");
+              return;
+            }
             navigation.navigate("ImportFlow", { mode: "image" });
           },
         },
         {
-          icon: <ImageIcon size={24} color="#ec4899" />,
+          icon: <ImageIcon size={LUCIDE.jarFanAction} color="#ec4899" />,
           label: "Photos",
           testID: "jar-fan-photos",
           onPress: () => {
             toggleJar();
+            if (!canImportMore()) {
+              navigation.navigate("ImportHub");
+              return;
+            }
             openPhotoPicker();
           },
         },
         {
-          icon: <Link size={24} color="#22c55e" />,
+          icon: <Link size={LUCIDE.jarFanAction} color="#22c55e" />,
           label: "URL",
           testID: "jar-fan-url",
           onPress: () => {
@@ -469,7 +523,7 @@ export function HomeScreen({ navigation }: Props) {
           },
         },
         {
-          icon: <FolderOpen size={24} color="#a855f7" />,
+          icon: <FolderOpen size={LUCIDE.jarFanAction} color="#a855f7" />,
           label: "Add Folder",
           testID: "jar-fan-collection",
           onPress: () => {
@@ -540,9 +594,9 @@ export function HomeScreen({ navigation }: Props) {
         onPress={toggleJar}
       >
         {jarOpen ? (
-          <Minus size={28} color="#fff" />
+          <Minus size={LUCIDE.fab} color="#fff" />
         ) : (
-          <Plus size={28} color="#fff" />
+          <Plus size={LUCIDE.fab} color="#fff" />
         )}
       </TouchableOpacity>
 
@@ -558,9 +612,99 @@ export function HomeScreen({ navigation }: Props) {
 
       <CreateCollectionSheet
         visible={createCollectionSheetVisible}
+        mode="create"
         onClose={() => setCreateCollectionSheetVisible(false)}
-        onCreate={async (name) => {
+        onSubmit={async (name) => {
           await createCollection(name);
+        }}
+      />
+
+      <CreateCollectionSheet
+        visible={renameFolderTarget !== null}
+        mode="rename"
+        initialName={renameFolderTarget?.name ?? ""}
+        onClose={() => setRenameFolderTarget(null)}
+        onSubmit={async (name) => {
+          if (!renameFolderTarget) return;
+          await updateCollection(renameFolderTarget.id, name);
+          await fetchCollections();
+        }}
+      />
+
+      <RecipeQuickActionsSheet
+        visible={folderQuickActions !== null}
+        onClose={() => setFolderQuickActions(null)}
+        title="Folder"
+        emphasisLabel={folderQuickActions?.name ?? ""}
+        subtitle="Rename or delete this collection."
+        actions={[
+          {
+            key: "rename-folder",
+            label: "Rename folder",
+            icon: <Pencil size={LUCIDE.row} color="#2563eb" />,
+            onPress: () => {
+              const t = folderQuickActions;
+              setFolderQuickActions(null);
+              if (t) setRenameFolderTarget(t);
+            },
+            testID: "folder-quick-action-rename",
+          },
+          {
+            key: "delete-folder",
+            label: "Delete folder",
+            destructive: true,
+            icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+            onPress: () => {
+              const t = folderQuickActions;
+              setFolderQuickActions(null);
+              if (!t) return;
+              void (async () => {
+                try {
+                  const list = await api.collections.getRecipes(t.id);
+                  setDeleteFolderTarget({
+                    id: t.id,
+                    name: t.name,
+                    count: list.length,
+                  });
+                } catch (err) {
+                  if (err instanceof ApiError && err.status === 404) {
+                    await fetchCollections();
+                    fetchRecipes();
+                    Alert.alert(
+                      "Folder removed",
+                      "This folder is no longer available.",
+                    );
+                    return;
+                  }
+                  setDeleteFolderTarget({
+                    id: t.id,
+                    name: t.name,
+                    count: 0,
+                  });
+                }
+              })();
+            },
+            testID: "folder-quick-action-delete",
+          },
+        ]}
+      />
+
+      <DeleteCollectionConfirmSheet
+        visible={deleteFolderTarget !== null}
+        onClose={() => setDeleteFolderTarget(null)}
+        collectionName={deleteFolderTarget?.name ?? ""}
+        recipeCount={deleteFolderTarget?.count ?? 0}
+        onConfirm={async () => {
+          if (!deleteFolderTarget) return;
+          try {
+            await deleteCollection(deleteFolderTarget.id);
+            setDeleteFolderTarget(null);
+          } catch {
+            Alert.alert(
+              "Could not delete folder",
+              "Please try again.",
+            );
+          }
         }}
       />
 
@@ -610,23 +754,39 @@ export function HomeScreen({ navigation }: Props) {
           const selectedCollection = collections.find(
             (c) => c.id === collectionId,
           );
-          await api.recipes.assignCollection(item.id, collectionId);
-          fetchRecipes();
-          if (selectedCollection) {
-            toastRef.current?.addToast({
-              message: `Added to ${selectedCollection.name}`,
-              onUndo: async () => {
-                await api.recipes.assignCollection(item.id, null);
-                fetchRecipes();
-              },
-            });
+          try {
+            await api.recipes.assignCollection(item.id, collectionId);
+            fetchRecipes();
+            if (selectedCollection) {
+              toastRef.current?.addToast({
+                message: `Added to ${selectedCollection.name}`,
+                onUndo: async () => {
+                  await api.recipes.assignCollection(item.id, null);
+                  fetchRecipes();
+                },
+              });
+            }
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 404) {
+              await fetchCollections();
+              Alert.alert(
+                "Folder unavailable",
+                "That folder no longer exists. Choose another or create a new one.",
+              );
+              return;
+            }
+            Alert.alert("Error", "Could not update folder. Please try again.");
           }
         }}
         onRemove={async () => {
           const item = collectionPickerTarget;
           if (!item) return;
-          await api.recipes.assignCollection(item.id, null);
-          fetchRecipes();
+          try {
+            await api.recipes.assignCollection(item.id, null);
+            fetchRecipes();
+          } catch {
+            Alert.alert("Error", "Could not remove from folder. Please try again.");
+          }
         }}
       />
 
@@ -654,6 +814,10 @@ export function HomeScreen({ navigation }: Props) {
               onPress={() => {
                 const { uri, type, fileName } = photoPreview;
                 setPhotoPreview(null);
+                if (!canImportMore()) {
+                  navigation.navigate("ImportHub");
+                  return;
+                }
                 navigation.navigate("ImportFlow", {
                   mode: "image",
                   photoUri: uri,
@@ -717,10 +881,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#f9fafb",
     borderRadius: 14,
     width: 100,
-    height: 100,
+    height: 116,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -732,6 +896,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
     paddingHorizontal: 6,
+    marginTop: 4,
   },
   loader: { marginTop: 40 },
   error: { color: "#dc2626", textAlign: "center", marginTop: 20 },
@@ -750,7 +915,7 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: {
     paddingHorizontal: HORIZONTAL_PADDING,
-    paddingBottom: 76,
+    paddingBottom: 86,
   },
   columnWrapper: {
     gap: CARD_GAP,
@@ -799,7 +964,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#374151",
-    marginTop: 4,
+    marginTop: 6,
     textAlign: "center",
   },
   photoPreviewOverlay: {

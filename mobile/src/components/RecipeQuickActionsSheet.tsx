@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 
 export type RecipeQuickAction = {
   key: string;
@@ -23,7 +24,10 @@ export type RecipeQuickAction = {
 type QuickActionsProps = {
   visible: boolean;
   onClose: () => void;
-  recipeTitle: string;
+  /** Shown in accent color when `emphasisLabel` is not set (e.g. recipe title). */
+  recipeTitle?: string;
+  /** Overrides `recipeTitle` for the accent line (e.g. folder name). */
+  emphasisLabel?: string;
   title?: string;
   subtitle?: string;
   actions: RecipeQuickAction[];
@@ -32,7 +36,8 @@ type QuickActionsProps = {
 export function RecipeQuickActionsSheet({
   visible,
   onClose,
-  recipeTitle,
+  recipeTitle = "",
+  emphasisLabel,
   title = "Recipe",
   subtitle = "Choose an action for this recipe.",
   actions,
@@ -40,6 +45,7 @@ export function RecipeQuickActionsSheet({
   const insets = useSafeAreaInsets();
   const primary = actions.filter((a) => !a.destructive);
   const danger = actions.filter((a) => a.destructive);
+  const accentLine = emphasisLabel ?? recipeTitle;
 
   return (
     <Modal
@@ -72,12 +78,14 @@ export function RecipeQuickActionsSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={24} color="#6b7280" />
+            <X size={LUCIDE.lg} color="#6b7280" />
           </TouchableOpacity>
           <Text style={styles.sheetTitle}>{title}</Text>
-          <Text style={styles.recipeName} numberOfLines={2}>
-            {recipeTitle}
-          </Text>
+          {accentLine.length > 0 ? (
+            <Text style={styles.recipeName} numberOfLines={2}>
+              {accentLine}
+            </Text>
+          ) : null}
           <Text style={styles.subtitle}>{subtitle}</Text>
 
           <ScrollView
@@ -203,7 +211,7 @@ export function RecipeDeleteConfirmSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={24} color="#6b7280" />
+            <X size={LUCIDE.lg} color="#6b7280" />
           </TouchableOpacity>
           <Text style={styles.sheetTitle}>Delete recipe?</Text>
           <Text style={styles.confirmLead} numberOfLines={3}>
@@ -325,9 +333,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   rowIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
     backgroundColor: "#f9fafb",
     alignItems: "center",
     justifyContent: "center",
@@ -337,6 +345,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
+    paddingTop: 2,
   },
   dangerBlock: {
     marginTop: 10,
@@ -356,9 +365,9 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
   },
   dangerIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
     backgroundColor: "#fee2e2",
     alignItems: "center",
     justifyContent: "center",
@@ -368,6 +377,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#dc2626",
+    paddingTop: 2,
   },
   cancelBtn: {
     backgroundColor: "#fff",
@@ -407,3 +417,118 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
 });
+
+type DeleteCollectionConfirmProps = {
+  visible: boolean;
+  onClose: () => void;
+  collectionName: string;
+  recipeCount: number;
+  onConfirm: () => void | Promise<void>;
+};
+
+export function DeleteCollectionConfirmSheet({
+  visible,
+  onClose,
+  collectionName,
+  recipeCount,
+  onConfirm,
+}: DeleteCollectionConfirmProps) {
+  const insets = useSafeAreaInsets();
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!visible) setBusy(false);
+  }, [visible]);
+
+  const handleConfirm = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const countLine =
+    recipeCount === 0
+      ? "There are no recipes in this folder."
+      : recipeCount === 1
+        ? "1 recipe will move to your home screen (uncategorized)."
+        : `${recipeCount} recipes will move to your home screen (uncategorized).`;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <View style={styles.modalRoot}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => {
+            if (!busy) onClose();
+          }}
+          accessibilityLabel="Dismiss delete folder confirmation backdrop"
+        />
+        <View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: insets.bottom + 20,
+              paddingHorizontal: 20,
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={busy ? undefined : onClose}
+            disabled={busy}
+            hitSlop={14}
+            testID="collection-delete-confirm-close"
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          >
+            <X size={LUCIDE.lg} color="#6b7280" />
+          </TouchableOpacity>
+          <Text style={styles.sheetTitle}>Delete folder?</Text>
+          <Text style={styles.confirmLead} numberOfLines={3}>
+            &ldquo;{collectionName}&rdquo; will be removed.
+          </Text>
+          <Text style={styles.confirmLead}>{countLine}</Text>
+          <Text style={styles.confirmHint}>
+            Your recipes stay in your library—they are not deleted.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.cancelBtn, busy && styles.btnDisabled]}
+            onPress={onClose}
+            disabled={busy}
+            testID="collection-delete-confirm-cancel"
+            accessibilityRole="button"
+          >
+            <Text style={styles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.deleteBtn, busy && styles.btnDisabled]}
+            onPress={() => void handleConfirm()}
+            disabled={busy}
+            testID="collection-delete-confirm-delete"
+            accessibilityRole="button"
+          >
+            {busy ? (
+              <ActivityIndicator color="#dc2626" />
+            ) : (
+              <Text style={styles.deleteBtnText}>Delete folder</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "drafts" ADD COLUMN "parse_error_message" text;

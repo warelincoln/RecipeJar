@@ -44,6 +44,8 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
       return "There's a short blurb here—keep it or remove it if you don't want it.";
     case "MULTI_RECIPE_DETECTED":
       return "We may have picked up more than one recipe—make sure what's below matches what you want.";
+    case "SERVINGS_MISSING":
+      return "How many does this recipe serve? Add the number of servings so you can save.";
     default:
       return issue.message;
   }

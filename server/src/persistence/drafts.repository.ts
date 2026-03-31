@@ -51,6 +51,8 @@ export const draftsRepository = {
     id: string,
     candidate: ParsedRecipeCandidate,
     validationResult: ValidationResult,
+    status: string,
+    guardStatus?: string,
   ) {
     const [updated] = await db
       .update(drafts)
@@ -62,13 +64,18 @@ export const draftsRepository = {
           ingredients: candidate.ingredients,
           steps: candidate.steps,
           description: candidate.description ?? null,
+          servings: candidate.servings ?? null,
         } as unknown as Record<string, unknown>,
-        status: "PARSED",
+        status,
         updatedAt: new Date(),
       })
-      .where(eq(drafts.id, id))
+      .where(
+        guardStatus
+          ? sql`${drafts.id} = ${id} AND ${drafts.status} = ${guardStatus}`
+          : eq(drafts.id, id),
+      )
       .returning();
-    return updated;
+    return updated ?? null;
   },
 
   async updateEditedCandidate(
@@ -95,6 +102,48 @@ export const draftsRepository = {
       .where(eq(drafts.id, id))
       .returning();
     return updated;
+  },
+
+  async setParseError(id: string, errorMessage: string, guardStatus?: string) {
+    const [updated] = await db
+      .update(drafts)
+      .set({
+        status: "PARSE_FAILED",
+        parseErrorMessage: errorMessage,
+        updatedAt: new Date(),
+      })
+      .where(
+        guardStatus
+          ? sql`${drafts.id} = ${id} AND ${drafts.status} = ${guardStatus}`
+          : eq(drafts.id, id),
+      )
+      .returning();
+    return updated ?? null;
+  },
+
+  async resetStuckParsingDrafts() {
+    const result = await db
+      .update(drafts)
+      .set({
+        status: "PARSE_FAILED",
+        parseErrorMessage: "Parse timed out.",
+        updatedAt: new Date(),
+      })
+      .where(
+        sql`${drafts.status} = 'PARSING' AND ${drafts.updatedAt} < NOW() - INTERVAL '5 minutes'`,
+      )
+      .returning();
+    return result.length;
+  },
+
+  async deleteOldCancelledDrafts() {
+    const stale = await db.query.drafts.findMany({
+      where: sql`${drafts.status} = 'CANCELLED' AND ${drafts.updatedAt} < NOW() - INTERVAL '24 hours'`,
+    });
+    for (const d of stale) {
+      await db.delete(drafts).where(eq(drafts.id, d.id));
+    }
+    return stale.length;
   },
 
   // --- Pages ---

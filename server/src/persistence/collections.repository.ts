@@ -23,6 +23,15 @@ export const collectionsRepository = {
     });
   },
 
+  async update(id: string, name: string) {
+    const [row] = await db
+      .update(collections)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(collections.id, id))
+      .returning();
+    return row ?? null;
+  },
+
   async delete(id: string) {
     await db.delete(collections).where(eq(collections.id, id));
   },

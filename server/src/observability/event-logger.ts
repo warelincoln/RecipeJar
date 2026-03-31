@@ -3,15 +3,20 @@ export type EventType =
   | "page_added"
   | "pages_reordered"
   | "parse_started"
+  | "parse_rejected_idempotent"
   | "url_parse_capture_failed"
   | "url_parse_source_selected"
   | "parse_completed"
+  | "parse_failed"
   | "validation_completed"
   | "retake_requested"
   | "retake_submitted"
   | "correction_mode_entered"
   | "warning_dismissed"
-  | "recipe_saved";
+  | "draft_cancelled"
+  | "recipe_saved"
+  | "startup_stuck_drafts_reset"
+  | "startup_cancelled_drafts_cleaned";
 
 export interface EventAttributes {
   draftId?: string;

@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { ImageIcon } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 
 interface RecipeImagePlaceholderProps {
   style?: StyleProp<ViewStyle>;
@@ -17,7 +18,7 @@ export function RecipeImagePlaceholder({ style }: RecipeImagePlaceholderProps) {
         style={StyleSheet.absoluteFillObject}
       />
       <View style={styles.circle} />
-      <ImageIcon size={26} color="#9ca3af" />
+      <ImageIcon size={LUCIDE.xl} color="#9ca3af" />
     </View>
   );
 }

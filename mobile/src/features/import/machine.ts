@@ -13,6 +13,7 @@ export interface CapturedPage {
   orderIndex: number;
   mimeType?: string;
   fileName?: string;
+  retakeCount?: number;
 }
 
 export interface ImportContext {
@@ -46,10 +47,14 @@ type ImportEvent =
   | { type: "PAGE_CAPTURED"; imageUri: string }
   | { type: "DONE_CAPTURING" }
   | { type: "CONFIRM_ORDER" }
-  | { type: "EDIT_CANDIDATE"; candidate: EditedRecipeCandidate }
+  | {
+      type: "EDIT_CANDIDATE";
+      candidate: EditedRecipeCandidate;
+      validationResult: ValidationResult;
+    }
   | { type: "ATTEMPT_SAVE" }
   | { type: "RETAKE_SUBMITTED"; imageUri: string }
-  | { type: "RETAKE_PAGE" }
+  | { type: "RETAKE_PAGE"; pageId: string }
   | { type: "RETAKE_GO_HOME" }
   | { type: "REORDER"; pageOrder: { pageId: string; orderIndex: number }[] };
 
@@ -62,7 +67,41 @@ const STATUS_TO_STATE: Record<DraftStatus, string> = {
   IN_GUIDED_CORRECTION: "previewEdit",
   READY_TO_SAVE: "previewEdit",
   SAVED: "saved",
+  PARSE_FAILED: "idle",
+  CANCELLED: "idle",
 };
+
+const PARSE_TERMINAL_STATUSES = new Set([
+  "PARSED",
+  "NEEDS_RETAKE",
+  "PARSE_FAILED",
+  "CANCELLED",
+  "SAVED",
+]);
+
+const POLL_INTERVAL = 3000;
+
+type ServerDraftPageRow = {
+  id: string;
+  imageUri: string;
+  orderIndex: number;
+  retakeCount?: number;
+  resolvedImageUrl?: string;
+};
+
+function serverPagesToCaptured(
+  pages: ServerDraftPageRow[] | undefined,
+): CapturedPage[] {
+  if (!pages?.length) return [];
+  return pages
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map((p) => ({
+      pageId: p.id,
+      imageUri: p.resolvedImageUrl ?? p.imageUri,
+      orderIndex: p.orderIndex,
+      retakeCount: p.retakeCount ?? 0,
+    }));
+}
 
 export const importMachine = setup({
   types: {
@@ -122,7 +161,33 @@ export const importMachine = setup({
               }
             : undefined;
 
-        return api.drafts.parse(input.draftId, parsePayload);
+        const response = await api.drafts.parse(input.draftId, parsePayload);
+
+        if (response.status === "PARSING") {
+          while (true) {
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+            const draft = await api.drafts.get(input.draftId);
+            if (PARSE_TERMINAL_STATUSES.has(draft.status)) {
+              if (draft.status === "PARSE_FAILED" || draft.status === "CANCELLED") {
+                throw new Error(
+                  (draft as unknown as { parseErrorMessage?: string }).parseErrorMessage ??
+                    "Parse failed",
+                );
+              }
+              return {
+                status: draft.status,
+                candidate: draft.parsedCandidate as ParsedRecipeCandidate,
+                validationResult: draft.validationResult as ValidationResult,
+              };
+            }
+          }
+        }
+
+        return response as {
+          status: string;
+          candidate: ParsedRecipeCandidate;
+          validationResult: ValidationResult;
+        };
       },
     ),
     saveDraft: fromPromise(
@@ -213,6 +278,10 @@ export const importMachine = setup({
             actions: assign({
               parsedCandidate: ({ event }) => event.output.parsedCandidate,
               validationResult: ({ event }) => event.output.validationResult,
+              capturedPages: ({ event }) =>
+                serverPagesToCaptured(
+                  event.output.pages as ServerDraftPageRow[] | undefined,
+                ),
             }),
           },
           {
@@ -223,6 +292,10 @@ export const importMachine = setup({
               parsedCandidate: ({ event }) => event.output.parsedCandidate,
               editedCandidate: ({ event }) => event.output.editedCandidate,
               validationResult: ({ event }) => event.output.validationResult,
+              capturedPages: ({ event }) =>
+                serverPagesToCaptured(
+                  event.output.pages as ServerDraftPageRow[] | undefined,
+                ),
             }),
           },
           {
@@ -233,6 +306,10 @@ export const importMachine = setup({
             actions: assign({
               parsedCandidate: ({ event }) => event.output.parsedCandidate,
               validationResult: ({ event }) => event.output.validationResult,
+              capturedPages: ({ event }) =>
+                serverPagesToCaptured(
+                  event.output.pages as ServerDraftPageRow[] | undefined,
+                ),
             }),
           },
           { target: "capture" },
@@ -359,6 +436,7 @@ export const importMachine = setup({
                   ingredients: c.ingredients,
                   steps: c.steps,
                   description: c.description,
+                  servings: c.servings ?? null,
                 };
               },
               validationResult: ({ event }) => event.output.validationResult,
@@ -381,6 +459,7 @@ export const importMachine = setup({
         EDIT_CANDIDATE: {
           actions: assign({
             editedCandidate: ({ event }) => event.candidate,
+            validationResult: ({ event }) => event.validationResult,
           }),
         },
         ATTEMPT_SAVE: {
@@ -398,6 +477,7 @@ export const importMachine = setup({
           target: "capture",
           actions: assign({
             capturedPages: () => [],
+            retakePageId: ({ event }) => event.pageId,
           }),
         },
         RETAKE_SUBMITTED: {

@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Search,
 } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 import { StackActions } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
@@ -409,7 +410,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Close browser"
           >
-            <X size={26} color="#374151" />
+            <X size={LUCIDE.xl} color="#374151" />
           </TouchableOpacity>
           <TextInput
             style={styles.omnibar}
@@ -432,7 +433,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Refresh page"
           >
-            <RotateCw size={22} color="#374151" />
+            <RotateCw size={LUCIDE.row} color="#374151" />
           </TouchableOpacity>
         </View>
 
@@ -445,7 +446,11 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
               bounces={false}
               contentContainerStyle={styles.landingScroll}
             >
-              <Search size={48} color="#7c3aed" style={styles.landingIcon} />
+              <Search
+                size={LUCIDE.landing}
+                color="#7c3aed"
+                style={styles.landingIcon}
+              />
               <Text style={styles.landingTitle}>Find a recipe</Text>
               <Text style={styles.landingSubtitle}>
                 Search the web for a recipe, then open a recipe page and tap
@@ -524,7 +529,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
               accessibilityLabel="Back"
             >
               <ChevronLeft
-                size={28}
+                size={LUCIDE.fab}
                 color={navState.canGoBack ? "#374151" : "#d1d5db"}
               />
             </TouchableOpacity>
@@ -537,7 +542,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
               accessibilityLabel="Forward"
             >
               <ChevronRight
-                size={28}
+                size={LUCIDE.fab}
                 color={navState.canGoForward ? "#374151" : "#d1d5db"}
               />
             </TouchableOpacity>
@@ -589,8 +594,13 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     alignItems: "center",
   },
-  landingIcon: { marginBottom: 16 },
-  landingTitle: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
+  landingIcon: { marginBottom: 20 },
+  landingTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 8,
+    marginTop: 2,
+  },
   landingSubtitle: {
     fontSize: 14,
     color: "#6b7280",
@@ -629,7 +639,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   navRow: { flexDirection: "row", gap: 24 },
-  navIconBtn: { padding: 8 },
+  navIconBtn: { padding: 10 },
   saveBtn: {
     backgroundColor: "#7c3aed",
     borderRadius: 12,

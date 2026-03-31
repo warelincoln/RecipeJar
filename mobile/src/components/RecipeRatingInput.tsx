@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Star } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 
-const STAR_SIZE = 32;
-const STAR_GAP = 6;
+const STAR_SIZE = LUCIDE.sm;
+const STAR_GAP = 8;
 const GOLD = "#eab308";
 const EMPTY_COLOR = "#d1d5db";
 const DEBOUNCE_MS = 600;

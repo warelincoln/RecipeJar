@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,12 +13,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronUp, ChevronDown, X, Plus } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 import { api } from "../services/api";
 import { useCollectionsStore } from "../stores/collections.store";
 import FastImage from "react-native-fast-image";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";
 import { ShimmerPlaceholder } from "../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
@@ -46,12 +48,18 @@ export function RecipeEditScreen({ route, navigation }: Props) {
   const [description, setDescription] = useState("");
   const [ingredients, setIngredients] = useState<EditableIngredient[]>([]);
   const [steps, setSteps] = useState<EditableStep[]>([]);
+  const [servingsText, setServingsText] = useState("");
   const [collectionId, setCollectionId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchCollections();
+    }, [fetchCollections]),
+  );
+
   useEffect(() => {
-    fetchCollections();
     api.recipes.get(recipeId).then((recipe: Recipe) => {
       setTitle(recipe.title);
       setDescription(recipe.description ?? "");
@@ -62,6 +70,9 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         })),
       );
       setSteps((recipe.steps ?? []).map((s) => ({ text: s.text, isHeader: s.isHeader })));
+      setServingsText(
+        recipe.baselineServings != null ? String(recipe.baselineServings) : "",
+      );
       setCollectionId(recipe.collections?.[0]?.id ?? null);
       setImageUrl(recipe.imageUrl ?? null);
       setLoading(false);
@@ -143,11 +154,15 @@ export function RecipeEditScreen({ route, navigation }: Props) {
 
   const handleSave = async () => {
     setSaving(true);
+    const parsedServings = parseFloat(servingsText);
+    const baselineServings =
+      !isNaN(parsedServings) && parsedServings > 0 ? parsedServings : null;
     try {
       await api.recipes.update(recipeId, {
         title,
         description: description || null,
         collectionId,
+        baselineServings,
         ingredients: ingredients.map((ing, i) => ({
           text: ing.text,
           orderIndex: i,
@@ -288,6 +303,16 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         testID="edit-title-input"
       />
 
+      <Text style={styles.sectionTitle}>Servings</Text>
+      <TextInput
+        style={[styles.input, styles.servingsInput]}
+        value={servingsText}
+        onChangeText={setServingsText}
+        placeholder="e.g. 4"
+        keyboardType="numeric"
+        testID="edit-servings-input"
+      />
+
       <Text style={styles.sectionTitle}>Description</Text>
       <TextInput
         style={[styles.input, styles.multilineInput]}
@@ -336,14 +361,14 @@ export function RecipeEditScreen({ route, navigation }: Props) {
               disabled={i === 0}
               testID={`edit-ingredient-up-${i}`}
             >
-              <ChevronUp size={18} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+              <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => moveIngredient(i, 1)}
               disabled={i === ingredients.length - 1}
               testID={`edit-ingredient-down-${i}`}
             >
-              <ChevronDown size={18} color={i === ingredients.length - 1 ? "#d1d5db" : "#9ca3af"} />
+              <ChevronDown size={LUCIDE.md} color={i === ingredients.length - 1 ? "#d1d5db" : "#9ca3af"} />
             </TouchableOpacity>
           </View>
           <TextInput
@@ -357,7 +382,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
             testID={`edit-ingredient-remove-${i}`}
             accessibilityRole="button"
           >
-            <X size={18} color="#ef4444" />
+            <X size={LUCIDE.md} color="#ef4444" />
           </TouchableOpacity>
         </View>
       ))}
@@ -369,7 +394,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         accessibilityLabel="edit-add-ingredient"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={16} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color="#2563eb" />
           <Text style={styles.addButtonText}>Add Ingredient</Text>
         </View>
       </TouchableOpacity>
@@ -380,25 +405,25 @@ export function RecipeEditScreen({ route, navigation }: Props) {
           <View key={i} style={styles.listItemRow}>
             <View style={styles.reorderButtons}>
               <TouchableOpacity onPress={() => moveStep(i, -1)} disabled={i === 0} testID={`edit-step-up-${i}`}>
-                <ChevronUp size={18} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => moveStep(i, 1)} disabled={i === steps.length - 1} testID={`edit-step-down-${i}`}>
-                <ChevronDown size={18} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
               </TouchableOpacity>
             </View>
             <Text style={styles.stepHeaderText}>{step.text}</Text>
             <TouchableOpacity onPress={() => removeStep(i)} testID={`edit-step-remove-${i}`} accessibilityRole="button">
-              <X size={18} color="#ef4444" />
+              <X size={LUCIDE.md} color="#ef4444" />
             </TouchableOpacity>
           </View>
         ) : (
           <View key={i} style={styles.listItemRow}>
             <View style={styles.reorderButtons}>
               <TouchableOpacity onPress={() => moveStep(i, -1)} disabled={i === 0} testID={`edit-step-up-${i}`}>
-                <ChevronUp size={18} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => moveStep(i, 1)} disabled={i === steps.length - 1} testID={`edit-step-down-${i}`}>
-                <ChevronDown size={18} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
               </TouchableOpacity>
             </View>
             <TextInput
@@ -409,7 +434,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
               testID={`edit-step-${i}`}
             />
             <TouchableOpacity onPress={() => removeStep(i)} testID={`edit-step-remove-${i}`} accessibilityRole="button">
-              <X size={18} color="#ef4444" />
+              <X size={LUCIDE.md} color="#ef4444" />
             </TouchableOpacity>
           </View>
         ),
@@ -422,7 +447,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         accessibilityLabel="edit-add-step"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={16} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color="#2563eb" />
           <Text style={styles.addButtonText}>Add Step</Text>
         </View>
       </TouchableOpacity>
@@ -488,6 +513,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 4,
   },
+  servingsInput: { width: 100 },
   multilineInput: { minHeight: 60, textAlignVertical: "top" },
   collectionPicker: { flexGrow: 0, marginBottom: 8 },
   collectionChip: {

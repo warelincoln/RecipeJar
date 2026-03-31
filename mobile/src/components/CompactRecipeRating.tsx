@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Star } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 
 const GOLD = "#eab308";
 
@@ -15,7 +16,7 @@ export function CompactRecipeRating({ rating }: CompactRecipeRatingProps) {
 
   return (
     <View style={styles.container}>
-      <Star size={12} color={GOLD} fill={GOLD} strokeWidth={1.5} />
+      <Star size={LUCIDE.xs} color={GOLD} fill={GOLD} strokeWidth={1.5} />
       <Text style={styles.text}>{display}</Text>
     </View>
   );
@@ -25,12 +26,13 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 6,
     marginTop: 4,
   },
   text: {
     fontSize: 11,
     fontWeight: "600",
     color: "#92400e",
+    paddingTop: 2,
   },
 });

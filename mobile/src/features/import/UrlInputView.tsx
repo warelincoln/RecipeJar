@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link } from "lucide-react-native";
+import { LUCIDE } from "../../theme/lucideSizes";
 
 interface UrlInputViewProps {
   onSubmit: (url: string) => void;
@@ -50,7 +51,7 @@ export function UrlInputView({ onSubmit, onCancel }: UrlInputViewProps) {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        <Link size={48} color="#7c3aed" style={styles.icon} />
+        <Link size={LUCIDE.landing} color="#7c3aed" style={styles.icon} />
         <Text style={styles.title}>Import from URL</Text>
         <Text style={styles.subtitle}>
           Paste a recipe URL below. Works best with sites that use structured
@@ -95,8 +96,8 @@ const styles = StyleSheet.create({
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: "#6b7280" },
   content: { flexGrow: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingBottom: 24 },
-  icon: { marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
+  icon: { marginBottom: 20 },
+  title: { fontSize: 24, fontWeight: "700", marginBottom: 8, marginTop: 2 },
   subtitle: {
     fontSize: 14, color: "#6b7280",
     textAlign: "center", lineHeight: 20, marginBottom: 24,

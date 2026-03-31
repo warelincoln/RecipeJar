@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
@@ -19,6 +20,7 @@ import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
 import { FullScreenImageViewer } from "../components/FullScreenImageViewer";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import type { Recipe } from "@recipejar/shared";
+import { scaleIngredient } from "../utils/scaling";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 
@@ -32,6 +34,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [imgCacheBuster, setImgCacheBuster] = useState(() => Date.now());
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
+  const [displayServingsText, setDisplayServingsText] = useState("");
   const { deleteRecipe } = useRecipesStore();
   const { collections, fetchCollections } = useCollectionsStore();
 
@@ -68,6 +71,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       setRecipe(r);
       setImgCacheBuster(Date.now());
       setHeroLoaded(false);
+      if (r.baselineServings != null) {
+        setDisplayServingsText(String(r.baselineServings));
+      }
     });
   }, [recipeId]);
 
@@ -78,6 +84,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       .then((next) => {
         setRecipe(next);
         setHeroLoaded(false);
+        if (next.baselineServings != null) {
+          setDisplayServingsText(String(next.baselineServings));
+        }
       })
       .finally(() => setLoading(false));
   }, [recipeId]);
@@ -85,6 +94,34 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   useEffect(() => {
     return navigation.addListener("focus", refreshRecipe);
   }, [navigation, refreshRecipe]);
+
+  const baseline = recipe?.baselineServings ?? null;
+  const displayServings = useMemo(() => {
+    const parsed = parseFloat(displayServingsText);
+    if (!isNaN(parsed) && parsed >= 0.25 && parsed <= 99) return parsed;
+    return baseline;
+  }, [displayServingsText, baseline]);
+
+  const scaleFactor = useMemo(() => {
+    if (baseline == null || baseline === 0 || displayServings == null) return 1;
+    return displayServings / baseline;
+  }, [baseline, displayServings]);
+
+  const handleServingsChange = (text: string) => {
+    setDisplayServingsText(text);
+  };
+
+  const handleServingsStep = (delta: number) => {
+    const current = displayServings ?? baseline ?? 1;
+    const next = Math.max(0.25, Math.min(99, current + delta));
+    setDisplayServingsText(String(next));
+  };
+
+  const handleServingsReset = () => {
+    if (baseline != null) {
+      setDisplayServingsText(String(baseline));
+    }
+  };
 
   if (loading) {
     return (
@@ -177,6 +214,40 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         </View>
       )}
 
+      {baseline != null && (
+        <View style={styles.servingsControl}>
+          <Text style={styles.servingsLabel}>Servings</Text>
+          <View style={styles.servingsRow}>
+            <TouchableOpacity
+              style={styles.servingsStepBtn}
+              onPress={() => handleServingsStep(-1)}
+              accessibilityLabel="Decrease servings"
+            >
+              <Text style={styles.servingsStepText}>−</Text>
+            </TouchableOpacity>
+            <TextInput
+              style={styles.servingsInput}
+              value={displayServingsText}
+              onChangeText={handleServingsChange}
+              keyboardType="numeric"
+              testID="recipe-detail-servings-input"
+            />
+            <TouchableOpacity
+              style={styles.servingsStepBtn}
+              onPress={() => handleServingsStep(1)}
+              accessibilityLabel="Increase servings"
+            >
+              <Text style={styles.servingsStepText}>+</Text>
+            </TouchableOpacity>
+            {displayServings !== baseline && (
+              <TouchableOpacity onPress={handleServingsReset}>
+                <Text style={styles.servingsResetText}>Reset</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
       <Text style={styles.sectionTitle} testID="recipe-detail-ingredients-section">Ingredients</Text>
       {(recipe.ingredients ?? []).map((ing, i) =>
         ing.isHeader ? (
@@ -186,7 +257,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         ) : (
           <View key={ing.id ?? `ing-${i}`} style={styles.ingredientRow}>
             <Text style={styles.bullet}>•</Text>
-            <Text style={styles.ingredientText}>{ing.text}</Text>
+            <Text style={styles.ingredientText}>
+              {scaleIngredient(ing, scaleFactor)}
+            </Text>
           </View>
         ),
       )}
@@ -318,6 +391,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginBottom: 16,
   },
   badgeText: { fontSize: 12, fontWeight: "600", color: "#b45309" },
+  servingsControl: {
+    marginTop: 20,
+  },
+  servingsLabel: {
+    fontSize: 16, fontWeight: "600", color: "#374151", marginBottom: 8,
+  },
+  servingsRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+  },
+  servingsStepBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center",
+  },
+  servingsStepText: {
+    fontSize: 20, fontWeight: "600", color: "#374151", lineHeight: 22,
+  },
+  servingsInput: {
+    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6, fontSize: 16,
+    width: 60, textAlign: "center",
+  },
+  servingsResetText: {
+    fontSize: 14, color: "#2563eb", fontWeight: "500",
+  },
   sectionTitle: {
     fontSize: 20, fontWeight: "700", marginTop: 24, marginBottom: 12,
   },

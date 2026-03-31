@@ -20,7 +20,8 @@ export type ValidationIssueCode =
   | "MINOR_OCR_ARTIFACT"
   | "MAJOR_OCR_ARTIFACT"
   | "DESCRIPTION_DETECTED"
-  | "MULTI_RECIPE_DETECTED";
+  | "MULTI_RECIPE_DETECTED"
+  | "SERVINGS_MISSING";
 
 export interface ValidationIssue {
   issueId: string;

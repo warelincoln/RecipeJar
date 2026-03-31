@@ -5,16 +5,21 @@ const PROMPT = `You are a recipe extraction engine. Given text content from a re
 
 Rules:
 - Extract the recipe title, ingredients, steps, and optional description.
+- Extract the number of servings the recipe makes. If a range is given (e.g. "serves 6-8"), return min and max. If a single number (e.g. "serves 4"), return min only. If not found, set servings to null.
 - Each ingredient should be a separate entry. Preserve headers like "For the sauce:" with isHeader: true.
+- For each non-header ingredient, decompose into structured fields: amount (numeric, e.g. 1.5), amountMax (numeric, only for ranges like "1-2"), unit (e.g. "cup", "tbsp", "oz"), and name (the ingredient itself). Keep the full original text in the "text" field.
+- If an ingredient has no measurable amount (e.g. "salt to taste"), set amount, amountMax, and unit to null.
+- Convert fractions to decimals in the amount field (e.g. ½ → 0.5, ¼ → 0.25).
 - Each step should be a separate entry. Mark sub-recipe section headers (e.g. "To make the sauce:", "For the frosting:") with isHeader: true.
 - Strip original step numbers from the beginning of step text. The app adds its own numbering.
-- Preserve original wording exactly. Do not rewrite or standardize.
+- Preserve original wording exactly in the "text" field. Do not rewrite or standardize.
 - Do not include non-recipe content (stories, tips, ads).
 
 Return ONLY valid JSON:
 {
   "title": string | null,
-  "ingredients": [{ "text": string, "isHeader": boolean }],
+  "servings": { "min": number, "max": number | null } | null,
+  "ingredients": [{ "text": string, "isHeader": boolean, "amount": number | null, "amountMax": number | null, "unit": string | null, "name": string | null }],
   "steps": [{ "text": string, "isHeader": boolean }],
   "description": string | null,
   "signals": {
@@ -31,6 +36,8 @@ const SECTION_KEYWORDS = [
   "steps",
   "method",
   "preparation",
+  "serves",
+  "servings",
 ];
 
 /**

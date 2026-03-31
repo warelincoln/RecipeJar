@@ -7,6 +7,7 @@ import {
   Animated,
 } from "react-native";
 import { Check } from "lucide-react-native";
+import { LUCIDE } from "../../theme/lucideSizes";
 
 interface SavedViewProps {
   recipeId: string | null;
@@ -54,7 +55,11 @@ export function SavedView({
         ]}
         testID="saved-checkmark"
       >
-        <Check size={64} color="#16a34a" accessibilityLabel="Recipe saved" />
+        <Check
+          size={LUCIDE.hero}
+          color="#16a34a"
+          accessibilityLabel="Recipe saved"
+        />
       </Animated.View>
       <Text style={styles.title} testID="saved-title">
         Recipe Saved
@@ -107,11 +112,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   checkWrap: {
-    marginBottom: 16,
+    marginBottom: 20,
     alignItems: "center",
     justifyContent: "center",
   },
-  title: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
+  title: { fontSize: 24, fontWeight: "700", marginBottom: 8, marginTop: 2 },
   subtitle: { fontSize: 15, color: "#6b7280", textAlign: "center" },
   actions: {
     flexDirection: "row",

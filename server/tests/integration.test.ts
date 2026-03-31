@@ -108,14 +108,15 @@ function cleanCandidate(): ParsedRecipeCandidate {
   return {
     title: "Classic Pancakes",
     ingredients: [
-      { id: "i1", text: "2 cups flour", orderIndex: 0, isHeader: false },
-      { id: "i2", text: "1 cup milk", orderIndex: 1, isHeader: false },
+      { id: "i1", text: "2 cups flour", orderIndex: 0, isHeader: false, amount: 2, amountMax: null, unit: "cup", name: "flour", raw: "2 cups flour", isScalable: true },
+      { id: "i2", text: "1 cup milk", orderIndex: 1, isHeader: false, amount: 1, amountMax: null, unit: "cup", name: "milk", raw: "1 cup milk", isScalable: true },
     ],
     steps: [
       { id: "s1", text: "Mix dry ingredients.", orderIndex: 0, isHeader: false },
       { id: "s2", text: "Add wet ingredients and stir.", orderIndex: 1, isHeader: false },
     ],
     description: null,
+    servings: 4,
     sourceType: "image",
     sourcePages: [
       { id: "p1", orderIndex: 0, sourceType: "image", retakeCount: 0, imageUri: "img.jpg" },

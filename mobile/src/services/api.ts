@@ -37,8 +37,15 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, body.error ?? "Request failed");
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+    };
+    const msg =
+      (typeof body.message === "string" && body.message.trim()) ||
+      (typeof body.error === "string" && body.error.trim()) ||
+      "Request failed";
+    throw new ApiError(response.status, msg);
   }
 
   return response.json();
@@ -114,8 +121,8 @@ export const api = {
     parse(draftId: string, payload?: UrlParseRequest) {
       return request<{
         status: string;
-        candidate: ParsedRecipeCandidate;
-        validationResult: ValidationResult;
+        candidate?: ParsedRecipeCandidate;
+        validationResult?: ValidationResult;
       }>(`/drafts/${draftId}/parse`, payload
         ? { method: "POST", body: JSON.stringify(payload) }
         : { method: "POST" });
@@ -154,6 +161,13 @@ export const api = {
         { method: "POST" },
       );
     },
+
+    cancel(draftId: string) {
+      return request<{ ok: boolean }>(
+        `/drafts/${draftId}/cancel`,
+        { method: "POST" },
+      );
+    },
   },
 
   recipes: {
@@ -171,6 +185,7 @@ export const api = {
         title: string;
         description?: string | null;
         collectionId?: string | null;
+        baselineServings?: number | null;
         ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
         steps: { text: string; orderIndex: number; isHeader: boolean }[];
       },
@@ -256,8 +271,24 @@ export const api = {
       return request<Recipe[]>(`/collections/${collectionId}/recipes`);
     },
 
-    delete(id: string) {
-      return request(`/collections/${id}`, { method: "DELETE" });
+    update(id: string, name: string) {
+      return request<{ id: string; name: string }>(`/collections/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+    },
+
+    async delete(id: string) {
+      const response = await fetch(`${BASE_URL}/collections/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new ApiError(
+          response.status,
+          typeof body.error === "string" ? body.error : "Request failed",
+        );
+      }
     },
   },
 };

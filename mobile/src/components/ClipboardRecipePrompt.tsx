@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
+import { LUCIDE } from "../theme/lucideSizes";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { parseClipboardForHttpsUrl } from "../features/import/webImportUrl";
 
@@ -72,7 +73,7 @@ export function ClipboardRecipePrompt({
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
         >
-          <X size={24} color="#6b7280" />
+          <X size={LUCIDE.lg} color="#6b7280" />
         </TouchableOpacity>
         <Text style={styles.title}>Save your recipe</Text>
         <Text style={styles.subtitle}>

@@ -1,10 +1,23 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import FastImage from "react-native-fast-image";
 import LinearGradient from "react-native-linear-gradient";
 import type { Recipe } from "@recipejar/shared";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "./RecipeImagePlaceholder";
+
+/** Storage paths stay the same after re-upload; bust FastImage cache when recipe row changes. */
+function imageUriWithVersion(
+  url: string | null | undefined,
+  updatedAt: string | undefined,
+): string | null {
+  if (!url) return null;
+  const v = updatedAt
+    ? String(new Date(updatedAt).getTime())
+    : "0";
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${v}`;
+}
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -25,10 +38,14 @@ export function RecipeCard({
 
   const hasRemoteImage = Boolean(recipe.thumbnailUrl || recipe.imageUrl);
   const imageSource = useMemo(() => {
-    if (recipe.thumbnailUrl) return { uri: recipe.thumbnailUrl };
-    if (recipe.imageUrl) return { uri: recipe.imageUrl };
-    return null;
-  }, [recipe.imageUrl, recipe.thumbnailUrl]);
+    const raw = recipe.thumbnailUrl ?? recipe.imageUrl;
+    const uri = imageUriWithVersion(raw, recipe.updatedAt);
+    return uri ? { uri } : null;
+  }, [recipe.imageUrl, recipe.thumbnailUrl, recipe.updatedAt]);
+
+  useEffect(() => {
+    setLoaded(false);
+  }, [imageSource?.uri]);
 
   return (
     <TouchableOpacity

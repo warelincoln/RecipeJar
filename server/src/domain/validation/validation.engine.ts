@@ -5,6 +5,7 @@ import { evaluateRequiredFields } from "./rules.required-fields.js";
 import { evaluateIngredients } from "./rules.ingredients.js";
 import { evaluateSteps } from "./rules.steps.js";
 import { evaluateRetake } from "./rules.retake.js";
+import { evaluateServings } from "./rules.servings.js";
 
 export function validateRecipe(
   candidate: ParsedRecipeCandidate,
@@ -13,6 +14,7 @@ export function validateRecipe(
     ...evaluateStructure(candidate),
     ...evaluateIntegrity(candidate),
     ...evaluateRequiredFields(candidate),
+    ...evaluateServings(candidate),
     ...evaluateIngredients(candidate),
     ...evaluateSteps(candidate),
     ...evaluateRetake(candidate),

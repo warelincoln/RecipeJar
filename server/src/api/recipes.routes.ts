@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { collectionsRepository } from "../persistence/collections.repository.js";
 import { recipesRepository } from "../persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../persistence/recipe-notes.repository.js";
 import { NOTE_MAX_LENGTH } from "@recipejar/shared";
@@ -40,6 +41,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       title: string;
       description?: string | null;
       collectionId?: string | null;
+      baselineServings?: number | null;
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
       steps: { text: string; orderIndex: number; isHeader: boolean }[];
     };
@@ -126,6 +128,10 @@ export async function recipesRoutes(app: FastifyInstance) {
 
     const { collectionId } = request.body;
     if (collectionId) {
+      const collection = await collectionsRepository.findById(collectionId);
+      if (!collection) {
+        return reply.status(404).send({ error: "Collection not found" });
+      }
       await recipesRepository.assignToCollection(
         request.params.id,
         collectionId,

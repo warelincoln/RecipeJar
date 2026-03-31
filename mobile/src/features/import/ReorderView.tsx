@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from "react-native";
 import { ChevronUp, ChevronDown } from "lucide-react-native";
+import { LUCIDE } from "../../theme/lucideSizes";
 
 const THUMB_W = 48 * 3;
 const THUMB_H = 64 * 3;
@@ -90,7 +91,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
                   hitSlop={8}
                 >
                   <ChevronUp
-                    size={26}
+                    size={LUCIDE.xl}
                     color={index === 0 ? "#d1d5db" : "#2563eb"}
                   />
                 </TouchableOpacity>
@@ -103,7 +104,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
                   hitSlop={8}
                 >
                   <ChevronDown
-                    size={26}
+                    size={LUCIDE.xl}
                     color={
                       index === orderedPages.length - 1 ? "#d1d5db" : "#2563eb"
                     }
@@ -198,12 +199,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "flex-end",
     justifyContent: "center",
-    gap: 8,
-    minWidth: 44,
+    gap: 10,
+    minWidth: 56,
   },
   arrowHit: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   confirmButton: {
     backgroundColor: "#2563eb",

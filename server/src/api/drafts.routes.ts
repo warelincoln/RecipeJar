@@ -9,6 +9,7 @@ import type {
   EditedRecipeCandidate,
   ValidationResult,
   SourcePage,
+  DraftStatus,
 } from "@recipejar/shared";
 import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
 import { parseImages } from "../parsing/image/image-parse.adapter.js";
@@ -26,6 +27,13 @@ import {
   RECIPE_PAGES_BUCKET,
   resolveImageUrls,
 } from "../services/recipe-image.service.js";
+import { acquireParseLock, releaseParseLock } from "../parsing/parse-semaphore.js";
+
+const PARSE_ALLOWED_STATUSES = new Set<DraftStatus>([
+  "READY_FOR_PARSE",
+  "CAPTURE_IN_PROGRESS",
+  "NEEDS_RETAKE",
+]);
 
 const URL_PARSE_CAPTURE_FAILURE_REASONS = new Set([
   "injection_failed",
@@ -59,6 +67,143 @@ function draftRowToClientBody(
   warningStates: Awaited<ReturnType<typeof draftsRepository.getWarningStates>>,
 ) {
   return { ...draftRowToClientFields(row), pages, warningStates };
+}
+
+async function runParseInBackground(
+  draftId: string,
+  draft: DraftRow,
+  suppliedHtml: string,
+  parseBody: {
+    html?: string;
+    acquisitionMethod?: UrlAcquisitionMethod;
+    captureFailureReason?: string;
+  },
+  startTime: number,
+) {
+  try {
+    await acquireParseLock();
+
+    const pages = await draftsRepository.getPages(draftId);
+    const sourcePages: SourcePage[] = pages.map((p) => ({
+      id: p.id,
+      orderIndex: p.orderIndex,
+      sourceType: draft.sourceType as "image" | "url",
+      retakeCount: p.retakeCount,
+      imageUri: p.imageUri,
+      extractedText: p.ocrText,
+    }));
+
+    let candidate: ParsedRecipeCandidate;
+
+    if (draft.sourceType === "url" && draft.originalUrl) {
+      if (suppliedHtml) {
+        candidate = await parseUrlFromHtml(
+          draft.originalUrl,
+          suppliedHtml,
+          sourcePages,
+          "webview-html",
+        );
+      } else {
+        const acquisitionMethod: UrlAcquisitionMethod =
+          parseBody.acquisitionMethod === "server-fetch-fallback"
+            ? "server-fetch-fallback"
+            : "server-fetch";
+
+        if (
+          acquisitionMethod === "server-fetch-fallback" &&
+          typeof parseBody.captureFailureReason === "string" &&
+          URL_PARSE_CAPTURE_FAILURE_REASONS.has(parseBody.captureFailureReason)
+        ) {
+          logEvent("url_parse_capture_failed", {
+            draftId,
+            reason: parseBody.captureFailureReason,
+          });
+        }
+
+        candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
+      }
+    } else {
+      const imageDataUrls = await Promise.all(
+        pages.map(async (page) => {
+          try {
+            const { data, error } = await getSupabase().storage
+              .from(RECIPE_PAGES_BUCKET)
+              .download(page.imageUri);
+            if (error || !data) throw new Error(error?.message ?? "Download returned no data");
+            const rawBuffer = Buffer.from(await data.arrayBuffer());
+            const optimized = await optimizeForOcr(rawBuffer);
+            const b64 = optimized.toString("base64");
+            return `data:image/jpeg;base64,${b64}`;
+          } catch (err) {
+            console.warn(`[parse] OCR optimization failed for ${page.imageUri}, falling back to public URL:`, err);
+            const { data: urlData } = getSupabase().storage
+              .from(RECIPE_PAGES_BUCKET)
+              .getPublicUrl(page.imageUri);
+            return urlData.publicUrl;
+          }
+        }),
+      );
+      candidate = await parseImages(imageDataUrls, sourcePages);
+    }
+
+    if (draft.sourceType === "url" && draft.originalUrl) {
+      logEvent("url_parse_source_selected", {
+        draftId,
+        acquisitionMethod: suppliedHtml
+          ? "webview-html"
+          : parseBody.acquisitionMethod === "server-fetch-fallback"
+            ? "server-fetch-fallback"
+            : "server-fetch",
+      });
+    }
+
+    const validationResult = validateRecipe(candidate);
+    const nextStatus = validationResult.requiresRetake ? "NEEDS_RETAKE" : "PARSED";
+
+    const updated = await draftsRepository.setParsedCandidate(
+      draftId,
+      candidate,
+      validationResult,
+      nextStatus,
+      "PARSING",
+    );
+
+    if (!updated) {
+      console.warn(`[parse] Draft ${draftId} was cancelled during parse, skipping result write`);
+      return;
+    }
+
+    const flags = validationResult.issues.filter(
+      (i) => i.severity === "FLAG",
+    );
+    if (flags.length > 0) {
+      await draftsRepository.upsertWarningStates(
+        draftId,
+        flags.map((f) => ({
+          issueId: f.issueId,
+          code: f.code,
+          fieldPath: f.fieldPath,
+        })),
+      );
+    }
+
+    const elapsed_ms = Date.now() - startTime;
+    logEvent("parse_completed", { draftId, sourceType: draft.sourceType, pageCount: pages.length, elapsed_ms });
+    logEvent("validation_completed", {
+      draftId,
+      issueCountBlock: validationResult.issues.filter((i) => i.severity === "BLOCK").length,
+      issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG").length,
+      issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE").length,
+    });
+  } catch (err) {
+    const elapsed_ms = Date.now() - startTime;
+    const errorMessage = err instanceof Error ? err.message : "Unknown parse error";
+    console.error(`[parse] Background parse failed for draft ${draftId}:`, errorMessage);
+    logEvent("parse_failed", { draftId, elapsed_ms, error: errorMessage });
+    await draftsRepository.setParseError(draftId, errorMessage, "PARSING");
+  } finally {
+    releaseParseLock();
+  }
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
@@ -187,6 +332,11 @@ export async function draftsRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Draft not found" });
       }
 
+      if (!PARSE_ALLOWED_STATUSES.has(draft.status as DraftStatus)) {
+        logEvent("parse_rejected_idempotent", { draftId, currentStatus: draft.status });
+        return reply.status(409).send({ error: "Parse not allowed in current state", status: draft.status });
+      }
+
       if (
         draft.sourceType === "url" &&
         suppliedHtml &&
@@ -198,118 +348,33 @@ export async function draftsRoutes(app: FastifyInstance) {
       await draftsRepository.updateStatus(draftId, "PARSING");
       logEvent("parse_started", { draftId, sourceType: draft.sourceType });
 
+      const startTime = Date.now();
+
+      runParseInBackground(draftId, draft, suppliedHtml, parseBody, startTime);
+
+      return reply.status(202).send({ status: "PARSING" });
+    },
+  );
+
+  app.post<{ Params: { draftId: string } }>(
+    "/drafts/:draftId/cancel",
+    async (request, reply) => {
+      const { draftId } = request.params;
+      const draft = await draftsRepository.findById(draftId);
+      if (!draft) {
+        return reply.status(404).send({ error: "Draft not found" });
+      }
+
+      await draftsRepository.updateStatus(draftId, "CANCELLED");
+
       const pages = await draftsRepository.getPages(draftId);
-      const sourcePages: SourcePage[] = pages.map((p) => ({
-        id: p.id,
-        orderIndex: p.orderIndex,
-        sourceType: draft.sourceType as "image" | "url",
-        retakeCount: p.retakeCount,
-        imageUri: p.imageUri,
-        extractedText: p.ocrText,
-      }));
-
-      let candidate: ParsedRecipeCandidate;
-
-      if (draft.sourceType === "url" && draft.originalUrl) {
-        if (suppliedHtml) {
-          candidate = await parseUrlFromHtml(
-            draft.originalUrl,
-            suppliedHtml,
-            sourcePages,
-            "webview-html",
-          );
-        } else {
-          const acquisitionMethod: UrlAcquisitionMethod =
-            parseBody.acquisitionMethod === "server-fetch-fallback"
-              ? "server-fetch-fallback"
-              : "server-fetch";
-
-          if (
-            acquisitionMethod === "server-fetch-fallback" &&
-            typeof parseBody.captureFailureReason === "string" &&
-            URL_PARSE_CAPTURE_FAILURE_REASONS.has(parseBody.captureFailureReason)
-          ) {
-            logEvent("url_parse_capture_failed", {
-              draftId,
-              reason: parseBody.captureFailureReason,
-            });
-          }
-
-          candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
-        }
-      } else {
-        const imageDataUrls = await Promise.all(
-          pages.map(async (page) => {
-            try {
-              const { data, error } = await getSupabase().storage
-                .from(RECIPE_PAGES_BUCKET)
-                .download(page.imageUri);
-              if (error || !data) throw new Error(error?.message ?? "Download returned no data");
-              const rawBuffer = Buffer.from(await data.arrayBuffer());
-              const optimized = await optimizeForOcr(rawBuffer);
-              const b64 = optimized.toString("base64");
-              return `data:image/jpeg;base64,${b64}`;
-            } catch (err) {
-              console.warn(`[parse] OCR optimization failed for ${page.imageUri}, falling back to public URL:`, err);
-              const { data: urlData } = getSupabase().storage
-                .from(RECIPE_PAGES_BUCKET)
-                .getPublicUrl(page.imageUri);
-              return urlData.publicUrl;
-            }
-          })
-        );
-        candidate = await parseImages(imageDataUrls, sourcePages);
+      const paths = pages.map((p) => p.imageUri).filter(Boolean);
+      if (paths.length > 0) {
+        await getSupabase().storage.from(RECIPE_PAGES_BUCKET).remove(paths);
       }
 
-      if (draft.sourceType === "url" && draft.originalUrl) {
-        logEvent("url_parse_source_selected", {
-          draftId,
-          acquisitionMethod: suppliedHtml
-            ? "webview-html"
-            : parseBody.acquisitionMethod === "server-fetch-fallback"
-              ? "server-fetch-fallback"
-              : "server-fetch",
-        });
-      }
-
-      const validationResult = validateRecipe(candidate);
-
-      await draftsRepository.setParsedCandidate(
-        draftId,
-        candidate,
-        validationResult,
-      );
-
-      const flags = validationResult.issues.filter(
-        (i) => i.severity === "FLAG",
-      );
-      if (flags.length > 0) {
-        await draftsRepository.upsertWarningStates(
-          draftId,
-          flags.map((f) => ({
-            issueId: f.issueId,
-            code: f.code,
-            fieldPath: f.fieldPath,
-          })),
-        );
-      }
-
-      logEvent("parse_completed", { draftId, sourceType: draft.sourceType, pageCount: pages.length });
-      logEvent("validation_completed", {
-        draftId,
-        issueCountBlock: validationResult.issues.filter((i) => i.severity === "BLOCK").length,
-        issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG").length,
-        issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE").length,
-      });
-
-      const nextStatus = validationResult.requiresRetake ? "NEEDS_RETAKE" : "PARSED";
-      await draftsRepository.updateStatus(draftId, nextStatus);
-
-      return reply.send({
-        status: nextStatus,
-        candidate,
-        validationResult,
-      });
+      logEvent("draft_cancelled", { draftId });
+      return reply.send({ ok: true });
     },
   );
 
@@ -336,6 +401,12 @@ export async function draftsRoutes(app: FastifyInstance) {
           text: i.text,
           orderIndex: i.orderIndex,
           isHeader: i.isHeader,
+          amount: i.amount ?? null,
+          amountMax: i.amountMax ?? null,
+          unit: i.unit ?? null,
+          name: i.name ?? null,
+          raw: i.raw ?? i.text,
+          isScalable: i.isScalable ?? false,
         })),
         steps: editedCandidate.steps.map((s) => ({
           id: s.id,
@@ -344,6 +415,7 @@ export async function draftsRoutes(app: FastifyInstance) {
           isHeader: s.isHeader,
         })),
         description: editedCandidate.description,
+        servings: editedCandidate.servings ?? null,
       };
 
       const validationResult = validateRecipe(revalidationCandidate);
@@ -409,7 +481,16 @@ export async function draftsRoutes(app: FastifyInstance) {
       }
       const pages = await draftsRepository.getPages(draftId);
       const warningStates = await draftsRepository.getWarningStates(draftId);
-      return reply.send(draftRowToClientBody(draft, pages, warningStates));
+
+      const supabase = getSupabase();
+      const pagesWithUrls = pages.map((p) => {
+        const { data } = supabase.storage
+          .from(RECIPE_PAGES_BUCKET)
+          .getPublicUrl(p.imageUri);
+        return { ...p, resolvedImageUrl: data.publicUrl };
+      });
+
+      return reply.send(draftRowToClientBody(draft, pagesWithUrls, warningStates));
     },
   );
 
@@ -420,6 +501,10 @@ export async function draftsRoutes(app: FastifyInstance) {
       const draft = await draftsRepository.findById(draftId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
+      }
+
+      if (draft.status === "SAVED") {
+        return reply.status(409).send({ error: "Draft has already been saved" });
       }
 
       const validationResult = draft.validationResultJson as unknown as ValidationResult | null;
@@ -444,13 +529,11 @@ export async function draftsRoutes(app: FastifyInstance) {
         });
       }
 
-      const edited = draft.editedCandidateJson as unknown as {
-        title: string;
-        ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
-        steps: { text: string; orderIndex: number; isHeader: boolean }[];
-        description?: string | null;
-      };
+      const edited = draft.editedCandidateJson as unknown as EditedRecipeCandidate;
       const parsedCandidate = draft.parsedCandidateJson as ParsedRecipeCandidate | null;
+
+      const baselineServings =
+        edited.servings ?? parsedCandidate?.servings ?? null;
 
       const pages = await draftsRepository.getPages(draftId);
 
@@ -460,8 +543,19 @@ export async function draftsRoutes(app: FastifyInstance) {
         sourceType: draft.sourceType as "image" | "url",
         originalUrl: draft.originalUrl,
         imageUrl: null,
+        baselineServings,
         saveDecision,
-        ingredients: edited.ingredients,
+        ingredients: edited.ingredients.map((ing) => ({
+          text: ing.text,
+          orderIndex: ing.orderIndex,
+          isHeader: ing.isHeader,
+          amount: ing.amount ?? null,
+          amountMax: ing.amountMax ?? null,
+          unit: ing.unit ?? null,
+          name: ing.name ?? null,
+          rawText: ing.raw ?? ing.text,
+          isScalable: ing.isScalable ?? false,
+        })),
         steps: edited.steps,
         sourcePages: pages.map((p) => ({
           orderIndex: p.orderIndex,
@@ -489,14 +583,11 @@ export async function draftsRoutes(app: FastifyInstance) {
         }
 
         if (imagePath) {
-          const updated = await recipesRepository.setImage(recipe.id, imagePath);
-          if (updated) {
-            resolvedRecipe = {
-              ...resolvedRecipe,
-              ...updated,
-              ...resolveImageUrls(imagePath),
-            };
-          }
+          await recipesRepository.setImage(recipe.id, imagePath);
+          resolvedRecipe = {
+            ...resolvedRecipe,
+            ...resolveImageUrls(imagePath),
+          };
         }
       } catch (err) {
         request.log.warn({ err, draftId }, "Failed to attach recipe hero image during save");

@@ -8,11 +8,12 @@ function makeCandidate(
   return {
     title: "Test Recipe",
     ingredients: [
-      { id: "i1", text: "1 cup flour", orderIndex: 0, isHeader: false },
+      { id: "i1", text: "1 cup flour", orderIndex: 0, isHeader: false, amount: 1, amountMax: null, unit: "cup", name: "flour", raw: "1 cup flour", isScalable: true },
     ],
     steps: [
       { id: "s1", text: "Mix ingredients.", orderIndex: 0, isHeader: false },
     ],
+    servings: 4,
     description: null,
     sourceType: "image",
     sourcePages: [
@@ -96,7 +97,7 @@ describe("validateRecipe", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredients: [
-          { id: "h1", text: "For the sauce:", orderIndex: 0, isHeader: true },
+          { id: "h1", text: "For the sauce:", orderIndex: 0, isHeader: true, amount: null, amountMax: null, unit: null, name: null, raw: "For the sauce:", isScalable: false },
         ],
         ingredientSignals: [],
       }),

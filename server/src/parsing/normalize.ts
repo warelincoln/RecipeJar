@@ -23,6 +23,8 @@ export interface RawExtractionResult {
   steps?: RawStep[];
   description?: string | null;
 
+  servings?: { min?: number; max?: number | null } | null;
+
   signals?: {
     structureSeparable?: boolean;
     lowConfidenceStructure?: boolean;
@@ -39,9 +41,13 @@ export interface RawExtractionResult {
   metadata?: RecipeMetadata;
 }
 
-interface RawIngredient {
+export interface RawIngredient {
   text?: string;
   isHeader?: boolean;
+  amount?: number | null;
+  amountMax?: number | null;
+  unit?: string | null;
+  name?: string | null;
 }
 
 interface RawStep {
@@ -82,13 +88,29 @@ export function normalizeToCandidate(
   sourcePages: SourcePage[],
 ): ParsedRecipeCandidate {
   const ingredients: ParsedIngredientEntry[] = (raw.ingredients ?? []).map(
-    (ing, i) => ({
-      id: uuidv4(),
-      text:
-        typeof ing.text === "string" ? decodeHtmlEntities(ing.text) : "",
-      orderIndex: i,
-      isHeader: ing.isHeader === true,
-    }),
+    (ing, i) => {
+      const decodedText =
+        typeof ing.text === "string" ? decodeHtmlEntities(ing.text) : "";
+      const isHeader = ing.isHeader === true;
+      const amount = typeof ing.amount === "number" ? ing.amount : null;
+      const amountMax = typeof ing.amountMax === "number" ? ing.amountMax : null;
+      const unit = typeof ing.unit === "string" && ing.unit.length > 0 ? ing.unit : null;
+      const name = typeof ing.name === "string" && ing.name.length > 0 ? decodeHtmlEntities(ing.name) : null;
+      const isScalable = !isHeader && amount !== null;
+
+      return {
+        id: uuidv4(),
+        text: decodedText,
+        orderIndex: i,
+        isHeader,
+        amount,
+        amountMax,
+        unit,
+        name,
+        raw: decodedText,
+        isScalable,
+      };
+    },
   );
 
   const steps: ParsedStepEntry[] = (raw.steps ?? []).map((step, i) => ({
@@ -133,11 +155,18 @@ export function normalizeToCandidate(
   const hasMissingContent =
     ingredients.length === 0 || steps.length === 0 || !titleDecoded;
 
+  const rawServings = raw.servings;
+  const servings =
+    rawServings && typeof rawServings.min === "number" && rawServings.min > 0
+      ? rawServings.min
+      : null;
+
   return {
     title: titleDecoded,
     ingredients,
     steps,
     description: descriptionDecoded,
+    servings,
     sourceType,
     sourcePages,
     parseSignals: {
@@ -169,6 +198,7 @@ export function buildErrorCandidate(
     ingredients: [],
     steps: [],
     description: null,
+    servings: null,
     sourceType,
     sourcePages,
     parseSignals: {

@@ -10,7 +10,9 @@ export type DraftStatus =
   | "NEEDS_RETAKE"
   | "IN_GUIDED_CORRECTION"
   | "READY_TO_SAVE"
-  | "SAVED";
+  | "SAVED"
+  | "PARSE_FAILED"
+  | "CANCELLED";
 
 export interface DraftInputPage {
   id: string;
@@ -30,6 +32,12 @@ export interface EditableIngredientEntry {
   text: string;
   orderIndex: number;
   isHeader: boolean;
+  amount: number | null;
+  amountMax: number | null;
+  unit: string | null;
+  name: string | null;
+  raw: string | null;
+  isScalable: boolean;
 }
 
 export interface EditableStepEntry {
@@ -44,6 +52,7 @@ export interface EditedRecipeCandidate {
   ingredients: EditableIngredientEntry[];
   steps: EditableStepEntry[];
   description?: string | null;
+  servings: number | null;
 }
 
 export interface DraftWarningState {

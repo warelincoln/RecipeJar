@@ -85,6 +85,7 @@ export async function parseUrlFromHtml(
   const structured = extractStructuredData(html);
   let fallbackTitle: string | null = null;
   let fallbackMetadata: RawExtractionResult["metadata"] | undefined;
+  let fallbackServings: RawExtractionResult["servings"] | undefined;
 
   if (structured && passesQualityGate(structured)) {
     logExtraction("json-ld", url, {
@@ -102,6 +103,9 @@ export async function parseUrlFromHtml(
     }
     if (structured.metadata) {
       fallbackMetadata = structured.metadata;
+    }
+    if (structured.servings) {
+      fallbackServings = structured.servings;
     }
     logExtraction("json-ld", url, {
       acquisitionMethod,
@@ -136,6 +140,9 @@ export async function parseUrlFromHtml(
       }
       if (!aiResult.metadata && fallbackMetadata) {
         aiResult.metadata = fallbackMetadata;
+      }
+      if (!aiResult.servings && fallbackServings) {
+        aiResult.servings = fallbackServings;
       }
       logExtraction("dom-ai", url, {
         acquisitionMethod,

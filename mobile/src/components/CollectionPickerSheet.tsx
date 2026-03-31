@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
+import { LUCIDE } from "../theme/lucideSizes";
 
 export type CollectionPickerItem = { id: string; name: string };
 
@@ -72,7 +73,7 @@ export function CollectionPickerSheet({
           accessibilityLabel={`Assign to ${label}`}
         >
           <View style={styles.rowIconWrap}>
-            <Icon size={22} color={color} />
+            <Icon size={LUCIDE.row} color={color} />
           </View>
           <Text style={styles.rowLabel} numberOfLines={2}>
             {label}
@@ -116,7 +117,7 @@ export function CollectionPickerSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={24} color="#6b7280" />
+            <X size={LUCIDE.lg} color="#6b7280" />
           </TouchableOpacity>
           <Text style={styles.title}>{title}</Text>
           {recipeTitle ? (
@@ -228,9 +229,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   rowIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
     backgroundColor: "#f9fafb",
     alignItems: "center",
     justifyContent: "center",
@@ -240,6 +241,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
+    paddingTop: 2,
   },
   removeRow: {
     marginTop: 6,

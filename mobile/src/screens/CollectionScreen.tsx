@@ -11,20 +11,31 @@ import {
   Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, FolderMinus, FolderOpen, Trash2, X } from "lucide-react-native";
-import { api } from "../services/api";
+import {
+  ChevronLeft,
+  FolderMinus,
+  FolderOpen,
+  Trash2,
+  X,
+  MoreHorizontal,
+  Pencil,
+} from "lucide-react-native";
+import { api, ApiError } from "../services/api";
 import { useCollectionsStore } from "../stores/collections.store";
 import { useRecipesStore } from "../stores/recipes.store";
 import { RecipeCard } from "../components/RecipeCard";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
+import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
 import {
   RecipeQuickActionsSheet,
   RecipeDeleteConfirmSheet,
+  DeleteCollectionConfirmSheet,
   type RecipeQuickAction,
 } from "../components/RecipeQuickActionsSheet";
 import type { Recipe } from "@recipejar/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import { LUCIDE } from "../theme/lucideSizes";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Collection">;
 
@@ -47,14 +58,34 @@ export function CollectionScreen({ route, navigation }: Props) {
   } | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] =
     useState<Recipe | null>(null);
-  const { collections } = useCollectionsStore();
+  const [folderMenuVisible, setFolderMenuVisible] = useState(false);
+  const [renameFolderVisible, setRenameFolderVisible] = useState(false);
+  const [deleteFolderVisible, setDeleteFolderVisible] = useState(false);
+
+  const {
+    collections,
+    fetchCollections,
+    updateCollection,
+    deleteCollection,
+  } = useCollectionsStore();
   const deleteRecipe = useRecipesStore((s) => s.deleteRecipe);
 
   const fetchData = () => {
     const fetcher = isAllRecipes
       ? api.recipes.list()
       : api.collections.getRecipes(collectionId);
-    return fetcher.then(setRecipes);
+    return fetcher
+      .then(setRecipes)
+      .catch((err: unknown) => {
+        if (!isAllRecipes && err instanceof ApiError && err.status === 404) {
+          Alert.alert("Folder removed", "This folder no longer exists.", [
+            { text: "OK", onPress: () => navigation.goBack() },
+          ]);
+          return;
+        }
+        Alert.alert("Error", "Could not load recipes.");
+        setRecipes([]);
+      });
   };
 
   useEffect(() => {
@@ -83,7 +114,7 @@ export function CollectionScreen({ route, navigation }: Props) {
         {
           key: "remove-from-collection",
           label: `Remove from ${collectionName}`,
-          icon: <FolderMinus size={22} color="#6b7280" />,
+          icon: <FolderMinus size={LUCIDE.row} color="#6b7280" />,
           onPress: async () => {
             setRecipeQuickActions(null);
             try {
@@ -102,7 +133,7 @@ export function CollectionScreen({ route, navigation }: Props) {
           key: "delete",
           label: "Delete recipe",
           destructive: true,
-          icon: <Trash2 size={22} color="#dc2626" />,
+          icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
           onPress: () => {
             setRecipeQuickActions(null);
             setDeleteConfirmTarget(item);
@@ -119,7 +150,7 @@ export function CollectionScreen({ route, navigation }: Props) {
       actions.push({
         key: "add-collection",
         label: "Add to collection",
-        icon: <FolderOpen size={22} color="#2563eb" />,
+        icon: <FolderOpen size={LUCIDE.row} color="#2563eb" />,
         onPress: () => {
           setRecipeQuickActions(null);
           setCollectionPickerTarget(item);
@@ -131,7 +162,7 @@ export function CollectionScreen({ route, navigation }: Props) {
       key: "delete",
       label: "Delete recipe",
       destructive: true,
-      icon: <Trash2 size={22} color="#dc2626" />,
+      icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
       onPress: () => {
         setRecipeQuickActions(null);
         setDeleteConfirmTarget(item);
@@ -182,17 +213,32 @@ export function CollectionScreen({ route, navigation }: Props) {
   return (
     <View style={styles.container} testID="collection-screen">
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          testID="collection-back"
-          accessibilityRole="button"
-          accessibilityLabel="collection-back"
-        >
-          <View style={styles.backRow}>
-            <ChevronLeft size={20} color="#2563eb" />
-            <Text style={styles.backText}>Back</Text>
-          </View>
-        </TouchableOpacity>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            testID="collection-back"
+            accessibilityRole="button"
+            accessibilityLabel="collection-back"
+          >
+            <View style={styles.backRow}>
+              <ChevronLeft size={LUCIDE.nav} color="#2563eb" />
+              <Text style={styles.backText}>Back</Text>
+            </View>
+          </TouchableOpacity>
+          {!isAllRecipes ? (
+            <TouchableOpacity
+              onPress={() => setFolderMenuVisible(true)}
+              hitSlop={14}
+              testID="collection-folder-menu"
+              accessibilityRole="button"
+              accessibilityLabel="Folder options"
+            >
+              <MoreHorizontal size={LUCIDE.lg} color="#6b7280" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerMenuSpacer} />
+          )}
+        </View>
         <Text style={styles.title} testID="collection-title">
           {collectionName}
         </Text>
@@ -221,7 +267,7 @@ export function CollectionScreen({ route, navigation }: Props) {
             onPress={() => setSearchQuery("")}
             testID="collection-search-clear"
           >
-            <X size={18} color="#6b7280" />
+            <X size={LUCIDE.md} color="#6b7280" />
           </TouchableOpacity>
         )}
       </View>
@@ -255,6 +301,68 @@ export function CollectionScreen({ route, navigation }: Props) {
           />
         )}
         contentContainerStyle={styles.listContent}
+      />
+
+      <RecipeQuickActionsSheet
+        visible={folderMenuVisible && !isAllRecipes}
+        onClose={() => setFolderMenuVisible(false)}
+        title="Folder"
+        emphasisLabel={collectionName}
+        subtitle="Rename or delete this collection."
+        actions={[
+          {
+            key: "rename-folder",
+            label: "Rename folder",
+            icon: <Pencil size={LUCIDE.row} color="#2563eb" />,
+            onPress: () => {
+              setFolderMenuVisible(false);
+              setRenameFolderVisible(true);
+            },
+            testID: "collection-folder-rename",
+          },
+          {
+            key: "delete-folder",
+            label: "Delete folder",
+            destructive: true,
+            icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+            onPress: () => {
+              setFolderMenuVisible(false);
+              setDeleteFolderVisible(true);
+            },
+            testID: "collection-folder-delete",
+          },
+        ]}
+      />
+
+      <CreateCollectionSheet
+        visible={renameFolderVisible && !isAllRecipes}
+        mode="rename"
+        initialName={collectionName}
+        onClose={() => setRenameFolderVisible(false)}
+        onSubmit={async (name) => {
+          await updateCollection(collectionId, name);
+          navigation.setParams({ collectionName: name });
+          await fetchCollections();
+        }}
+      />
+
+      <DeleteCollectionConfirmSheet
+        visible={deleteFolderVisible && !isAllRecipes}
+        onClose={() => setDeleteFolderVisible(false)}
+        collectionName={collectionName}
+        recipeCount={recipes.length}
+        onConfirm={async () => {
+          try {
+            await deleteCollection(collectionId);
+            setDeleteFolderVisible(false);
+            navigation.goBack();
+          } catch {
+            Alert.alert(
+              "Could not delete folder",
+              "Please try again.",
+            );
+          }
+        }}
       />
 
       <RecipeQuickActionsSheet
@@ -298,17 +406,33 @@ export function CollectionScreen({ route, navigation }: Props) {
         showRemoveOption={
           (collectionPickerTarget?.collections?.length ?? 0) > 0
         }
-        onSelectCollection={async (collectionId) => {
+        onSelectCollection={async (targetCollectionId) => {
           const item = collectionPickerTarget;
           if (!item) return;
-          await api.recipes.assignCollection(item.id, collectionId);
-          fetchData();
+          try {
+            await api.recipes.assignCollection(item.id, targetCollectionId);
+            fetchData();
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 404) {
+              await fetchCollections();
+              Alert.alert(
+                "Folder unavailable",
+                "That folder no longer exists. Try another.",
+              );
+              return;
+            }
+            Alert.alert("Error", "Could not update folder. Please try again.");
+          }
         }}
         onRemove={async () => {
           const item = collectionPickerTarget;
           if (!item) return;
-          await api.recipes.assignCollection(item.id, null);
-          fetchData();
+          try {
+            await api.recipes.assignCollection(item.id, null);
+            fetchData();
+          } catch {
+            Alert.alert("Error", "Could not remove from folder. Please try again.");
+          }
         }}
       />
     </View>
@@ -318,7 +442,14 @@ export function CollectionScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f9fafb" },
   header: { paddingHorizontal: HORIZONTAL_PADDING, paddingBottom: 12 },
-  backRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  headerMenuSpacer: { width: 24, height: 24 },
+  backRow: { flexDirection: "row", alignItems: "center" },
   backText: { fontSize: 16, color: "#2563eb" },
   title: { fontSize: 24, fontWeight: "800" },
   subtitle: { fontSize: 14, color: "#6b7280", marginTop: 2 },

@@ -1,5 +1,283 @@
 # RecipeJar Changelog
 
+### 2026-03-31 — Servings, structured ingredients & dynamic scaling
+
+Recipes now capture **baseline servings** (how many the recipe makes) and store ingredients with **structured fields** (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). The detail screen shows an interactive **servings stepper** that scales ingredient amounts in real time.
+
+**Database (migration `0007_structured_ingredients_servings`):**
+
+- `recipes.baseline_servings` — nullable `numeric` column.
+- `recipe_ingredients` — 6 new columns: `amount` (numeric), `amount_max` (numeric), `unit` (text), `name` (text), `raw_text` (text), `is_scalable` (boolean, default false).
+
+**Shared types:**
+
+- `Recipe.baselineServings: number | null`.
+- `RecipeIngredientEntry` — added `amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`.
+- `ParsedIngredientEntry` and `EditableIngredientEntry` — same structured fields.
+- `ParsedRecipeCandidate.servings: number | null`.
+- `EditedRecipeCandidate.servings: number | null`.
+- New `ValidationIssueCode`: `SERVINGS_MISSING`.
+
+**Server — parsing:**
+
+- **Deterministic ingredient parser** (`server/src/parsing/ingredient-parser.ts`): regex/rules-based decomposition of ingredient text into `{ amount, amountMax, unit, name, isScalable }`. Handles fractions, unicode fractions, mixed numbers, ranges, unit canonicalization, and non-scalable lines (e.g. "salt to taste", "vegetable oil for deep frying"). Used by the URL structured adapter on JSON-LD/microdata ingredient strings and by **Rule A** (re-parse on saved recipe edit).
+- **GPT prompts updated** (`image-parse.adapter.ts`, `url-ai.adapter.ts`): JSON schema now requests a top-level `servings: { min, max }` object and per-ingredient structured fields (`amount`, `amountMax`, `unit`, `name`).
+- **URL structured adapter** (`url-structured.adapter.ts`): `parseYieldToServings()` converts `recipeYield` strings (JSON-LD/microdata) to numeric servings. Accepts "4", "serves 6", "6 people", "4 portions", "Makes 8", etc. Rejects non-person yields ("1 loaf", "24 cookies"). `parseIngredientLine()` runs on extracted ingredient text strings to populate structured fields.
+- **DOM boundary extractor** (`url-dom.adapter.ts`): secondary scan for recipe metadata elements (`[class*="recipe-info"]`, `[class*="recipe-meta"]`, etc.) when the richest recipe body doesn't contain a serving count. Prepends metadata (e.g. "Prep 30 min Cook 12 hr Serves 6 people") so the AI sees servings context.
+- **Smart truncation** (`url-ai.adapter.ts`): added "serves" and "servings" to section keywords so the truncation window starts from serving info rather than cutting it off.
+- **Normalization** (`normalize.ts`): `RawExtractionResult` and `RawIngredient` carry structured fields and `servings`. `normalizeToCandidate` maps them to `ParsedRecipeCandidate`, taking the `min` value for ranges.
+- **URL parse orchestration** (`url-parse.adapter.ts`): carries `fallbackServings` from structured data (if it fails the quality gate) and merges into the AI result.
+
+**Server — validation:**
+
+- **`rules.servings.ts`** (new): emits `SERVINGS_MISSING` with `BLOCK` severity if `candidate.servings` is null or not > 0. Wired into `validation.engine.ts` (7 → 8 rule modules).
+- **`issueDisplayMessage.ts`**: user-facing message for `SERVINGS_MISSING`.
+
+**Server — persistence:**
+
+- **`drafts.repository.ts`**: `setParsedCandidate` includes `servings` when creating the `editedCandidateJson`.
+- **`drafts.routes.ts`**: `PATCH /candidate` accepts `servings` and maps structured ingredient fields in the revalidation candidate. `POST /save` extracts `baselineServings` from the edited or parsed candidate and passes structured ingredient fields to `recipesRepository.save`.
+- **`recipes.repository.ts`**: `save()` inserts `baseline_servings` and all structured ingredient columns. `findById()` and `list()` parse `baselineServings` from string to number. `update()` runs the deterministic **ingredient parser (Rule A)** on each ingredient text, populating structured fields on every saved-recipe edit.
+- **`recipes.routes.ts`**: `PUT /recipes/:id` accepts `baselineServings`.
+
+**Mobile — import flow:**
+
+- **`PreviewEditView.tsx`**: "Servings" section with `TextInput` between Title and Ingredients. Displays `candidate.servings` and shows `SERVINGS_MISSING` validation warnings. `handleServingsChange` updates the candidate and triggers revalidation.
+- **`machine.ts`**: `EDIT_CANDIDATE` event carries `validationResult` from the PATCH response. The `editedCandidate` derivation copies `servings` through from the parsed candidate.
+- **`ImportFlowScreen.tsx`**: `candidateSyncPending` state prevents saving while the PATCH revalidation is in flight.
+
+**Mobile — scaling engine (`mobile/src/utils/scaling.ts`):**
+
+- `scaleAmount(amount, factor)`: multiplies an amount by the scaling factor.
+- `formatAmount(value)`: formats a number as a mixed number with unicode fractions rounded to the nearest ⅛ (e.g. 1.75 → "1 ¾", 0.333 → "⅓").
+- `scaleIngredient(ingredient, factor)`: applies scaling. Headers stay verbatim. Non-scalable or amount-less lines return `raw ?? text`. Scalable lines produce `"{scaled amount} {unit} {name}"` with range support.
+
+**Mobile — RecipeDetailScreen:**
+
+- **Servings control**: `TextInput` (free-type, 0.25–99 bounds) with +/− stepper buttons and a "Reset" link. Gated on `baseline != null` — only appears for recipes that have a saved `baselineServings`.
+- **Scaled ingredients**: `scaleIngredient()` renders each ingredient with the current `scaleFactor` (computed as `displayServings / baseline`). Display servings are ephemeral (reset to baseline on recipe open).
+- `useMemo` hooks for `displayServings` and `scaleFactor` are called unconditionally at the top level (before conditional returns) to avoid React Rules of Hooks violations.
+- `refreshRecipe` callback syncs `displayServingsText` with the latest baseline when returning from the edit screen.
+
+**Mobile — RecipeEditScreen:**
+
+- "Servings" `TextInput` field between Title and Description, initialized from `recipe.baselineServings`. On save, `baselineServings` is parsed and included in the `api.recipes.update()` payload.
+
+**Mobile — API client (`api.ts`):**
+
+- `api.recipes.update` body type includes `baselineServings?: number | null`.
+
+**Tests:**
+
+- `validation.engine.test.ts`: `makeCandidate` helper includes `servings: 4` and structured ingredient fields. Header ingredient test includes full structured shape.
+- `integration.test.ts`: `cleanCandidate` includes `servings: 4` and structured ingredient fields.
+
+**Bug fixes during implementation:**
+
+- **DB migration not applied**: the 0007 migration SQL was written but never executed against the database. Applied manually via a node script (columns didn't exist, so servings could never persist).
+- **`save()` return mapping**: Drizzle `numeric` columns return strings; `save()` now converts `baselineServings` to `number` before returning.
+- **React Rules of Hooks**: `useMemo` hooks in `RecipeDetailScreen` were after conditional early returns, causing 4 errors on recipe open. Moved to top level.
+- **Validation state desync**: `handleEdit` in `ImportFlowScreen` wasn't passing the server's `validationResult` to the XState `EDIT_CANDIDATE` event, so the client's save button could stay enabled with stale validation. Fixed by threading `validationResult` through the event and adding `candidateSyncPending` to disable save while the PATCH is in flight.
+- **`parseYieldToServings` too restrictive**: rejected "6 people", "4 portions", "Makes 8". Widened to accept common person-yield keywords and default to person-based for unknown qualifiers (only explicitly non-person yields like "1 loaf" are rejected).
+- **DOM boundary missing serving info**: recipe metadata (e.g. "Serves 6 people") often lives in a separate element outside the main recipe body. Added secondary scan for `[class*="recipe-info"]` etc. and prepend to extracted text.
+- **TypeScript errors**: fixed `drafts.routes.ts` image update spread (baselineServings type mismatch), and test fixtures missing structured fields.
+
+---
+
+### 2026-03-30 — Import Hub: retake photo finishes cleanly (camera dismisses)
+
+When a queued import needed a **retake** and the user opened the flow from **Import Hub**, tapping **Done** after capturing a new photo incorrectly called the **new-import enqueue** path. That started a **second** queue entry while the XState machine stayed on **capture**, so the **camera UI stayed full-screen** and the experience felt like the import “restarted.”
+
+**Mobile (`ImportFlowScreen.tsx`):**
+
+- If **`draftId`** and **`retakePageId`** are set (retake from **`retakeRequired`**), **Done** / reorder **Confirm** now **`POST`** the image via **`api.drafts.retakePage`**, then trigger parse like other image flows.
+- **From hub:** the **same** queue row moves to **`parsing`** immediately (thumbnail updated, **`preReviewStatus`** cleared), then **`navigation.goBack()`** when possible (else **`navigate("ImportHub")`**).
+- **Not from hub:** **`send({ type: "RETAKE_SUBMITTED", imageUri })`** so the machine enters **`parsing`** and the existing **`parseDraft`** actor runs.
+
+**Mobile (`machine.ts`):**
+
+- **`RETAKE_PAGE`** now includes **`pageId`** and assigns **`context.retakePageId`** (wired from **`RetakeRequiredView`** per page).
+- **`resumeDraft`** **`pages`** typing: **`ServerDraftPageRow`** + casts so **`tsc`** accepts **`serverPagesToCaptured`**.
+
+---
+
+### 2026-03-30 — Collection folder rename & delete
+
+Users can **rename** folders (collections) and **delete** them. Renaming updates the stored `collections.name` and, on the client, the Lucide folder icon/color via existing keyword rules in **`collectionIconRules.ts`** (no icon field in the DB). Deleting a folder removes the `collections` row; **`recipe_collections`** join rows cascade-delete, so **recipes are not deleted**—they become uncategorized and appear again on the home grid (home lists only recipes with **no** collection assignment when not searching).
+
+**API (`server/src/api/collections.routes.ts`):**
+
+- **`PATCH /collections/:id`** — body `{ name: string }` (trimmed, required). Returns updated `{ id, name }`. **400** if name empty; **404** if collection missing.
+- **`DELETE /collections/:id`** — unchanged behavior; responds **204** with **no JSON body**.
+
+**Server (`server/src/persistence/collections.repository.ts`):**
+
+- New **`update(id, name)`** — sets `name` and `updatedAt`.
+
+**Server (`server/src/api/recipes.routes.ts`):**
+
+- **`PATCH /recipes/:id/collection`** — before inserting into `recipe_collections`, verifies the collection exists via **`collectionsRepository.findById`**; **404** `{ error: "Collection not found" }` if the client targets a deleted folder (avoids opaque FK/500 errors).
+
+**Mobile API (`mobile/src/services/api.ts`):**
+
+- **`collections.update(id, name)`** — `PATCH` with JSON body.
+- **`collections.delete`** — uses raw **`fetch`** and does **not** call **`response.json()`** on success (204 empty body). Shared **`request()`** parses errors using **`message`** or **`error`** from JSON for clearer **`ApiError`** text (Fastify route-not-found uses **`message`**).
+
+**Mobile store (`mobile/src/stores/collections.store.ts`):**
+
+- **`updateCollection`**, **`deleteCollection`**. After delete, calls **`useRecipesStore.getState().fetchRecipes()`** so home reflects uncategorized recipes. **`updateCollection`** guards against a null JSON body.
+
+**Mobile UI:**
+
+- **`CreateCollectionSheet`** — props **`mode: "create" | "rename"`**, **`initialName`**, **`onSubmit`**. Live icon preview when the name is non-empty. Rename errors: if **404** looks like an unregistered route (`Route PATCH:…`), alert explains **restart the dev API** or deploy the latest server.
+- **`RecipeQuickActionsSheet`** — optional **`emphasisLabel`** for the accent line (folder name vs recipe title).
+- **`DeleteCollectionConfirmSheet`** (same module as recipe quick-actions) — bottom-sheet confirm matching existing destructive styling; explains recipes move to home, not deleted.
+- **`HomeScreen`** — **long-press** ( **`delayLongPress={400}`** ) on non-virtual folder chips → rename / delete; create flow uses **`mode="create"`**.
+- **`CollectionScreen`** — **`MoreHorizontal`** header menu when **`!isAllRecipes`**; same rename/delete sheets; **`getRecipes`** **404** → alert + **`goBack()`**; collection picker assign/remove handles **404** with refetch + alert.
+- **`RecipeEditScreen`** — **`useFocusEffect`** → **`fetchCollections()`** so folder chip labels stay fresh after renames elsewhere.
+
+**Handoff notes for the next developer/AI:**
+
+- **No new DB migration** — `collections` already had `name` and `updated_at`.
+- **Restart the API** after pulling this work (`npm run dev:phone` or server workspace). A stale Node process returns Fastify **404** `Route PATCH:/collections/:id not found` — easy to mistake for an app bug.
+- **Release builds** use **`https://api.recipejar.app`**; folder rename/delete requires that host to ship the same routes.
+- Virtual **"All Recipes"** (`isAllRecipes` / `__all__`) has **no** folder menu or long-press folder actions.
+
+---
+
+### 2026-03-30 — Concurrent import queue (batch image imports)
+
+Major feature: users can now import up to **3 image-based recipes concurrently**. After capturing or selecting a photo, the app immediately begins background parsing and offers "Import Another" so the user can queue additional imports while earlier ones parse. A dedicated **Import Hub** screen shows all queued imports and their statuses, and an app-wide **floating banner** indicates pending imports from any screen.
+
+**Architecture — server-side background parsing:**
+
+- `POST /drafts/:id/parse` now returns **`202 Accepted`** immediately for image imports, running the actual OpenAI Vision call in a **detached async function** (`runParseInBackground`). URL imports with browser-captured HTML still return results synchronously.
+- **Parse concurrency semaphore** (`server/src/parsing/parse-semaphore.ts`): limits concurrent OpenAI Vision API calls to **2** to prevent rate-limit and resource exhaustion. Queued parse requests wait in a FIFO queue and are released in a `finally` block.
+- **Idempotency guard** on `/parse`: rejects requests unless draft status is `READY_FOR_PARSE`, `CAPTURE_IN_PROGRESS`, or `NEEDS_RETAKE` (for retake re-parsing). Prevents duplicate parse triggers from race conditions or client retries.
+- **Race-safe parse completion**: `setParsedCandidate()` uses a conditional `WHERE status = 'PARSING'` clause so a parse that finishes after the user cancelled the draft does not overwrite the `CANCELLED` status.
+- **Save idempotency**: `POST /drafts/:id/save` rejects with `409` if the draft is already `SAVED`, preventing duplicate recipe creation on client retry.
+- **Startup cleanup** (`server/src/app.ts`): on server boot, resets any zombie `PARSING` drafts (stuck from a previous crash) back to `READY_FOR_PARSE`, and deletes `CANCELLED` drafts older than 24 hours (with Supabase image cleanup).
+
+**Database:**
+
+- Migration **`0006_outgoing_beast.sql`**: adds nullable `parse_error_message` text column to `drafts`.
+- **New draft statuses** in shared types: `PARSE_FAILED` and `CANCELLED` added to `DraftStatus` union.
+- Postgres connection pool increased to `max: 20` (`server/src/persistence/db.ts`) to handle concurrent background parses.
+
+**Server — new/modified endpoints:**
+
+- `POST /drafts/:id/parse` — returns `202 Accepted` with `{ status: "PARSING" }` for image drafts; background work updates DB on completion or failure.
+- `POST /drafts/:id/cancel` — sets draft status to `CANCELLED` and deletes associated Supabase Storage images. Used by the client to discard queued imports.
+- `GET /drafts/:id` — pages now include `resolvedImageUrl` (full Supabase public URL) so the client can display page thumbnails when resuming drafts.
+
+**Server — repository changes (`drafts.repository.ts`):**
+
+- `setParsedCandidate()` accepts final `status` as a parameter and uses a conditional WHERE guard.
+- New `setParseError()`: stores error message and sets status to `PARSE_FAILED`.
+- New `resetStuckParsingDrafts()`: finds drafts stuck in `PARSING` for >10 minutes and resets them.
+- New `deleteOldCancelledDrafts()`: removes `CANCELLED` drafts older than 24 hours.
+
+**Server — resilience:**
+
+- `OpenAI` client instantiated as a **module-scoped singleton** with `maxRetries: 2` for transient API errors (`image-parse.adapter.ts`).
+- New event types in `event-logger.ts`: `parse_rejected_idempotent`, `parse_failed`, `draft_cancelled`, `startup_stuck_drafts_reset`, `startup_cancelled_drafts_cleaned`.
+
+**Mobile — import queue store (`mobile/src/stores/importQueue.store.ts`):**
+
+- New **Zustand** store with **`AsyncStorage` persistence** for managing concurrent import entries.
+- `QueueEntry` interface: `localId` (client-generated UUID — stable key before `draftId` exists), nullable `draftId`, `status` (`uploading`, `parsing`, `parsed`, `needs_retake`, `parse_failed`, `reviewing`, `saving`), `thumbnailUri`, optional `title`, `addedAt` timestamp, optional `error`, `preReviewStatus`.
+- Store methods: `addEntry`, `updateEntry`, `removeEntry`, `setReviewing`, `clearReviewing`, `canImportMore` (enforces 3-recipe limit).
+- `reconcileQueue()` runs on rehydrate: polls each entry's server-side status, removes orphans, resets stale `reviewing` status.
+
+**Mobile — queue poller (`mobile/src/features/import/importQueuePoller.ts`):**
+
+- `useImportQueuePoller` hook: polls `GET /drafts/:id` for all `parsing`/`uploading` entries.
+- **Exponential backoff**: 3s → 5s → 10s intervals.
+- **AppState-aware**: pauses polling when the app is backgrounded, resumes on foreground.
+
+**Mobile — enqueue function (`mobile/src/features/import/enqueueImport.ts`):**
+
+- `enqueueImport()`: creates a local queue entry, calls `api.drafts.create()` + `api.drafts.addPage()` with **retry logic** (up to 2 attempts), triggers `api.drafts.parse()`.
+- On final upload failure: calls `api.drafts.cancel()` to clean up server-side orphaned drafts and removes the local queue entry.
+
+**Mobile — Import Hub (`mobile/src/screens/ImportHubScreen.tsx`):**
+
+- New screen accessible via the floating banner or "Review Recipes" button.
+- Displays `QueueCard` components for each queue entry with status-appropriate UI: shimmer for parsing, title + "Ready for review" for parsed, "Photo needs retake" for retake, "Couldn't read this photo" with Cancel for failed, muted state for reviewing/saving.
+- "Import Another" button (shown when under the 3-recipe limit) navigates to Home with FAB auto-opened.
+- Close button (X) in the header to navigate back to Home.
+- Completion state: animated checkmark when the queue is empty, auto-navigates to Home after 3 seconds.
+- Cancel entry: confirmation alert → `api.drafts.cancel()` + remove from queue.
+- Review/retake: uses `navigation.push` (not `navigate`) to ensure a fresh `ImportFlowScreen` instance, preventing stale state.
+
+**Mobile — Pending Imports Banner (`mobile/src/components/PendingImportsBanner.tsx`):**
+
+- App-wide floating pill positioned at the **top-right** of the screen, aligned with the header subtitle.
+- Shows on all screens **except** `ImportFlow`, `ImportHub`, and `WebRecipeImport`.
+- Displays context-aware labels: "Parsing...", "1 ready", "2 ready", etc.
+- **Blinking status dot**: orange while parsing, green when ready — opacity blinks between 100% and 15% for visibility.
+- Tappable — navigates to Import Hub.
+- Animated entry (spring slide-in from top).
+- Uses `hitSlop` for easy tapping despite compact size.
+
+**Mobile — ParsingView enhancements (`mobile/src/features/import/ParsingView.tsx`):**
+
+- Accepts `queueEntries`, `onImportAnother`, and `onReviewRecipes` props.
+- Shows queue status summaries: overlapping thumbnails and count text.
+- "Import Another" button (if under limit) and "Review Recipes" button appear with a **2.5-second delayed fade-in** animation.
+
+**Mobile — HomeScreen FAB changes:**
+
+- Auto-opens the jar FAB when navigated to with `openFab: true` (from "Import Another" flows).
+- Checks `canImportMore()` before launching new camera/photo imports; if at the 3-recipe limit, navigates directly to Import Hub.
+
+**Mobile — ImportFlowScreen changes:**
+
+- **Concurrent flow path**: all camera/photo library imports now call `enqueueImport()` and display the queue-aware `ParsingView` instead of using the XState machine's upload/parse states.
+- XState machine is used only for **URL imports** and **hub resume** (review/retake from Import Hub).
+- `fromHub` parameter: when true, skips `SavedView` after save and navigates directly back to Import Hub; cancel navigates to Import Hub instead of Home; error alerts navigate to Import Hub.
+- Hub review rendering: concurrent flow `ParsingView` is explicitly suppressed when `fromHub` is true, allowing the XState-driven `PreviewEditView` to render.
+
+**Mobile — PreviewEditView:**
+
+- New `otherReadyCount` prop: displays a subtle, non-interactive "X more recipes ready" indicator between the hero image and the cancel button when reviewing from the hub.
+
+**Mobile — XState machine changes (`machine.ts`):**
+
+- `PARSE_FAILED` and `CANCELLED` added to `STATUS_TO_STATE` mappings (both → `idle`).
+- `parseDraft` actor handles the server's `202 Accepted` response: enters a **polling loop**, calling `GET /drafts/:id` every 3 seconds until a terminal status is reached. Throws on `PARSE_FAILED` or `CANCELLED`.
+- `CapturedPage` interface: added optional `retakeCount` field.
+- **All three resume transition handlers** (`capture`, `previewEdit`, `retakeRequired`) now populate `capturedPages` from the server response pages — including `resolvedImageUrl` for display and `retakeCount`. This fixes: (a) retake screen showing no buttons when resumed from hub, (b) missing hero image in preview when resumed from hub.
+
+**Mobile — navigation:**
+
+- `ImportHub: undefined` added to `RootStackParamList`.
+- `Home` params: optional `openFab?: boolean`.
+- `ImportFlow` params: optional `fromHub?: boolean`.
+- `navigationRef` created via `createNavigationContainerRef` in `App.tsx`, passed to `NavigationContainer` and `PendingImportsBanner`.
+
+**Mobile — App.tsx:**
+
+- Wrapped app tree in `SafeAreaProvider` (required for `PendingImportsBanner` which uses `useSafeAreaInsets` outside the navigator).
+- Registered `ImportHubScreen` as a `fullScreenModal` screen.
+- Mounted `PendingImportsBanner` and `useImportQueuePoller` (via `AppPoller` component) at the root level.
+
+**Mobile — API client (`api.ts`):**
+
+- `parse()` return type updated: `candidate` and `validationResult` are now optional (to handle `202` responses).
+- New `cancel(draftId)` method: `POST /drafts/:id/cancel`.
+
+**Dependencies:**
+
+- `@react-native-async-storage/async-storage` added for queue persistence (pods installed, native build updated).
+
+**Bug fixes during implementation:**
+
+- `SafeAreaProvider` wrapping: `PendingImportsBanner` called `useSafeAreaInsets` outside the provider context, crashing the app on load.
+- `navigation.push` vs `navigate` for hub reviews: reusing the same `ImportFlowScreen` instance retained stale `isConcurrentFlow` state, causing hub reviews to show `ParsingView` instead of `PreviewEditView`.
+- Populated `capturedPages` on XState resume: without server page data, the retake screen had no pages to display (empty FlatList, no retake buttons), and the hero image in preview was null.
+- Draft page `resolvedImageUrl`: server `GET /drafts/:id` now resolves Supabase public URLs for each page so resumed drafts can display page thumbnails.
+
 ### 2026-03-30 — Recipe hero images, Supabase services refactor, mobile UI polish
 
 **Database**

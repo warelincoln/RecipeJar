@@ -3,6 +3,12 @@ export interface RecipeIngredientEntry {
   text: string;
   orderIndex: number;
   isHeader: boolean;
+  amount: number | null;
+  amountMax: number | null;
+  unit: string | null;
+  name: string | null;
+  raw: string | null;
+  isScalable: boolean;
 }
 
 export interface RecipeStepEntry {
@@ -45,6 +51,7 @@ export interface Recipe {
   description?: string | null;
   imageUrl?: string | null;
   thumbnailUrl?: string | null;
+  baselineServings: number | null;
 
   rating: number | null;
   notes: RecipeNote[];

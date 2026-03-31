@@ -1,5 +1,5 @@
 export type RootStackParamList = {
-  Home: undefined;
+  Home: { openFab?: boolean } | undefined;
   RecipeDetail: { recipeId: string };
   RecipeEdit: { recipeId: string };
   Collection: {
@@ -22,6 +22,8 @@ export type RootStackParamList = {
     photoUri?: string;
     photoMimeType?: string;
     photoFileName?: string;
+    fromHub?: boolean;
   };
   WebRecipeImport: { initialUrl?: string };
+  ImportHub: undefined;
 };

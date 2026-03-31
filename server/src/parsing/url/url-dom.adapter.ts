@@ -35,14 +35,49 @@ export function extractDomBoundary(html: string): string | null {
   ];
 
   let richest = "";
+  let recipeMetaSnippet = "";
+
+  const SERVING_COUNT_RE = /serves?\s*:?\s*\d/i;
+
   for (const selector of recipeSelectors) {
     const matches = $(selector);
     matches.each((_, el) => {
       const text = extractStructuredText($, $(el));
-      if (text.length > richest.length) richest = text;
+      if (text.length > richest.length) {
+        richest = text;
+      } else if (
+        !recipeMetaSnippet &&
+        text.length < 200 &&
+        SERVING_COUNT_RE.test(text)
+      ) {
+        recipeMetaSnippet = text;
+      }
     });
   }
   if (richest.length > 100) {
+    if (!recipeMetaSnippet && !SERVING_COUNT_RE.test(richest)) {
+      const metaSelectors = [
+        '[class*="recipe-info"]',
+        '[class*="recipe-meta"]',
+        '[class*="recipe-detail"]',
+        '[class*="recipe-header"]',
+        '[class*="recipe-yield"]',
+        '[class*="recipe-serving"]',
+      ];
+      for (const sel of metaSelectors) {
+        if (recipeMetaSnippet) break;
+        $(sel).each((_, el) => {
+          if (recipeMetaSnippet) return;
+          const text = extractStructuredText($, $(el));
+          if (text.length < 200 && SERVING_COUNT_RE.test(text)) {
+            recipeMetaSnippet = text;
+          }
+        });
+      }
+    }
+    if (recipeMetaSnippet && !SERVING_COUNT_RE.test(richest)) {
+      richest = recipeMetaSnippet + "\n\n" + richest;
+    }
     return cleanText(richest);
   }
 
