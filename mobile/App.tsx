@@ -30,6 +30,7 @@ import { SignUpScreen } from "./src/screens/SignUpScreen";
 import { ForgotPasswordScreen } from "./src/screens/ForgotPasswordScreen";
 import { EmailConfirmationScreen } from "./src/screens/EmailConfirmationScreen";
 import { ResetPasswordScreen } from "./src/screens/ResetPasswordScreen";
+import { MfaChallengeScreen } from "./src/screens/MfaChallengeScreen";
 import { PendingImportsBanner } from "./src/components/PendingImportsBanner";
 import { useImportQueuePoller } from "./src/features/import/importQueuePoller";
 import { useAuthStore } from "./src/stores/auth.store";
@@ -109,7 +110,7 @@ function AppStackScreens() {
 }
 
 export default function App() {
-  const { isLoading, isAuthenticated, pendingPasswordReset, initialize } =
+  const { isLoading, isAuthenticated, pendingPasswordReset, needsMfaVerify, initialize } =
     useAuthStore();
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [checkingOnboarding, setCheckingOnboarding] = React.useState(true);
@@ -166,6 +167,8 @@ export default function App() {
         <NavigationContainer ref={navigationRef}>
           {!isAuthenticated ? (
             <AuthStackScreens showOnboarding={showOnboarding} />
+          ) : needsMfaVerify ? (
+            <MfaChallengeScreen />
           ) : pendingPasswordReset ? (
             <ResetPasswordScreen />
           ) : (

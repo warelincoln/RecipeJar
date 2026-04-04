@@ -305,6 +305,43 @@ export const api = {
     },
   },
 
+  account: {
+    deleteAccount() {
+      return request<{ success: boolean; message: string }>("/account", {
+        method: "DELETE",
+      });
+    },
+
+    generateRecoveryCodes() {
+      return request<{ codes: string[] }>("/account/recovery-codes", {
+        method: "POST",
+      });
+    },
+
+    verifyRecoveryCode(code: string) {
+      return request<{ success: boolean }>("/account/verify-recovery-code", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+    },
+
+    getRemainingRecoveryCodes() {
+      return request<{ remaining: number }>("/account/recovery-codes/remaining");
+    },
+
+    getSessions() {
+      return request<{
+        sessions: {
+          id: string;
+          deviceInfo: string | null;
+          ipAddress: string | null;
+          lastSeenAt: string;
+          createdAt: string;
+        }[];
+      }>("/account/sessions");
+    },
+  },
+
   collections: {
     create(name: string) {
       return request<{ id: string; name: string }>("/collections", {

@@ -1,16 +1,29 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
 import { registerAuth } from "./middleware/auth.js";
 import { draftsRoutes } from "./api/drafts.routes.js";
 import { recipesRoutes } from "./api/recipes.routes.js";
 import { collectionsRoutes } from "./api/collections.routes.js";
+import { accountRoutes } from "./api/account.routes.js";
 import { draftsRepository } from "./persistence/drafts.repository.js";
 import { logEvent } from "./observability/event-logger.js";
 
 const app = Fastify({
-  logger: true,
+  logger: {
+    serializers: {
+      req(request) {
+        return {
+          method: request.method,
+          url: request.url,
+          hostname: request.hostname,
+          remoteAddress: request.ip,
+        };
+      },
+    },
+  },
   bodyLimit: URL_IMPORT_HTML_MAX_BYTES + 64 * 1024,
 });
 
@@ -30,10 +43,21 @@ app.addContentTypeParser(
 
 registerAuth(app);
 
+app.register(rateLimit, {
+  max: 100,
+  timeWindow: "1 minute",
+  keyGenerator: (request) => request.userId || request.ip,
+  allowList: (request) => request.url.split("?")[0] === "/health",
+  onExceeded: (request) => {
+    logEvent("rate_limit_exceeded", { userId: request.userId });
+  },
+});
+
 app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } });
 app.register(draftsRoutes);
 app.register(recipesRoutes);
 app.register(collectionsRoutes);
+app.register(accountRoutes);
 
 app.get("/health", async () => ({ status: "ok" }));
 

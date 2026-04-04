@@ -10,8 +10,11 @@ vi.mock("@supabase/supabase-js", () => ({
         getPublicUrl: vi.fn((path: string) => ({
           data: { publicUrl: `http://test.supabase.co/${path}` },
         })),
+        createSignedUrl: vi.fn((path: string) =>
+          Promise.resolve({ data: { signedUrl: `http://test.supabase.co/signed/${path}` }, error: null }),
+        ),
       })),
-      getBucket: vi.fn().mockResolvedValue({ data: { name: "recipe-images", public: true }, error: null }),
+      getBucket: vi.fn().mockResolvedValue({ data: { name: "recipe-images", public: false }, error: null }),
       createBucket: vi.fn().mockResolvedValue({ data: {}, error: null }),
       updateBucket: vi.fn().mockResolvedValue({ data: {}, error: null }),
     },

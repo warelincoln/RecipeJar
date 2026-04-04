@@ -6,12 +6,16 @@ export const RECIPE_PAGES_BUCKET = "recipe-pages";
 const REMOTE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 let _imagesBucketReady = false;
 
-function heroPathFor(recipeId: string): string {
-  return `${recipeId}/hero.jpg`;
+function heroPathFor(userId: string, recipeId: string): string {
+  return `${userId}/recipes/${recipeId}/hero.jpg`;
 }
 
-function thumbnailPathFor(recipeId: string): string {
-  return `${recipeId}/thumb.jpg`;
+function thumbnailPathFor(userId: string, recipeId: string): string {
+  return `${userId}/recipes/${recipeId}/thumb.jpg`;
+}
+
+export function draftPagePathFor(userId: string, draftId: string, pageId: string): string {
+  return `${userId}/drafts/${draftId}/${pageId}.jpg`;
 }
 
 function isImageContentType(contentType: string | null): boolean {
@@ -37,7 +41,7 @@ async function ensureRecipeImagesBucket(): Promise<void> {
     const { error: createErr } = await supabase.storage.createBucket(
       RECIPE_IMAGES_BUCKET,
       {
-        public: true,
+        public: false,
       },
     );
     if (createErr) {
@@ -47,47 +51,52 @@ async function ensureRecipeImagesBucket(): Promise<void> {
     return;
   }
 
-  if (!bucket.public) {
-    await supabase.storage.updateBucket(RECIPE_IMAGES_BUCKET, { public: true });
+  if (bucket.public) {
+    await supabase.storage.updateBucket(RECIPE_IMAGES_BUCKET, { public: false });
   }
   _imagesBucketReady = true;
 }
 
-export function resolveImageUrls(imageUrl: string | null) {
+const SIGNED_URL_TTL_SECONDS = 3600;
+
+export async function resolveImageUrls(imageUrl: string | null) {
   if (!imageUrl) {
     return { imageUrl: null, thumbnailUrl: null };
   }
 
-  const recipeId = imageUrl.split("/")[0];
-  const heroPath = heroPathFor(recipeId);
-  const thumbPath = thumbnailPathFor(recipeId);
+  const heroPath = imageUrl;
+  const thumbPath = imageUrl.replace(/\/hero\.jpg$/, "/thumb.jpg");
   const supabase = getSupabase();
-  const { data: heroData } = supabase.storage
-    .from(RECIPE_IMAGES_BUCKET)
-    .getPublicUrl(heroPath);
-  const { data: thumbData } = supabase.storage
-    .from(RECIPE_IMAGES_BUCKET)
-    .getPublicUrl(thumbPath);
+
+  const [heroResult, thumbResult] = await Promise.all([
+    supabase.storage
+      .from(RECIPE_IMAGES_BUCKET)
+      .createSignedUrl(heroPath, SIGNED_URL_TTL_SECONDS),
+    supabase.storage
+      .from(RECIPE_IMAGES_BUCKET)
+      .createSignedUrl(thumbPath, SIGNED_URL_TTL_SECONDS),
+  ]);
 
   return {
-    imageUrl: heroData.publicUrl,
-    thumbnailUrl: thumbData.publicUrl,
+    imageUrl: heroResult.data?.signedUrl ?? null,
+    thumbnailUrl: thumbResult.data?.signedUrl ?? null,
   };
 }
 
-export async function deleteRecipeImage(recipeId: string): Promise<void> {
+export async function deleteRecipeImage(userId: string, recipeId: string): Promise<void> {
   await ensureRecipeImagesBucket();
-  const paths = [heroPathFor(recipeId), thumbnailPathFor(recipeId)];
+  const paths = [heroPathFor(userId, recipeId), thumbnailPathFor(userId, recipeId)];
   await getSupabase().storage.from(RECIPE_IMAGES_BUCKET).remove(paths);
 }
 
 export async function uploadRecipeImage(
+  userId: string,
   recipeId: string,
   imageBuffer: Buffer,
 ): Promise<string | null> {
   await ensureRecipeImagesBucket();
-  const heroPath = heroPathFor(recipeId);
-  const thumbPath = thumbnailPathFor(recipeId);
+  const heroPath = heroPathFor(userId, recipeId);
+  const thumbPath = thumbnailPathFor(userId, recipeId);
   const heroBuffer = await optimizeForHero(imageBuffer);
   const thumbBuffer = await optimizeForThumbnail(imageBuffer);
 
@@ -115,6 +124,7 @@ export async function uploadRecipeImage(
 }
 
 export async function downloadAndStoreFromUrl(
+  userId: string,
   recipeId: string,
   imageUrl: string,
 ): Promise<string | null> {
@@ -134,13 +144,14 @@ export async function downloadAndStoreFromUrl(
     const arrayBuffer = await response.arrayBuffer();
     if (arrayBuffer.byteLength > REMOTE_IMAGE_MAX_BYTES) return null;
 
-    return uploadRecipeImage(recipeId, Buffer.from(arrayBuffer));
+    return uploadRecipeImage(userId, recipeId, Buffer.from(arrayBuffer));
   } catch {
     return null;
   }
 }
 
 export async function copyFromDraftPage(
+  userId: string,
   recipeId: string,
   draftPagePath: string,
 ): Promise<string | null> {
@@ -150,8 +161,21 @@ export async function copyFromDraftPage(
       .download(draftPagePath);
     if (error || !data) return null;
     const rawBuffer = Buffer.from(await data.arrayBuffer());
-    return uploadRecipeImage(recipeId, rawBuffer);
+    return uploadRecipeImage(userId, recipeId, rawBuffer);
   } catch {
     return null;
+  }
+}
+
+export async function deleteAllUserStorage(userId: string): Promise<void> {
+  const supabase = getSupabase();
+  for (const bucket of [RECIPE_IMAGES_BUCKET, RECIPE_PAGES_BUCKET]) {
+    const { data: files } = await supabase.storage
+      .from(bucket)
+      .list(userId, { limit: 10000 });
+    if (files && files.length > 0) {
+      const paths = files.map((f) => `${userId}/${f.name}`);
+      await supabase.storage.from(bucket).remove(paths);
+    }
   }
 }

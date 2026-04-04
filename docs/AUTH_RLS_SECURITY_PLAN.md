@@ -4,28 +4,28 @@ overview: "Security-first authentication foundation for RecipeJar: Supabase Auth
 todos:
   - id: supabase-providers
     content: "Configure Supabase Auth: email (password + magic link), Apple, Google; redirect URIs, secrets, Apple/Google console apps; decide optional providers (e.g. GitHub) vs attack surface"
-    status: pending
+    status: completed
   - id: schema-profiles-userid
     content: "Drizzle: profiles (id FK auth.users), subscription fields per ROADMAP; user_id on drafts/collections/recipes/notes + indexes; FK to profiles or auth.users; seed-user backfill + verified migration playbook"
-    status: pending
+    status: completed
   - id: fastify-jwt-hardening
     content: "Fastify: JWT verify (JWKS, iss/aud/exp), attach userId, forbid anonymous API access, IDOR-safe repos, rate limits on sensitive routes, structured 401/403, no PII in logs"
-    status: pending
+    status: completed
   - id: mobile-auth-session
     content: "RN: Supabase client (anon key only), auth UI (email/Apple/Google), Keychain session, Bearer + refresh handling, deep link / OAuth return URLs, sign-out clears local state"
-    status: pending
+    status: completed
   - id: postgres-rls
     content: "Enable RLS on all user data tables; policies for SELECT/INSERT/UPDATE/DELETE; document interaction with Drizzle pooler role (BYPASSRLS) and defense-in-depth rationale"
-    status: pending
+    status: completed
   - id: storage-security
     content: "User-scoped object paths; server validates path matches JWT sub before service-role upload/delete; Storage RLS if any client-side upload; lifecycle cleanup on draft cancel/delete"
-    status: pending
+    status: completed
   - id: account-lifecycle
     content: "Documented flows: email verification, password reset, provider linking rules, account deletion/export (GDPR-minded), backup-before-migration"
-    status: pending
+    status: completed
   - id: tests-threat-baseline
     content: "Vitest: 401 unauthenticated, cross-user IDOR, token expiry; optional security checklist doc for manual review (OAuth config, key rotation)"
-    status: pending
+    status: completed
 workspace_note: "Copy of the Cursor plan for sharing with reviewers or other models. Path in repo: docs/AUTH_RLS_SECURITY_PLAN.md"
 ---
 

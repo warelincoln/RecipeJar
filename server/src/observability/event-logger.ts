@@ -16,7 +16,10 @@ export type EventType =
   | "draft_cancelled"
   | "recipe_saved"
   | "startup_stuck_drafts_reset"
-  | "startup_cancelled_drafts_cleaned";
+  | "startup_cancelled_drafts_cleaned"
+  | "account_deletion_requested"
+  | "auth_middleware_failure"
+  | "rate_limit_exceeded";
 
 export interface EventAttributes {
   draftId?: string;

@@ -24,6 +24,7 @@ import { getSupabase } from "../services/supabase.js";
 import {
   copyFromDraftPage,
   downloadAndStoreFromUrl,
+  draftPagePathFor,
   RECIPE_PAGES_BUCKET,
   resolveImageUrls,
 } from "../services/recipe-image.service.js";
@@ -125,22 +126,14 @@ async function runParseInBackground(
     } else {
       const imageDataUrls = await Promise.all(
         pages.map(async (page) => {
-          try {
-            const { data, error } = await getSupabase().storage
-              .from(RECIPE_PAGES_BUCKET)
-              .download(page.imageUri);
-            if (error || !data) throw new Error(error?.message ?? "Download returned no data");
-            const rawBuffer = Buffer.from(await data.arrayBuffer());
-            const optimized = await optimizeForOcr(rawBuffer);
-            const b64 = optimized.toString("base64");
-            return `data:image/jpeg;base64,${b64}`;
-          } catch (err) {
-            console.warn(`[parse] OCR optimization failed for ${page.imageUri}, falling back to public URL:`, err);
-            const { data: urlData } = getSupabase().storage
-              .from(RECIPE_PAGES_BUCKET)
-              .getPublicUrl(page.imageUri);
-            return urlData.publicUrl;
-          }
+          const { data, error } = await getSupabase().storage
+            .from(RECIPE_PAGES_BUCKET)
+            .download(page.imageUri);
+          if (error || !data) throw new Error(error?.message ?? "Download returned no data");
+          const rawBuffer = Buffer.from(await data.arrayBuffer());
+          const optimized = await optimizeForOcr(rawBuffer);
+          const b64 = optimized.toString("base64");
+          return `data:image/jpeg;base64,${b64}`;
         }),
       );
       candidate = await parseImages(imageDataUrls, sourcePages);
@@ -207,13 +200,29 @@ async function runParseInBackground(
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
-  app.post("/drafts", async (request, reply) => {
+  app.post("/drafts", {
+    config: {
+      rateLimit: {
+        max: 30,
+        timeWindow: "1 hour",
+        keyGenerator: (request: any) => request.userId || request.ip,
+      },
+    },
+  }, async (request, reply) => {
     const draft = await draftsRepository.create({ userId: request.userId, sourceType: "image" });
     logEvent("draft_created", { draftId: draft.id, sourceType: "image" });
     return reply.status(201).send(draft);
   });
 
-  app.post("/drafts/url", async (request, reply) => {
+  app.post("/drafts/url", {
+    config: {
+      rateLimit: {
+        max: 30,
+        timeWindow: "1 hour",
+        keyGenerator: (request: any) => request.userId || request.ip,
+      },
+    },
+  }, async (request, reply) => {
     const { url } = request.body as { url: string };
     if (!url) {
       return reply.status(400).send({ error: "url is required" });
@@ -244,7 +253,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       const existingPages = await draftsRepository.getPages(draftId);
       const orderIndex = existingPages.length;
       const pageId = uuidv4();
-      const storagePath = `${draftId}/${pageId}.jpg`;
+      const storagePath = draftPagePathFor(request.userId, draftId, pageId);
 
       const rawBuffer = await file.toBuffer();
       const buffer = await optimizeForUpload(rawBuffer);
@@ -298,7 +307,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Image file is required" });
       }
 
-      const storagePath = `${draftId}/${pageId}.jpg`;
+      const storagePath = draftPagePathFor(request.userId, draftId, pageId);
       const rawBuffer = await file.toBuffer();
       const buffer = await optimizeForUpload(rawBuffer);
 
@@ -319,6 +328,15 @@ export async function draftsRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { draftId: string } }>(
     "/drafts/:draftId/parse",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 hour",
+          keyGenerator: (request: any) => request.userId || request.ip,
+        },
+      },
+    },
     async (request, reply) => {
       const { draftId } = request.params;
       const parseBody = (request.body ?? {}) as {
@@ -492,12 +510,14 @@ export async function draftsRoutes(app: FastifyInstance) {
       const warningStates = await draftsRepository.getWarningStates(draftId);
 
       const supabase = getSupabase();
-      const pagesWithUrls = pages.map((p) => {
-        const { data } = supabase.storage
-          .from(RECIPE_PAGES_BUCKET)
-          .getPublicUrl(p.imageUri);
-        return { ...p, resolvedImageUrl: data.publicUrl };
-      });
+      const pagesWithUrls = await Promise.all(
+        pages.map(async (p) => {
+          const { data } = await supabase.storage
+            .from(RECIPE_PAGES_BUCKET)
+            .createSignedUrl(p.imageUri, 3600);
+          return { ...p, resolvedImageUrl: data?.signedUrl ?? null };
+        }),
+      );
 
       return reply.send(draftRowToClientBody(draft, pagesWithUrls, warningStates));
     },
@@ -575,7 +595,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       });
       let resolvedRecipe = {
         ...recipe,
-        ...resolveImageUrls(recipe.imageUrl ?? null),
+        ...(await resolveImageUrls(recipe.imageUrl ?? null)),
       };
 
       try {
@@ -583,12 +603,12 @@ export async function draftsRoutes(app: FastifyInstance) {
         if (draft.sourceType === "url") {
           const metadataImageUrl = parsedCandidate?.metadata?.imageUrl;
           if (metadataImageUrl) {
-            imagePath = await downloadAndStoreFromUrl(recipe.id, metadataImageUrl);
+            imagePath = await downloadAndStoreFromUrl(request.userId, recipe.id, metadataImageUrl);
           }
         } else {
           const firstPage = pages.find((p) => p.orderIndex === 0);
           if (firstPage?.imageUri) {
-            imagePath = await copyFromDraftPage(recipe.id, firstPage.imageUri);
+            imagePath = await copyFromDraftPage(request.userId, recipe.id, firstPage.imageUri);
           }
         }
 
@@ -596,7 +616,7 @@ export async function draftsRoutes(app: FastifyInstance) {
           await recipesRepository.setImage(recipe.id, imagePath);
           resolvedRecipe = {
             ...resolvedRecipe,
-            ...resolveImageUrls(imagePath),
+            ...(await resolveImageUrls(imagePath)),
           };
         }
       } catch (err) {

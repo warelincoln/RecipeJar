@@ -1,5 +1,128 @@
 # RecipeJar Changelog
 
+### 2026-04-04 — WS-6/7/8: Storage security, session management, abuse controls & testing (complete)
+
+All remaining authentication work streams are now complete. The full security hardening plan (`docs/AUTH_RLS_SECURITY_PLAN.md`) — 8 work streams, 20 tasks — is finished. WS-7 was split into WS-7a (TestFlight requirements) and WS-7b (post-TestFlight hardening) during the review; both are done.
+
+**WS-6 — Storage Security (complete):**
+
+- **Private buckets:** `ensureRecipeImagesBucket()` in `recipe-image.service.ts` now creates/updates buckets with `public: false`. Both `recipe-pages` and `recipe-images` are private.
+- **Signed URLs:** `resolveImageUrls()` refactored from synchronous `getPublicUrl()` to async `createSignedUrl(path, 3600)` (60-minute TTL). All callers in `recipes.routes.ts`, `collections.routes.ts`, and `drafts.routes.ts` updated to `await`.
+- **User-scoped storage paths:** All upload paths now include a `userId` prefix: `{userId}/recipes/{recipeId}/hero.jpg`, `{userId}/drafts/{draftId}/{pageId}.jpg`. Helper functions `heroPathFor(userId, recipeId)`, `thumbnailPathFor(userId, recipeId)`, `draftPagePathFor(userId, draftId, pageId)` enforce the convention.
+- **OCR fallback removed:** Deleted `getPublicUrl` fallback in `drafts.routes.ts` parse path — if `download()` fails, the parse fails cleanly instead of constructing a URL that won't resolve on private buckets.
+- **Migration script:** `server/scripts/migrate-storage-user-scoped.ts` moves existing storage objects from flat paths to user-scoped paths, updates DB columns, and handles the seed user's 211 rows. Idempotent.
+- **`deleteAllUserStorage(userId)`:** New helper in `recipe-image.service.ts` removes all user-scoped objects from both buckets (used by account deletion hard-delete).
+
+**Production deployment (complete):**
+
+- **`server/Dockerfile`:** Multi-stage build for the Fastify API server.
+- **`docs/PRODUCTION_DEPLOY.md`:** Deployment guide for Railway, Render, and Fly.io, including environment variables, health check path, and mobile app rebuild steps.
+
+**WS-7a — TestFlight essentials (complete):**
+
+- **Account deletion (Apple requirement):**
+  - `DELETE /account` endpoint: sets `profiles.deleted_at`, bans user via Supabase Admin API (`ban_duration: '876000h'`), logs `account_deletion_requested` event. Protected by `requireRecentAuth(300)`.
+  - `server/scripts/hard-delete-accounts.ts`: cron script permanently deletes accounts soft-deleted 30+ days prior — removes storage objects, profile row (cascading to all related tables), and `auth.users` row.
+  - Mobile: "Delete Account" section on AccountScreen with double-confirmation dialog ("Delete My Account" → "I Understand, Delete"), calls API then signs out.
+- **Sign-out-all-devices:**
+  - `signOutAll()` method in `auth.store.ts` calls `supabase.auth.signOut({ scope: "global" })`, resets all stores.
+  - "Sign Out All Devices" button on AccountScreen with confirmation dialog.
+- **Email change flow:**
+  - "Change Email" link on AccountScreen expands an inline input card. Calls `supabase.auth.updateUser({ email }, { emailRedirectTo: "app.recipejar.ios://auth/callback" })`.
+  - Success feedback: form collapses, alert explains dual-confirmation required.
+- **MFA TOTP enrollment:**
+  - "Security" section on AccountScreen: "Enable Two-Factor Authentication" → calls `supabase.auth.mfa.enroll({ factorType: "totp" })`, displays QR URI, accepts 6-digit verification code. "Disable" option with confirmation.
+  - `MfaChallengeScreen.tsx`: dedicated screen for entering TOTP code during sign-in. Renders when `needsMfaVerify` is true (checked via `supabase.auth.mfa.getAuthenticatorAssuranceLevel()`).
+  - `App.tsx`: conditionally renders `MfaChallengeScreen` before the main app when MFA challenge is pending.
+  - `auth.store.ts`: added `needsMfaVerify` state, MFA factor detection in `initialize()` and `onAuthStateChange`.
+
+**WS-8 — Abuse controls & testing (complete):**
+
+- **Token scrubbing:** Fastify Pino logger serializers configured in `app.ts` to redact the `Authorization` header from request logs.
+- **API rate limiting:** `@fastify/rate-limit` installed and configured:
+  - Global default: 100 requests/min per `userId` (falls back to IP for unauthenticated routes).
+  - `POST /drafts/:draftId/parse`: 10/hour per user (expensive OpenAI Vision calls).
+  - `POST /drafts`: 30/hour per user.
+  - `POST /drafts/url`: 30/hour per user.
+  - `onExceeded` logs `rate_limit_exceeded` event.
+- **Auth event logging:** `EventType` union in `event-logger.ts` extended with `account_deletion_requested`, `auth_middleware_failure`, `rate_limit_exceeded`.
+- **Integration tests:** `server/tests/auth-security.test.ts` — 12 Vitest tests covering auth middleware (401 for missing/invalid token, 200 with correct `request.userId`, `/health` public access) and IDOR prevention (cross-user 404 for recipes, collections, drafts).
+- **Security checklist:** `docs/SECURITY_CHECKLIST.md` — comprehensive manual checklist covering Supabase dashboard settings, Apple/Google developer accounts, key rotation, human access, server hardening, storage, and data protection.
+- **Supabase dashboard items:** Documented as checklist items — review rate limits, enable CAPTCHA (hCaptcha/Turnstile), customize email templates. These are dashboard-only configurations, not code changes.
+
+**WS-7b — Post-TestFlight hardening (complete):**
+
+- **Step-up authentication:** `server/src/middleware/step-up-auth.ts` provides:
+  - `requireRecentAuth(maxAgeSeconds)`: preHandler that decodes JWT `iat` claim and returns 403 if the token is too old. Applied to account deletion (300s window).
+  - `requireAal2IfEnrolled()`: preHandler that returns 403 if the user has MFA enrolled but session is not `aal2`.
+  - Helper functions: `decodeJwtPayload()`, `getTokenIssuedAt()`, `getAuthAssuranceLevel()` for local JWT claim inspection without a remote call.
+- **MFA recovery codes:**
+  - `server/drizzle/0010_mfa_recovery_codes.sql`: migration creating `mfa_recovery_codes` table (`id`, `user_id` FK, `code_hash` SHA256, `used_at`, `created_at`) with RLS policies.
+  - `server/src/services/mfa-recovery.service.ts`: generates 10 unique recovery codes, stores SHA256 hashes, returns plaintext codes. `verifyRecoveryCode()` checks hash and marks as used. `getRemainingCodeCount()` returns unused count.
+  - API endpoints in `account.routes.ts`: `POST /account/recovery-codes` (generate, protected by `requireRecentAuth`), `POST /account/verify-recovery-code`, `GET /account/recovery-codes/remaining`.
+  - Mobile API methods: `api.account.generateRecoveryCodes()`, `api.account.verifyRecoveryCode()`, `api.account.getRemainingRecoveryCodes()`.
+- **Provider linking UI:** `LinkedRow` component on AccountScreen now shows interactive "Link" / "Unlink" buttons for Apple and Google providers. Calls `supabase.auth.linkIdentity()` / `unlinkIdentity()` with safety checks (cannot unlink last remaining provider).
+- **Session device list:**
+  - `server/drizzle/0011_user_sessions.sql`: migration creating `user_sessions` table (`id`, `user_id` FK, `device_info`, `ip_address`, `last_seen_at`, `created_at`) with RLS policy.
+  - `server/src/services/session-tracker.service.ts`: `recordSession()` (upserts by user+device, deduplicating), `listSessions()`, `cleanupStaleSessions(days)`.
+  - `auth.ts` middleware enhanced: records session (user agent + IP) after successful authentication (fire-and-forget, non-blocking).
+  - `GET /account/sessions` endpoint returns all active sessions for the user.
+  - Mobile API method: `api.account.getSessions()`.
+
+**Schema changes:**
+
+- `server/src/persistence/schema.ts`: added `mfaRecoveryCodes` and `userSessions` table definitions.
+- Migrations `0010` and `0011` bring the total to 12 database migrations (0000–0011).
+- Database now has 13 public tables (added `mfa_recovery_codes` and `user_sessions`).
+
+**New files created:**
+
+- `server/src/api/account.routes.ts` — account management endpoints (deletion, recovery codes, sessions)
+- `server/src/middleware/step-up-auth.ts` — JWT claim inspection and step-up auth helpers
+- `server/src/services/mfa-recovery.service.ts` — MFA backup code generation and verification
+- `server/src/services/session-tracker.service.ts` — user session tracking service
+- `server/scripts/migrate-storage-user-scoped.ts` — storage path migration script
+- `server/scripts/hard-delete-accounts.ts` — 30-day hard delete cron script
+- `server/tests/auth-security.test.ts` — auth middleware and IDOR integration tests
+- `server/Dockerfile` — production container build
+- `mobile/src/screens/MfaChallengeScreen.tsx` — MFA TOTP challenge screen for sign-in
+- `docs/SECURITY_CHECKLIST.md` — manual security audit checklist
+- `docs/PRODUCTION_DEPLOY.md` — cloud deployment guide
+- `server/drizzle/0010_mfa_recovery_codes.sql` — MFA recovery codes table migration
+- `server/drizzle/0011_user_sessions.sql` — user sessions table migration
+
+**Files modified:**
+
+- `server/src/services/recipe-image.service.ts` — private buckets, signed URLs, user-scoped paths, `deleteAllUserStorage`
+- `server/src/api/recipes.routes.ts` — async `resolveImageUrls`, `userId` to image service calls
+- `server/src/api/collections.routes.ts` — async `resolveImageUrls`
+- `server/src/api/drafts.routes.ts` — async signed URLs, user-scoped draft page paths, removed public URL fallback, rate limiting
+- `server/src/app.ts` — registered `accountRoutes`, `@fastify/rate-limit`, Pino header redaction
+- `server/src/middleware/auth.ts` — session recording after successful auth
+- `server/src/observability/event-logger.ts` — new auth event types
+- `server/src/persistence/schema.ts` — `mfaRecoveryCodes` and `userSessions` tables
+- `server/tests/integration.test.ts` — updated mocks for private buckets and `createSignedUrl`
+- `mobile/src/screens/AccountScreen.tsx` — email change, sign-out-all, MFA enrollment/unenrollment, account deletion, provider linking UI, security section
+- `mobile/src/stores/auth.store.ts` — `needsMfaVerify` state, `signOutAll()` method, MFA assurance level checks
+- `mobile/src/services/api.ts` — `api.account.*` methods (deleteAccount, generateRecoveryCodes, verifyRecoveryCode, getRemainingRecoveryCodes, getSessions)
+- `mobile/App.tsx` — `MfaChallengeScreen` conditional rendering
+
+**Cross-cutting items documented (not yet implemented — tracked for future work):**
+
+- **C1: Local JWT verification** — switching from `supabase.auth.getUser(token)` (remote call, ~100-200ms) to local HS256 JWT verification with `SUPABASE_JWT_SECRET`. Recommended before public launch; accepts 10-min revocation window.
+- **C2: Password policy verification** — confirm Supabase dashboard minimum matches the mobile hint (12 chars).
+- **C3: Apple client secret expiry** — ES256 JWT expires ~October 2026. Added to `docs/SECURITY_CHECKLIST.md`.
+
+---
+
+### 2026-04-04 — Fix: email change redirect URL + UX feedback
+
+- **`emailRedirectTo` added** to `supabase.auth.updateUser()` call in `AccountScreen.tsx` — now passes `"app.recipejar.ios://auth/callback"`, matching sign-up and forgot-password flows. Without this, Supabase fell back to the dashboard "Site URL" (`localhost:3000`), causing the confirmation link to land on the Fastify server and show "Authentication required."
+- **UX improvement:** form collapses before the alert appears, providing immediate visual feedback that the action succeeded. Alert text updated to explain dual-confirmation requirement.
+- **Supabase dashboard action needed:** Set "Site URL" to `app.recipejar.ios://auth/callback` and add it to the "Redirect URLs" allowlist to prevent this class of issue for any flow that doesn't explicitly pass `emailRedirectTo`.
+
+---
+
 ### 2026-04-03 — WS-4: Mobile authentication (complete)
 
 Mobile app now authenticates users end-to-end. All three auth methods (Apple, Google, email/password) are functional and tested on a physical iPhone. The app is auth-gated — unauthenticated users see onboarding → auth screens; authenticated users see the main app.
@@ -60,13 +183,11 @@ Mobile app now authenticates users end-to-end. All three auth methods (Apple, Go
 - Auth-gated navigation prevents unauthenticated API access
 - New user signup triggers Postgres `handle_new_user` trigger → profile auto-created
 
-**What remains (WS-6/7/8 — not blocking TestFlight for trusted testers):**
+**What remains (pre-TestFlight):**
 
-- WS-6: Storage bucket privacy (private buckets, signed URLs, user-scoped paths)
-- WS-7: Session lifecycle (list/revoke sessions, step-up auth, MFA flows, account deletion)
-- WS-8: Abuse controls, audit logging, integration tests
+- ~~WS-6/7/8~~ — **All complete.** See 2026-04-04 changelog entry above.
 - Email templates: Supabase sends unbranded confirmation/reset emails; customize in dashboard > Authentication > Email Templates
-- Production deployment: Fastify server needs cloud hosting before TestFlight (currently localhost only)
+- Production deployment: Fastify server needs cloud hosting before TestFlight (Dockerfile and guide ready in `docs/PRODUCTION_DEPLOY.md`)
 
 ---
 
@@ -139,12 +260,7 @@ Server-side auth is now **live**. Every API endpoint (except `/health`) requires
 - `mobile/ios/RecipeJar.xcodeproj/project.pbxproj` — bundle ID `app.recipejar.ios`
 - `mobile/run.sh` — bundle ID + `-allowProvisioningUpdates`
 
-**What remains for full auth (WS-4 through WS-8):**
-
-- WS-4: Mobile Supabase client, auth screens, Keychain session, Bearer header in `api.ts`, OAuth deep links
-- WS-6: Storage bucket privacy (private buckets, signed URLs, user-scoped paths)
-- WS-7: Session lifecycle (list/revoke sessions, step-up auth, MFA flows, account deletion)
-- WS-8: Abuse controls, audit logging, integration tests
+**What remains for full auth:** ~~WS-4 through WS-8~~ — **All complete.** See 2026-04-04 and 2026-04-03 (WS-4) changelog entries above.
 
 See `docs/AUTH_RLS_SECURITY_PLAN.md` and the ROADMAP Phase 0.1 for the complete plan.
 

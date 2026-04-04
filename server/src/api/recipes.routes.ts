@@ -11,17 +11,17 @@ import {
 
 const VALID_RATINGS = new Set([0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]);
 
-function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
+async function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
   return {
     ...recipe,
-    ...resolveImageUrls(recipe.imageUrl ?? null),
+    ...(await resolveImageUrls(recipe.imageUrl ?? null)),
   };
 }
 
 export async function recipesRoutes(app: FastifyInstance) {
   app.get("/recipes", async (request, reply) => {
     const recipes = await recipesRepository.list(request.userId);
-    return reply.send(recipes.map(withImageUrls));
+    return reply.send(await Promise.all(recipes.map(withImageUrls)));
   });
 
   app.get<{ Params: { id: string } }>(
@@ -31,7 +31,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       if (!recipe) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
-      return reply.send(withImageUrls(recipe));
+      return reply.send(await withImageUrls(recipe));
     },
   );
 
@@ -55,7 +55,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       request.body,
       request.userId,
     );
-    return reply.send(updated ? withImageUrls(updated) : null);
+    return reply.send(updated ? await withImageUrls(updated) : null);
   });
 
   app.delete<{ Params: { id: string } }>(
@@ -66,7 +66,7 @@ export async function recipesRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
       try {
-        await deleteRecipeImage(request.params.id);
+        await deleteRecipeImage(request.userId, request.params.id);
       } catch (err) {
         request.log.warn(
           { err, recipeId: request.params.id },
@@ -92,15 +92,15 @@ export async function recipesRoutes(app: FastifyInstance) {
       }
 
       const buffer = await file.toBuffer();
-      await deleteRecipeImage(request.params.id);
-      const imagePath = await uploadRecipeImage(request.params.id, buffer);
+      await deleteRecipeImage(request.userId, request.params.id);
+      const imagePath = await uploadRecipeImage(request.userId, request.params.id, buffer);
       if (!imagePath) {
         return reply.status(500).send({ error: "Failed to upload recipe image" });
       }
 
       await recipesRepository.setImage(request.params.id, imagePath);
       const updated = await recipesRepository.findById(request.params.id, request.userId);
-      return reply.send(updated ? withImageUrls(updated) : null);
+      return reply.send(updated ? await withImageUrls(updated) : null);
     },
   );
 
@@ -111,10 +111,10 @@ export async function recipesRoutes(app: FastifyInstance) {
       if (!existing) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
-      await deleteRecipeImage(request.params.id);
+      await deleteRecipeImage(request.userId, request.params.id);
       await recipesRepository.setImage(request.params.id, null);
       const updated = await recipesRepository.findById(request.params.id, request.userId);
-      return reply.send(updated ? withImageUrls(updated) : null);
+      return reply.send(updated ? await withImageUrls(updated) : null);
     },
   );
 
@@ -142,7 +142,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     }
 
     const updated = await recipesRepository.findById(request.params.id, request.userId);
-    return reply.send(updated ? withImageUrls(updated) : null);
+    return reply.send(updated ? await withImageUrls(updated) : null);
   });
 
   // --- Notes CRUD ---
@@ -214,6 +214,6 @@ export async function recipesRoutes(app: FastifyInstance) {
     const halfSteps = rating !== null ? Math.round(rating * 2) : null;
     await recipesRepository.setRating(request.params.id, halfSteps);
     const updated = await recipesRepository.findById(request.params.id, request.userId);
-    return reply.send(updated ? withImageUrls(updated) : null);
+    return reply.send(updated ? await withImageUrls(updated) : null);
   });
 }

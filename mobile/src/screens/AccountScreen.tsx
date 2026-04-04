@@ -7,6 +7,8 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  TextInput,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -15,17 +17,40 @@ import {
   LogOut,
   Mail,
   Check,
+  Trash2,
+  Pencil,
+  Shield,
+  ShieldOff,
 } from "lucide-react-native";
 import FastImage from "react-native-fast-image";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuthStore } from "../stores/auth.store";
+import { supabase } from "../services/supabase";
+import { api } from "../services/api";
 
 type Props = NativeStackScreenProps<any, "Account">;
 
 export function AccountScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, signOutAll } = useAuthStore();
   const [signingOut, setSigningOut] = React.useState(false);
+  const [signingOutAll, setSigningOutAll] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [editingEmail, setEditingEmail] = React.useState(false);
+  const [newEmail, setNewEmail] = React.useState("");
+  const [changingEmail, setChangingEmail] = React.useState(false);
+  const [mfaEnrolling, setMfaEnrolling] = React.useState(false);
+  const [mfaQrUri, setMfaQrUri] = React.useState<string | null>(null);
+  const [mfaFactorId, setMfaFactorId] = React.useState<string | null>(null);
+  const [mfaCode, setMfaCode] = React.useState("");
+  const [mfaVerifying, setMfaVerifying] = React.useState(false);
+  const [mfaUnenrolling, setMfaUnenrolling] = React.useState(false);
+  const [mfaError, setMfaError] = React.useState<string | null>(null);
+
+  const mfaFactors = user?.factors ?? [];
+  const hasVerifiedTotp = mfaFactors.some(
+    (f: any) => f.factor_type === "totp" && f.status === "verified",
+  );
 
   const avatarUrl = user?.user_metadata?.avatar_url;
   const displayName =
@@ -53,6 +78,188 @@ export function AccountScreen({ navigation }: Props) {
         },
       },
     ]);
+  };
+
+  const handleMfaEnroll = async () => {
+    setMfaEnrolling(true);
+    setMfaError(null);
+    try {
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: "totp",
+        friendlyName: "RecipeJar Authenticator",
+      });
+      if (error) {
+        setMfaError(error.message);
+        setMfaEnrolling(false);
+        return;
+      }
+      setMfaQrUri(data.totp.uri);
+      setMfaFactorId(data.id);
+    } catch {
+      setMfaError("Failed to start MFA enrollment.");
+      setMfaEnrolling(false);
+    }
+  };
+
+  const handleMfaVerify = async () => {
+    if (!mfaFactorId || mfaCode.trim().length !== 6) {
+      setMfaError("Please enter a 6-digit code");
+      return;
+    }
+    setMfaVerifying(true);
+    setMfaError(null);
+    try {
+      const { data: challenge, error: challengeErr } =
+        await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
+      if (challengeErr || !challenge) {
+        setMfaError(challengeErr?.message ?? "Failed to create challenge");
+        setMfaVerifying(false);
+        return;
+      }
+      const { error: verifyErr } = await supabase.auth.mfa.verify({
+        factorId: mfaFactorId,
+        challengeId: challenge.id,
+        code: mfaCode.trim(),
+      });
+      if (verifyErr) {
+        setMfaError(verifyErr.message);
+      } else {
+        Alert.alert("Success", "Two-factor authentication is now enabled.");
+        setMfaEnrolling(false);
+        setMfaQrUri(null);
+        setMfaFactorId(null);
+        setMfaCode("");
+      }
+    } catch {
+      setMfaError("Verification failed.");
+    } finally {
+      setMfaVerifying(false);
+    }
+  };
+
+  const handleMfaUnenroll = () => {
+    const totpFactor = mfaFactors.find(
+      (f: any) => f.factor_type === "totp" && f.status === "verified",
+    );
+    if (!totpFactor) return;
+
+    Alert.alert(
+      "Disable Two-Factor Authentication",
+      "Are you sure you want to disable two-factor authentication?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disable",
+          style: "destructive",
+          onPress: async () => {
+            setMfaUnenrolling(true);
+            try {
+              const { error } = await supabase.auth.mfa.unenroll({
+                factorId: totpFactor.id,
+              });
+              if (error) {
+                Alert.alert("Error", error.message);
+              } else {
+                Alert.alert("Disabled", "Two-factor authentication has been disabled.");
+              }
+            } catch {
+              Alert.alert("Error", "Failed to disable two-factor authentication.");
+            } finally {
+              setMfaUnenrolling(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleChangeEmail = async () => {
+    const trimmed = newEmail.trim();
+    if (!trimmed || !trimmed.includes("@")) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+    setChangingEmail(true);
+    try {
+      const { error } = await supabase.auth.updateUser(
+        { email: trimmed },
+        { emailRedirectTo: "app.recipejar.ios://auth/callback" },
+      );
+      if (error) {
+        Alert.alert("Error", error.message);
+      } else {
+        setEditingEmail(false);
+        setNewEmail("");
+        Alert.alert(
+          "Confirmation Sent",
+          "We sent confirmation links to both your current and new email. " +
+            "You must confirm from both to complete the change.",
+        );
+      }
+    } catch {
+      Alert.alert("Error", "Failed to update email. Please try again.");
+    } finally {
+      setChangingEmail(false);
+    }
+  };
+
+  const handleSignOutAll = () => {
+    Alert.alert(
+      "Sign Out All Devices",
+      "This will sign you out on all devices. You will need to sign in again everywhere.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign Out All",
+          style: "destructive",
+          onPress: async () => {
+            setSigningOutAll(true);
+            try {
+              await signOutAll();
+            } catch {
+              setSigningOutAll(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account and all your data after 30 days. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Are you absolutely sure?",
+              "All your recipes, collections, and notes will be permanently deleted.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Yes, Delete My Account",
+                  style: "destructive",
+                  onPress: async () => {
+                    setDeleting(true);
+                    try {
+                      await api.account.deleteAccount();
+                      await signOut();
+                    } catch {
+                      Alert.alert("Error", "Failed to delete account. Please try again.");
+                      setDeleting(false);
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
   };
 
   const version = require("../../package.json").version;
@@ -90,15 +297,157 @@ export function AccountScreen({ navigation }: Props) {
           )}
           <Text style={styles.displayName}>{displayName}</Text>
           <Text style={styles.email}>{email}</Text>
+          {providers.includes("email") && (
+            <TouchableOpacity
+              style={styles.changeEmailTrigger}
+              onPress={() => setEditingEmail(!editingEmail)}
+            >
+              <Pencil size={14} color="#2563eb" />
+              <Text style={styles.changeEmailTriggerText}>Change Email</Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {editingEmail && (
+          <View style={styles.emailChangeCard}>
+            <TextInput
+              style={styles.emailInput}
+              placeholder="New email address"
+              placeholderTextColor="#9ca3af"
+              value={newEmail}
+              onChangeText={setNewEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.emailChangeActions}>
+              <TouchableOpacity
+                style={styles.emailCancelBtn}
+                onPress={() => {
+                  setEditingEmail(false);
+                  setNewEmail("");
+                }}
+              >
+                <Text style={styles.emailCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.emailConfirmBtn}
+                onPress={handleChangeEmail}
+                disabled={changingEmail}
+              >
+                {changingEmail ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.emailConfirmText}>Update</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         <Text style={styles.sectionLabel}>Linked accounts</Text>
         <View style={styles.linkedCard}>
-          <LinkedRow label="Email" connected={providers.includes("email")} />
+          <LinkedRow
+            label="Email"
+            connected={providers.includes("email")}
+            provider="email"
+            identities={user?.identities ?? []}
+            providerCount={providers.length}
+          />
           <View style={styles.divider} />
-          <LinkedRow label="Apple" connected={providers.includes("apple")} />
+          <LinkedRow
+            label="Apple"
+            connected={providers.includes("apple")}
+            provider="apple"
+            identities={user?.identities ?? []}
+            providerCount={providers.length}
+          />
           <View style={styles.divider} />
-          <LinkedRow label="Google" connected={providers.includes("google")} />
+          <LinkedRow
+            label="Google"
+            connected={providers.includes("google")}
+            provider="google"
+            identities={user?.identities ?? []}
+            providerCount={providers.length}
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>Security</Text>
+        <View style={styles.mfaCard}>
+          {hasVerifiedTotp ? (
+            <View style={styles.mfaRow}>
+              <Shield size={20} color="#16a34a" />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.mfaStatusText}>Two-factor authentication is enabled</Text>
+              </View>
+              <TouchableOpacity
+                onPress={handleMfaUnenroll}
+                disabled={mfaUnenrolling}
+              >
+                {mfaUnenrolling ? (
+                  <ActivityIndicator color="#dc2626" size="small" />
+                ) : (
+                  <ShieldOff size={20} color="#dc2626" />
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : mfaEnrolling && mfaQrUri ? (
+            <View>
+              <Text style={styles.mfaInstructionText}>
+                Scan this URI with your authenticator app, then enter the 6-digit code:
+              </Text>
+              <View style={styles.mfaUriContainer}>
+                <Text style={styles.mfaUriText} selectable>
+                  {mfaQrUri}
+                </Text>
+              </View>
+              <TextInput
+                style={styles.mfaCodeInput}
+                placeholder="000000"
+                placeholderTextColor="#d1d5db"
+                value={mfaCode}
+                onChangeText={(t) => setMfaCode(t.replace(/\D/g, "").slice(0, 6))}
+                keyboardType="number-pad"
+                maxLength={6}
+                textAlign="center"
+              />
+              {mfaError && <Text style={styles.mfaErrorText}>{mfaError}</Text>}
+              <View style={styles.mfaActions}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setMfaEnrolling(false);
+                    setMfaQrUri(null);
+                    setMfaFactorId(null);
+                    setMfaCode("");
+                    setMfaError(null);
+                  }}
+                >
+                  <Text style={styles.mfaCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.mfaVerifyBtn}
+                  onPress={handleMfaVerify}
+                  disabled={mfaVerifying}
+                >
+                  {mfaVerifying ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.mfaVerifyText}>Verify & Enable</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.mfaEnableRow}
+              onPress={handleMfaEnroll}
+              disabled={mfaEnrolling}
+            >
+              <Shield size={20} color="#2563eb" />
+              <Text style={styles.mfaEnableText}>Enable Two-Factor Authentication</Text>
+              {mfaEnrolling && <ActivityIndicator color="#2563eb" size="small" />}
+            </TouchableOpacity>
+          )}
         </View>
 
         <TouchableOpacity
@@ -117,6 +466,38 @@ export function AccountScreen({ navigation }: Props) {
           )}
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.signOutAllButton}
+          onPress={handleSignOutAll}
+          disabled={signingOutAll}
+          activeOpacity={0.7}
+        >
+          {signingOutAll ? (
+            <ActivityIndicator color="#6b7280" />
+          ) : (
+            <>
+              <LogOut size={18} color="#6b7280" />
+              <Text style={styles.signOutAllText}>Sign Out All Devices</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          activeOpacity={0.7}
+        >
+          {deleting ? (
+            <ActivityIndicator color="#991b1b" />
+          ) : (
+            <>
+              <Trash2 size={18} color="#991b1b" />
+              <Text style={styles.deleteText}>Delete Account</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
         <Text style={styles.version}>RecipeJar v{version}</Text>
       </ScrollView>
     </View>
@@ -126,10 +507,61 @@ export function AccountScreen({ navigation }: Props) {
 function LinkedRow({
   label,
   connected,
+  provider,
+  identities,
+  providerCount,
 }: {
   label: string;
   connected: boolean;
+  provider: string;
+  identities: any[];
+  providerCount: number;
 }) {
+  const [loading, setLoading] = React.useState(false);
+
+  const handleLink = async () => {
+    if (provider === "email") return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.linkIdentity({
+        provider: provider as "apple" | "google",
+      });
+      if (error) Alert.alert("Error", error.message);
+    } catch {
+      Alert.alert("Error", `Failed to link ${label}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (providerCount <= 1) {
+      Alert.alert("Cannot Unlink", "You must have at least one login method.");
+      return;
+    }
+    const identity = identities.find((id: any) => id.provider === provider);
+    if (!identity) return;
+
+    Alert.alert(`Unlink ${label}`, `Are you sure you want to unlink ${label}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Unlink",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const { error } = await supabase.auth.unlinkIdentity(identity);
+            if (error) Alert.alert("Error", error.message);
+          } catch {
+            Alert.alert("Error", `Failed to unlink ${label}`);
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.linkedRow}>
       <View style={styles.linkedIcon}>
@@ -142,7 +574,17 @@ function LinkedRow({
         )}
       </View>
       <Text style={styles.linkedLabel}>{label}</Text>
-      {connected && <Check size={18} color="#16a34a" />}
+      {loading ? (
+        <ActivityIndicator size="small" color="#6b7280" />
+      ) : connected ? (
+        <TouchableOpacity onPress={handleUnlink} hitSlop={8}>
+          <Check size={18} color="#16a34a" />
+        </TouchableOpacity>
+      ) : provider !== "email" ? (
+        <TouchableOpacity onPress={handleLink} hitSlop={8}>
+          <Text style={{ fontSize: 13, color: "#2563eb", fontWeight: "600" }}>Link</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -208,6 +650,60 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     marginTop: 4,
   },
+  changeEmailTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    gap: 4,
+  },
+  changeEmailTriggerText: {
+    fontSize: 13,
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  emailChangeCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+  },
+  emailInput: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: "#111827",
+  },
+  emailChangeActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 12,
+    gap: 8,
+  },
+  emailCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  emailCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  emailConfirmBtn: {
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  emailConfirmText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
   sectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -247,6 +743,89 @@ const styles = StyleSheet.create({
     backgroundColor: "#e5e7eb",
     marginLeft: 54,
   },
+  mfaCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  mfaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  mfaStatusText: {
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "500",
+  },
+  mfaEnableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  mfaEnableText: {
+    flex: 1,
+    fontSize: 15,
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  mfaInstructionText: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginBottom: 12,
+  },
+  mfaUriContainer: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  mfaUriText: {
+    fontSize: 12,
+    color: "#374151",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  mfaCodeInput: {
+    borderWidth: 2,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingVertical: 12,
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#111827",
+    letterSpacing: 8,
+  },
+  mfaErrorText: {
+    color: "#dc2626",
+    fontSize: 13,
+    marginTop: 8,
+  },
+  mfaActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+  },
+  mfaCancelText: {
+    fontSize: 14,
+    color: "#6b7280",
+    fontWeight: "600",
+  },
+  mfaVerifyBtn: {
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  mfaVerifyText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
+  },
   signOutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -262,6 +841,37 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#dc2626",
+  },
+  signOutAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 12,
+    gap: 8,
+  },
+  signOutAllText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fef2f2",
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 12,
+    gap: 8,
+  },
+  deleteText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#991b1b",
   },
   version: {
     fontSize: 12,

@@ -3,10 +3,10 @@ import { collectionsRepository } from "../persistence/collections.repository.js"
 import { recipesRepository } from "../persistence/recipes.repository.js";
 import { resolveImageUrls } from "../services/recipe-image.service.js";
 
-function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
+async function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
   return {
     ...recipe,
-    ...resolveImageUrls(recipe.imageUrl ?? null),
+    ...(await resolveImageUrls(recipe.imageUrl ?? null)),
   };
 }
 
@@ -33,7 +33,7 @@ export async function collectionsRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Collection not found" });
       }
       const recipes = await recipesRepository.listByCollection(request.params.id, request.userId);
-      return reply.send(recipes.map(withImageUrls));
+      return reply.send(await Promise.all(recipes.map(withImageUrls)));
     },
   );
 

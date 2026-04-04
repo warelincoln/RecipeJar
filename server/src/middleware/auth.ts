@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { getSupabase } from "../services/supabase.js";
+import { recordSession } from "../services/session-tracker.service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -45,6 +46,9 @@ export function registerAuth(app: FastifyInstance) {
       }
 
       request.userId = user.id;
+
+      const userAgent = request.headers["user-agent"] ?? null;
+      recordSession(user.id, userAgent, request.ip).catch(() => {});
     },
   );
 }
