@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db.js";
 import { drafts, draftPages, draftWarningStates } from "./schema.js";
 import type {
@@ -8,6 +8,7 @@ import type {
 } from "@recipejar/shared";
 
 export interface CreateDraftInput {
+  userId: string;
   sourceType: "image" | "url";
   originalUrl?: string | null;
 }
@@ -23,6 +24,7 @@ export const draftsRepository = {
     const [draft] = await db
       .insert(drafts)
       .values({
+        userId: input.userId,
         sourceType: input.sourceType,
         originalUrl: input.originalUrl ?? null,
         status: input.sourceType === "url" ? "READY_FOR_PARSE" : "CAPTURE_IN_PROGRESS",
@@ -31,7 +33,15 @@ export const draftsRepository = {
     return draft;
   },
 
-  async findById(id: string) {
+  async findById(id: string, userId: string) {
+    const draft = await db.query.drafts.findFirst({
+      where: and(eq(drafts.id, id), eq(drafts.userId, userId)),
+    });
+    return draft ?? null;
+  },
+
+  /** For background tasks and system operations — no user scoping. */
+  async findByIdInternal(id: string) {
     const draft = await db.query.drafts.findFirst({
       where: eq(drafts.id, id),
     });

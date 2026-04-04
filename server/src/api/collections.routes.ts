@@ -16,23 +16,23 @@ export async function collectionsRoutes(app: FastifyInstance) {
     if (!name || name.trim().length === 0) {
       return reply.status(400).send({ error: "Collection name is required" });
     }
-    const collection = await collectionsRepository.create(name.trim());
+    const collection = await collectionsRepository.create(name.trim(), request.userId);
     return reply.status(201).send(collection);
   });
 
-  app.get("/collections", async (_request, reply) => {
-    const collections = await collectionsRepository.list();
+  app.get("/collections", async (request, reply) => {
+    const collections = await collectionsRepository.list(request.userId);
     return reply.send(collections);
   });
 
   app.get<{ Params: { id: string } }>(
     "/collections/:id/recipes",
     async (request, reply) => {
-      const collection = await collectionsRepository.findById(request.params.id);
+      const collection = await collectionsRepository.findById(request.params.id, request.userId);
       if (!collection) {
         return reply.status(404).send({ error: "Collection not found" });
       }
-      const recipes = await recipesRepository.listByCollection(request.params.id);
+      const recipes = await recipesRepository.listByCollection(request.params.id, request.userId);
       return reply.send(recipes.map(withImageUrls));
     },
   );
@@ -44,14 +44,14 @@ export async function collectionsRoutes(app: FastifyInstance) {
       if (!name || typeof name !== "string" || name.trim().length === 0) {
         return reply.status(400).send({ error: "Collection name is required" });
       }
-      const existing = await collectionsRepository.findById(request.params.id);
-      if (!existing) {
-        return reply.status(404).send({ error: "Collection not found" });
-      }
       const updated = await collectionsRepository.update(
         request.params.id,
         name.trim(),
+        request.userId,
       );
+      if (!updated) {
+        return reply.status(404).send({ error: "Collection not found" });
+      }
       return reply.send(updated);
     },
   );
@@ -59,11 +59,11 @@ export async function collectionsRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>(
     "/collections/:id",
     async (request, reply) => {
-      const collection = await collectionsRepository.findById(request.params.id);
+      const collection = await collectionsRepository.findById(request.params.id, request.userId);
       if (!collection) {
         return reply.status(404).send({ error: "Collection not found" });
       }
-      await collectionsRepository.delete(request.params.id);
+      await collectionsRepository.delete(request.params.id, request.userId);
       return reply.status(204).send();
     },
   );

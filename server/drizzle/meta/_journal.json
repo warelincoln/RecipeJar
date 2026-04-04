@@ -57,6 +57,20 @@
       "when": 1775100000000,
       "tag": "0007_structured_ingredients_servings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775400000000,
+      "tag": "0008_auth_profiles_user_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775400100000,
+      "tag": "0009_rls_policies",
+      "breakpoints": true
     }
   ]
 }

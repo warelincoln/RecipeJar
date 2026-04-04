@@ -12,10 +12,36 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 
+/* ── profiles ─────────────────────────────────────────────────────────
+ * Maps 1-to-1 with auth.users (id is the Supabase auth UID).
+ * FK to auth.users is enforced in the migration SQL, not here,
+ * because Drizzle cannot reference cross-schema tables.
+ * A Postgres trigger auto-inserts a row on every auth.users INSERT.
+ */
+export const profiles = pgTable("profiles", {
+  id: uuid("id").primaryKey(),
+  displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
+  subscriptionTier: text("subscription_tier").notNull().default("free"),
+  subscriptionExpiresAt: timestamp("subscription_expires_at", {
+    withTimezone: true,
+  }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const drafts = pgTable(
   "drafts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
     status: text("status").notNull().default("CAPTURE_IN_PROGRESS"),
     sourceType: text("source_type").notNull(),
     originalUrl: text("original_url"),
@@ -33,6 +59,7 @@ export const drafts = pgTable(
   (table) => [
     index("drafts_status_idx").on(table.status),
     index("drafts_updated_at_idx").on(table.updatedAt),
+    index("idx_drafts_user_id").on(table.userId),
   ],
 );
 
@@ -89,21 +116,31 @@ export const draftWarningStates = pgTable(
   ],
 );
 
-export const collections = pgTable("collections", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const collections = pgTable(
+  "collections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_collections_user_id").on(table.userId)],
+);
 
 export const recipes = pgTable(
   "recipes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
     title: text("title").notNull(),
     description: text("description"),
     sourceType: text("source_type").notNull(),
@@ -126,6 +163,7 @@ export const recipes = pgTable(
   (table) => [
     index("recipes_created_at_idx").on(table.createdAt),
     index("recipes_save_state_idx").on(table.saveState),
+    index("idx_recipes_user_id").on(table.userId),
   ],
 );
 
@@ -232,6 +270,9 @@ export const recipeNotes = pgTable(
   "recipe_notes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id),
     recipeId: uuid("recipe_id")
       .notNull()
       .references(() => recipes.id, { onDelete: "cascade" }),
@@ -245,5 +286,6 @@ export const recipeNotes = pgTable(
   },
   (table) => [
     index("recipe_notes_recipe_id_idx").on(table.recipeId),
+    index("idx_recipe_notes_user_id").on(table.userId),
   ],
 );

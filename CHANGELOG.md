@@ -1,5 +1,155 @@
 # RecipeJar Changelog
 
+### 2026-04-03 — WS-4: Mobile authentication (complete)
+
+Mobile app now authenticates users end-to-end. All three auth methods (Apple, Google, email/password) are functional and tested on a physical iPhone. The app is auth-gated — unauthenticated users see onboarding → auth screens; authenticated users see the main app.
+
+**Dependencies installed (mobile):**
+
+- `@supabase/supabase-js` — Supabase client SDK
+- `react-native-keychain` — secure iOS Keychain session storage
+- `@invertase/react-native-apple-authentication` — native Apple Sign-In
+- `@react-native-google-signin/google-signin@16.1.2` — native Google Sign-In
+- `react-native-get-random-values@^1.11.0` — `crypto.getRandomValues` polyfill for Hermes
+- `react-native-url-polyfill` — `URL` API polyfill for Hermes (Supabase client requires it)
+- `js-sha256` — lightweight SHA-256 for Apple Sign-In nonce security
+- `jwt-decode` — JWT decoding for Google Sign-In nonce extraction
+
+**New files created:**
+
+- `mobile/src/services/supabase.ts` — Supabase client with `react-native-keychain` storage adapter, anon key config, `detectSessionInUrl: false`
+- `mobile/src/stores/auth.store.ts` — Zustand store: `session`, `user`, `isLoading`, `isAuthenticated`, `pendingPasswordReset`, `initialize()`, `signOut()` (clears all stores + Keychain)
+- `mobile/src/screens/OnboardingScreen.tsx` — 3-card swipeable carousel (Camera, FolderOpen, ChefHat icons), "Skip" / "Get Started", sets AsyncStorage flag
+- `mobile/src/screens/AuthScreen.tsx` — social-first login hub: Apple Sign-In (with SHA-256 nonce security), Google Sign-In (with `iosClientId` + `webClientId`), email sign-in/sign-up links
+- `mobile/src/screens/SignInScreen.tsx` — email/password form with show/hide toggle, "Forgot password?" link
+- `mobile/src/screens/SignUpScreen.tsx` — email registration with display name, 12-char password minimum hint, email confirmation redirect
+- `mobile/src/screens/ForgotPasswordScreen.tsx` — password reset email request via `resetPasswordForEmail()` with `redirectTo`
+- `mobile/src/screens/EmailConfirmationScreen.tsx` — "Check your inbox" screen with resend capability
+- `mobile/src/screens/ResetPasswordScreen.tsx` — standalone new-password form (rendered by four-state root on deep link recovery)
+- `mobile/src/screens/AccountScreen.tsx` — profile display (avatar/initial, name, email), linked providers list, sign-out with confirmation, app version
+- `mobile/src/navigation/types.ts` — `AuthStackParamList` (Onboarding, Auth, SignIn, SignUp, ForgotPassword, EmailConfirmation) + `Account` route in `RootStackParamList`
+- `mobile/ios/RecipeJar/RecipeJar.entitlements` — Apple Sign-In capability
+
+**Files modified:**
+
+- `mobile/App.tsx` — **rewritten**: four-state auth-gated navigation (splash → AuthStack / ResetPasswordScreen / AppStack), deep link handler parsing Supabase hash fragments (`#access_token=...&type=recovery`), `AppPoller` and `PendingImportsBanner` moved inside `AppStack` (prevents unauthenticated API calls), `reconcileQueue()` triggered on auth state change
+- `mobile/src/services/api.ts` — `authenticatedFetch()` wrapper injects `Authorization: Bearer <token>` on **all** requests (including 4 raw `fetch` calls for multipart uploads). Single-flight token refresh lock (`refreshOnce()`) prevents concurrent `refreshSession()` storms. 401 retry with one refresh attempt; on failure, triggers `signOut()`.
+- `mobile/src/stores/recipes.store.ts` — added `reset()` method
+- `mobile/src/stores/collections.store.ts` — added `reset()` method
+- `mobile/src/stores/importQueue.store.ts` — added `reset()` method + `reconcileQueue()` guarded with auth session check (prevents unauthenticated API calls on rehydration), exported `reconcileQueue` for App.tsx
+- `mobile/src/screens/HomeScreen.tsx` — profile avatar circle (top-right header), navigates to AccountScreen, shows user initial or avatar image, orange theme matching FAB
+- `mobile/ios/RecipeJar/Info.plist` — added `CFBundleURLTypes` (URL schemes: `app.recipejar.ios` for auth callbacks, reversed Google iOS Client ID for Google Sign-In), `GIDClientID`
+- `mobile/ios/RecipeJar.xcodeproj/project.pbxproj` — `CODE_SIGN_ENTITLEMENTS` added to Debug + Release build configs
+
+**Supabase dashboard configuration (required, not in code):**
+
+- Apple provider: Bundle ID set to `app.recipejar.ios` (not `app.recipejar.ios.auth`)
+- Google provider: "Skip nonce check" enabled (Google Sign-In SDK v16 generates internal nonces not exposed to JS)
+- Redirect URL added: `app.recipejar.ios://auth/callback`
+- Email verification: enabled (sign-up requires email confirmation)
+
+**Tested and verified on physical iPhone:**
+
+- Apple Sign-In with nonce security (SHA-256 hash to Apple, hash to Supabase)
+- Google Sign-In with `iosClientId` + `webClientId` configuration
+- Email/password sign-up with email verification flow
+- Password validation (rejects passwords not meeting requirements)
+- Sign-out clears all stores and Keychain, returns to auth screen
+- Profile avatar displays on home screen, navigates to account page
+- Onboarding carousel shown on first launch, skipped on subsequent launches
+- Auth-gated navigation prevents unauthenticated API access
+- New user signup triggers Postgres `handle_new_user` trigger → profile auto-created
+
+**What remains (WS-6/7/8 — not blocking TestFlight for trusted testers):**
+
+- WS-6: Storage bucket privacy (private buckets, signed URLs, user-scoped paths)
+- WS-7: Session lifecycle (list/revoke sessions, step-up auth, MFA flows, account deletion)
+- WS-8: Abuse controls, audit logging, integration tests
+- Email templates: Supabase sends unbranded confirmation/reset emails; customize in dashboard > Authentication > Email Templates
+- Production deployment: Fastify server needs cloud hosting before TestFlight (currently localhost only)
+
+---
+
+### 2026-04-03 — Authentication infrastructure, user ownership & Row Level Security
+
+Server-side auth is now **live**. Every API endpoint (except `/health`) requires a valid Supabase access token in the `Authorization: Bearer <token>` header. All user data is scoped to the authenticated user. Postgres Row Level Security (RLS) is enabled on all 11 public tables as a defense-in-depth layer.
+
+**Database (migrations `0008_auth_profiles_user_id` + `0009_rls_policies`):**
+
+- **`profiles` table** — maps 1:1 with `auth.users` via FK `profiles_id_auth_users_fk` (CASCADE). Columns: `id` (uuid PK, matches auth UID), `display_name`, `avatar_url`, `subscription_tier` (default `'free'`), `subscription_expires_at`, `deleted_at` (for future soft-delete), `created_at`, `updated_at`.
+- **Postgres trigger** `on_auth_user_created` — fires `AFTER INSERT ON auth.users`, auto-creates a `profiles` row pulling `display_name` and `avatar_url` from `raw_user_meta_data`. Defined via `handle_new_user()` (SECURITY DEFINER, `search_path = public`).
+- **`user_id` column** added to `recipes`, `collections`, `drafts`, `recipe_notes` — each is `uuid NOT NULL`, FK to `profiles(id)`, with B-tree index (`idx_<table>_user_id`).
+- **Seed user backfill** — a migration-only user (`migration-seed@recipejar.app`, id `2a739cca-69b9-4385-801f-946cd123041c`) was created via the Supabase Admin API. All 211 existing rows (9 recipes, 7 collections, 195 drafts, 0 notes) were assigned to this user. The seed user is banned for 100 years and cannot authenticate.
+- **Row Level Security** enabled on all 11 public tables with 41 policies total. All policies target the `authenticated` role only; the `anon` role gets zero access. Direct-`user_id` tables (profiles, recipes, collections, drafts, recipe_notes) use `auth.uid() = user_id`. Child tables (draft_pages, draft_warning_states, recipe_collections, recipe_ingredients, recipe_steps, recipe_source_pages) use `EXISTS` subqueries via parent FK. The `service_role` used by Fastify bypasses RLS by design — code-level scoping is the primary defense.
+
+**Server — auth middleware (`server/src/middleware/auth.ts`):**
+
+- Fastify `onRequest` hook extracts `Bearer` token, verifies via `supabase.auth.getUser(token)`, and sets `request.userId`. Returns 401 for missing/invalid tokens. `/health` is exempt.
+- Type augmentation: `FastifyRequest` extended with `userId: string`.
+- Registered in `app.ts` before all route plugins.
+
+**Server — repository layer (user scoping):**
+
+- `collections.repository.ts` — all 5 methods (`create`, `list`, `findById`, `update`, `delete`) now accept `userId` and filter/insert accordingly using `and(eq(...), eq(...))`.
+- `drafts.repository.ts` — `create()` includes `userId` in INSERT; `findById(id, userId)` scopes by user; new `findByIdInternal(id)` for background tasks (no user filter). System methods (`resetStuckParsingDrafts`, `deleteOldCancelledDrafts`) remain unscoped.
+- `recipes.repository.ts` — `SaveRecipeInput` includes `userId`; `save()` inserts it; `findById(id, userId)`, `list(userId)`, `listByCollection(collectionId, userId)` scope by user; `update()` accepts optional `userId` for WHERE clause defense-in-depth.
+- `recipe-notes.repository.ts` — all 5 methods (`listByRecipeId`, `findById`, `create`, `update`, `delete`) accept `userId` and scope accordingly.
+
+**Server — route layer:**
+
+- `drafts.routes.ts` — all handlers pass `request.userId` to repository calls; `create` includes `userId`; `save` route passes `userId` to `recipesRepository.save()`. Background parse (`runParseInBackground`) uses `findByIdInternal` (already authenticated at initiation).
+- `recipes.routes.ts` — all recipe CRUD, image, collection assignment, notes CRUD, and rating handlers pass `request.userId`. Cross-user access returns 404 (not 403) per the security plan.
+- `collections.routes.ts` — all handlers pass `request.userId`.
+
+**Supabase configuration (WS-1, completed in prior session):**
+
+- Auth providers enabled: Email/password, Sign in with Apple, Google OAuth.
+- JWT access token TTL: 600 seconds (10 minutes).
+- Refresh token rotation enabled with reuse detection.
+- User sessions: inactivity timeout 7 days.
+- Password policy: minimum 8 characters.
+- MFA: TOTP (app authenticator) enabled, max 10 factors.
+- Apple Services ID (`app.recipejar.ios.auth`) configured with `.p8` key-based client secret (expires ~6 months, renewal needed).
+- Google Cloud OAuth clients created (Web Application + iOS).
+- iOS Bundle ID: `app.recipejar.ios` (updated from default React Native identifier).
+
+**Files created:**
+
+- `server/src/middleware/auth.ts`
+- `server/drizzle/0008_auth_profiles_user_id.sql`
+- `server/drizzle/0009_rls_policies.sql`
+- `server/scripts/migrate-0008-backfill.ts`
+- `server/scripts/run-0008-phase1.ts`
+- `server/scripts/run-0009-rls.ts`
+- `server/scripts/verify-0008.ts`
+- `server/scripts/verify-0009-rls.ts`
+
+**Files modified:**
+
+- `server/src/persistence/schema.ts` — profiles table + userId on 4 tables + indexes
+- `server/src/persistence/collections.repository.ts` — userId scoping
+- `server/src/persistence/drafts.repository.ts` — userId scoping + `findByIdInternal`
+- `server/src/persistence/recipes.repository.ts` — userId scoping
+- `server/src/persistence/recipe-notes.repository.ts` — userId scoping
+- `server/src/api/drafts.routes.ts` — pass `request.userId`
+- `server/src/api/recipes.routes.ts` — pass `request.userId`
+- `server/src/api/collections.routes.ts` — pass `request.userId`
+- `server/src/app.ts` — register auth middleware
+- `server/drizzle/meta/_journal.json` — entries 8 and 9
+- `mobile/ios/RecipeJar.xcodeproj/project.pbxproj` — bundle ID `app.recipejar.ios`
+- `mobile/run.sh` — bundle ID + `-allowProvisioningUpdates`
+
+**What remains for full auth (WS-4 through WS-8):**
+
+- WS-4: Mobile Supabase client, auth screens, Keychain session, Bearer header in `api.ts`, OAuth deep links
+- WS-6: Storage bucket privacy (private buckets, signed URLs, user-scoped paths)
+- WS-7: Session lifecycle (list/revoke sessions, step-up auth, MFA flows, account deletion)
+- WS-8: Abuse controls, audit logging, integration tests
+
+See `docs/AUTH_RLS_SECURITY_PLAN.md` and the ROADMAP Phase 0.1 for the complete plan.
+
+---
+
 ### 2026-03-31 — Servings, structured ingredients & dynamic scaling
 
 Recipes now capture **baseline servings** (how many the recipe makes) and store ingredients with **structured fields** (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). The detail screen shows an interactive **servings stepper** that scales ingredient amounts in real time.

@@ -55,7 +55,27 @@ If you are a new developer or an AI agent, start here.
 - `mobile/src/features/import/useRecipeParseReveal.ts` + `recipeParseReveal.ts`
   - Word-by-word preview reveal after parse (~6000 WPM); `ImportFlowScreen` `parseRevealToken`
 - `mobile/src/services/api.ts`
-  - Mobile API client: draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`), `cancel` method for drafts; **`collections.update`** (`PATCH`) and **`collections.delete`** (204-safe, no JSON parse on success); **`request()`** error messages prefer Fastify **`message`** then **`error`**
+  - Mobile API client: `authenticatedFetch()` injects Bearer token on all requests (including 4 raw multipart uploads), single-flight `refreshOnce()` token refresh, 401 retry → signOut fallback. Draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`), `cancel` method for drafts; **`collections.update`** (`PATCH`) and **`collections.delete`** (204-safe, no JSON parse on success); **`request()`** error messages prefer Fastify **`message`** then **`error`**
+- `mobile/src/services/supabase.ts`
+  - Supabase client init: anon key, `react-native-keychain` storage adapter (Keychain service `app.recipejar.session`), `detectSessionInUrl: false`, polyfills for URL and crypto
+- `mobile/src/stores/auth.store.ts`
+  - Zustand auth store: `session`, `user`, `isLoading`, `isAuthenticated`, `pendingPasswordReset`. `initialize()` restores from Keychain, subscribes to `onAuthStateChange`. `signOut()` clears Keychain + resets recipes/collections/importQueue stores.
+- `mobile/src/screens/OnboardingScreen.tsx`
+  - 3-card swipeable carousel (first-launch only, AsyncStorage flag)
+- `mobile/src/screens/AuthScreen.tsx`
+  - Social-first login hub: Apple Sign-In (SHA-256 nonce via `js-sha256`), Google Sign-In (`iosClientId` + `webClientId`, nonce extracted via `jwt-decode`), email sign-in/up links
+- `mobile/src/screens/SignInScreen.tsx`
+  - Email/password login form with show/hide toggle, "Forgot password?" link
+- `mobile/src/screens/SignUpScreen.tsx`
+  - Email registration: display name, 12-char password hint, email confirmation redirect to EmailConfirmationScreen
+- `mobile/src/screens/ForgotPasswordScreen.tsx`
+  - Password reset email request via `resetPasswordForEmail()` with `redirectTo` to app scheme
+- `mobile/src/screens/EmailConfirmationScreen.tsx`
+  - "Check your inbox" prompt after sign-up
+- `mobile/src/screens/ResetPasswordScreen.tsx`
+  - Standalone new-password form, rendered by four-state root on `type=recovery` deep link
+- `mobile/src/screens/AccountScreen.tsx`
+  - Profile display (avatar/initial, name, email), linked providers list, sign-out with confirmation
 - `mobile/src/screens/CollectionScreen.tsx`
   - Folder **`MoreHorizontal`** menu (rename / delete), **`CreateCollectionSheet`** rename mode, **`DeleteCollectionConfirmSheet`**, **404** handling when folder was deleted elsewhere
 - `mobile/src/components/CreateCollectionSheet.tsx`
@@ -78,6 +98,18 @@ If you are a new developer or an AI agent, start here.
   - `SERVINGS_MISSING` (BLOCK) — fires when `candidate.servings` is null or ≤ 0; user must specify servings before saving
 - `mobile/src/utils/scaling.ts`
   - Client-side scaling engine: `scaleAmount`, `formatAmount` (mixed numbers, unicode fractions, ⅛ rounding), `scaleIngredient` (headers verbatim, non-scalable lines verbatim, range support)
+- `mobile/src/navigation/types.ts`
+  - Navigation param lists: `AuthStackParamList` (Onboarding, Auth, SignIn, SignUp, ForgotPassword, EmailConfirmation) + `Account` route in `RootStackParamList`. `ResetPasswordScreen` is standalone (not in a navigator).
+- `server/src/middleware/auth.ts`
+  - Fastify `onRequest` hook: verifies Supabase access token via `getUser()`, sets `request.userId`; `/health` exempt. **All endpoints return 401 without a valid token.**
+- `server/src/persistence/schema.ts`
+  - Drizzle schema: `profiles` table (maps 1:1 with `auth.users`) + `userId` NOT NULL FK on `recipes`, `collections`, `drafts`, `recipe_notes`
+- `docs/AUTH_RLS_SECURITY_PLAN.md`
+  - Comprehensive security plan: 8 work streams (WS-1 through WS-8). WS-1/2/3/4/5 complete, WS-6/7/8 pending. This is the authoritative reference for remaining auth hardening work.
+- `server/drizzle/0008_auth_profiles_user_id.sql` + `server/drizzle/0009_rls_policies.sql`
+  - Migration 0008: profiles table, auto-create trigger, user_id columns, indexes. Migration 0009: RLS enabled on 11 tables with 41 policies.
+- `server/scripts/migrate-0008-backfill.ts`
+  - One-time backfill script (already executed): created seed user, assigned all existing data, enforced NOT NULL + FK constraints
 - `server/src/parsing/image/`
   - Upload-time normalization and parse-time OCR prep
 
@@ -95,6 +127,9 @@ If you are a new developer or an AI agent, start here.
 
 ### Critical current gotchas
 
+- **Auth is fully wired end-to-end.** Every endpoint except `/health` requires a `Bearer` token. The mobile app sends tokens automatically via `authenticatedFetch()` in `api.ts`. If you're testing the API directly (curl, Postman), get a token via `supabase.auth.signInWithPassword()` or the Supabase dashboard.
+- **Server runs on localhost only.** The Fastify API is not yet deployed to a cloud host. The mobile app connects to the local network IP (set at build time via `scripts/write-recipejar-dev-host.cjs`). For TestFlight, the server must be deployed to a publicly accessible host and `api.ts` updated to point to it.
+- **Apple client secret expires ~6 months** from generation (April 2026). The `.p8` key is used to generate a JWT. When it expires, regenerate using the script pattern in the conversation history or via `docs/AUTH_RLS_SECURITY_PLAN.md`.
 - **New API routes (e.g. `PATCH /collections/:id`):** If folder **rename** fails with a generic error or Fastify **`Route PATCH:… not found`**, the Node process on port **3000** is almost certainly **stale**. Kill listeners on **3000**/**8081** and run **`npm run dev:phone`** again from the repo root. Release builds talking to **`api.recipejar.app`** need that backend deployed with the same routes.
 - If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.
 - If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.  
@@ -115,11 +150,12 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - **Servings & ingredient scaling**: every recipe stores `baselineServings`. Ingredients are persisted with structured fields (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). Parsing extracts these from GPT output (image/URL) or via a **deterministic regex/rules-based ingredient parser** (JSON-LD/microdata strings + Rule A re-parse on saved recipe edit). Missing servings is a `BLOCK`-severity validation issue — the user must specify servings before saving. Detail screen provides an interactive servings stepper that scales ingredient amounts client-side (mixed-number formatting with unicode fractions, ⅛ rounding, no unit conversion).
 - Deterministic validation engine with 8 rule modules and 13 issue codes (3 severities: BLOCK, FLAG, RETAKE)
 - Save-decision logic with 3 save states (`SAVE_CLEAN`, `SAVE_USER_VERIFIED`, `NO_SAVE`)
-- Drizzle ORM schema with 10 PostgreSQL tables (including `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes; optional **`image_url`** on `recipes` (migration `0005`), **`baseline_servings`** + structured ingredient columns on `recipe_ingredients` (migration `0007`)
-- Supabase Storage integration for **draft page images** (`recipe-pages` bucket) and **saved recipe hero images** (`recipe-images` bucket — server ensures/creates a public bucket and stores `hero.jpg` + `thumb.jpg` per recipe)
+- Drizzle ORM schema with 11 PostgreSQL tables (including `profiles`, `collections`, `recipe_collections` join table, and `recipe_notes`), indexes, cascade deletes; optional **`image_url`** on `recipes` (migration `0005`), **`baseline_servings`** + structured ingredient columns on `recipe_ingredients` (migration `0007`), **`profiles`** table + **`user_id`** on 4 domain tables (migration `0008`), **RLS policies** on all 11 tables (migration `0009`)
+- **Full authentication (server + mobile)** — Supabase Auth configured (email/password, Apple Sign-In, Google OAuth, TOTP MFA). Fastify JWT middleware verifies tokens on every non-public route and sets `request.userId`. All repositories scope queries by `userId`. Postgres RLS enabled on all 11 public tables with 41 policies (defense-in-depth). Mobile: Supabase client with Keychain session, auth-gated navigation (onboarding → auth → app), Apple/Google/email sign-in screens, `authenticatedFetch()` with single-flight token refresh, password reset via deep link, account screen with sign-out. Existing data backfilled to a banned seed user.
+- Supabase Storage integration for **draft page images** (`recipe-pages` bucket) and **saved recipe hero images** (`recipe-images` bucket — still public buckets; WS-6 will convert to private buckets with signed URLs)
 - **Concurrent import queue** (up to 3 image-based recipes): fire-and-forget `202 Accepted` parse endpoint, server-side parse concurrency semaphore (max 2 OpenAI Vision calls), client-side Zustand store with AsyncStorage persistence, exponential-backoff poller, Import Hub screen, app-wide floating banner, enqueue function with retry and orphan cleanup, idempotency guards on parse and save, startup cleanup of stuck/cancelled drafts, draft cancel endpoint with Supabase image cleanup
 - XState v5 state machine for mobile import flow (9 states — simplified, no correction or warning gate states); used for URL imports and hub resume; camera/photo imports use the concurrent `enqueueImport` path
-- React Native mobile app with navigation, screens, Zustand stores (recipes + collections + import queue), API client
+- React Native mobile app with auth-gated navigation, screens, Zustand stores (auth + recipes + collections + import queue), authenticated API client
 - Collections feature: create collections, **rename** (`PATCH /collections/:id`) and **delete** folder (recipes become uncategorized; join rows cascade), many-to-many recipe-collection join table (UI currently single-assignment, schema supports multi), collection view screen, "All Recipes" virtual folder; **long-press** folder chips on home or **⋯** on collection screen for folder actions; **`DeleteCollectionConfirmSheet`** for destructive confirm
 - Recipe editing after save: full edit screen with title, description, ingredients, steps, collection assignment, optional **hero photo** (pick/compress/upload or remove; uses multipart **`POST /recipes/:id/image`**)
 - **Recipe hero image API:** **`POST /recipes/:id/image`** (multipart file) and **`DELETE /recipes/:id/image`**; **`GET /recipes`** and **`GET /recipes/:id`** (and related update responses) include resolved public **`imageUrl`** and **`thumbnailUrl`** fields for clients
@@ -140,13 +176,16 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 
 **What is NOT implemented:**
 
-- User authentication and multi-user data ownership (single-user MVP)
+- **Storage bucket privacy (WS-6)** — buckets are still public; needs conversion to private + signed URLs + user-scoped paths
+- **Session lifecycle & MFA flows (WS-7)** — no session list/revoke, no step-up auth, no MFA enrollment UI, no account deletion
+- **Abuse controls & integration tests (WS-8)** — no rate limiting, no audit logging, no auth-specific tests
+- **Production deployment** — Fastify server runs on localhost only; needs cloud hosting for TestFlight/App Store
 - Offline/local-first sync
 - Multi-collection assignment UI (schema supports many-to-many; UI currently assigns one collection at a time)
 - Recipe sharing or export
-- Production deployment configuration
 - Unit conversion (e.g. 15 tbsp → ¾ cup + 3 tbsp) — scaling multiplies the numeric amount only
 - Grocery list (planned: add a recipe to a grocery list with adjustable serving size)
+- Email template branding (Supabase sends default unbranded emails; customize in dashboard)
 
 ---
 
@@ -158,9 +197,15 @@ All of the following were executed against a real Supabase PostgreSQL database a
 
 | What | Evidence |
 |---|---|
-| `drizzle-kit push` | All 10 tables, indexes, and foreign keys applied to Supabase |
+| `drizzle-kit push` | All 11 tables (incl. `profiles`), indexes, foreign keys, and RLS policies applied to Supabase |
+| Auth middleware active | All endpoints except `/health` return 401 without valid Bearer token |
+| `GET /health` | Returns `{"status":"ok"}` (public, no auth required) |
+| `GET /recipes` (no token) | Returns `{"error":"Authentication required"}` (401) |
+| Migration 0008 (profiles + user_id) | `profiles` table created, `user_id` NOT NULL FK on 4 domain tables, auto-create trigger on `auth.users` INSERT, seed user backfill complete (211 rows assigned) |
+| Migration 0009 (RLS policies) | RLS enabled on all 11 tables, 41 policies verified via `pg_policies` query |
+| Supabase Auth providers | Email/password, Apple Sign-In, Google OAuth configured and enabled in Supabase dashboard |
+| MFA (TOTP) | App authenticator MFA enabled in Supabase, max 10 factors |
 | Fastify server startup | Listens on `0.0.0.0:3000` |
-| `GET /health` | Returns `{"status":"ok"}` |
 | `POST /drafts` | Image draft created in real DB, returns UUID and `CAPTURE_IN_PROGRESS` |
 | `GET /drafts/:id` | Returns draft with **`parsedCandidate` / `editedCandidate` / `validationResult`** (shared `RecipeDraft` names), plus `pages` and `warningStates` — not raw DB `*Json` column names |
 | `POST /drafts/url` | URL draft created with `sourceType: "url"` |
@@ -233,10 +278,28 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Post-save return from hub | After saving a recipe from hub review, auto-returns to Import Hub, recipes store refreshed — saved recipe appears on Home |
 | Servings & ingredient scaling | Baseline servings captured from URL import (auto-detected from JSON-LD and DOM metadata), displayed in import preview with BLOCK validation when missing. Servings stepper on detail screen: free-type input, ±1 buttons, reset link. Ingredient amounts scale dynamically (mixed-number unicode fractions). Edit screen allows updating baseline servings. |
 
+### Proven in WS-4 (Mobile Auth — April 2026)
+
+| What | Evidence |
+|---|---|
+| Apple Sign-In (end-to-end) | User created in Supabase via `signInWithIdToken` with SHA-256 nonce. Profile auto-created by Postgres trigger. Session stored in Keychain. |
+| Google Sign-In (end-to-end) | User created via `signInWithIdToken` with `iosClientId` + `webClientId`. Requires "Skip nonce check" in Supabase dashboard (Google SDK v16 limitation). |
+| Email sign-up with verification | Registration sends verification email, user confirms, session established, recipes load. Password validation rejects weak passwords (12-char + letters+numbers). |
+| Auth-gated navigation | Four-state root (splash → auth → password-reset → app). Unauthenticated users cannot reach app screens. |
+| Bearer token injection | All API requests (including multipart uploads) include `Authorization: Bearer <token>` via `authenticatedFetch()`. Single-flight refresh on 401. |
+| Sign-out | Clears Keychain session, resets all Zustand stores (recipes, collections, importQueue), returns to auth screen. |
+| New user signup → profile auto-creation | Postgres trigger `handle_new_user` fires on Apple/Google/email signup — verified with real users. |
+| Onboarding carousel | 3-card swipe shown on first launch, skipped on subsequent launches via AsyncStorage flag. |
+
 ### Not Yet Proven
 
 | What | Why |
 |---|---|
+| Storage bucket privacy (WS-6) | Buckets are still public. WS-4 dependency now satisfied — can proceed with private buckets + signed URLs + user-scoped paths. |
+| Session lifecycle & MFA (WS-7) | No session list/revoke, no step-up auth, no MFA enrollment UI, no account deletion flow. Password reset is built. |
+| Abuse controls & tests (WS-8) | No rate limiting, no audit logging, no auth-specific integration tests. |
+| Production server deployment | Fastify API runs on localhost only. Must be deployed to a cloud host before TestFlight testers can use the app. |
+| Email template branding | Supabase sends default unbranded confirmation/reset emails. Must customize in Supabase dashboard before public launch. |
 | Homepage collections overhaul on device | Uncategorized-only home view, "All Recipes" virtual folder, real-time search, toast with undo, collection name tags — code complete but not yet fully tested on physical device |
 | User notes + star rating on device | Notes CRUD (add/edit/delete) and half-star rating with tap-toggle UX — API verified via curl and partial device testing; full end-to-end device QA pending |
 | Multi-page image ordering UX | Single-page capture tested; multi-page reorder not yet tested on device |
@@ -509,7 +572,9 @@ In your Supabase dashboard: Storage → New bucket → Name: `recipe-pages` → 
 
 This bucket stores uploaded **draft** page images for parsing.
 
-**Recipe hero images** use a separate bucket **`recipe-images`** (also public). With a valid **`SUPABASE_SERVICE_ROLE_KEY`**, the server **creates this bucket on first use** if it does not exist; you can also create it manually the same way as `recipe-pages`.
+**Recipe hero images** use a separate bucket **`recipe-images`** (also public in the current single-user MVP). With a valid **`SUPABASE_SERVICE_ROLE_KEY`**, the server **creates this bucket on first use** if it does not exist; you can also create it manually the same way as `recipe-pages`.
+
+Important: this public-bucket setup is a **temporary MVP shortcut**, not the target multi-user design. The auth/security plan requires converting user-owned media to **private buckets** with **signed URLs or an authenticated media proxy** before shipping real multi-user accounts.
 
 ### Step 5: Push database schema
 
@@ -1023,6 +1088,8 @@ RecipeJar/
 ├── README.md                             # this file
 ├── CHANGELOG.md                          # dated release notes; start here after a long break
 ├── QA_CHECKLIST.md                       # manual QA test scenarios
+├── docs/
+│   └── AUTH_RLS_SECURITY_PLAN.md         # comprehensive auth/RLS security plan (8 work streams; WS-1/2/3/5 complete, WS-4/6/7/8 pending)
 │
 ├── shared/                               # shared TypeScript types (no runtime deps)
 │   ├── package.json
@@ -1052,13 +1119,23 @@ RecipeJar/
 │   │   ├── 0004_burly_yellow_claw.sql              # recipe_notes table + rating_half_steps column on recipes
 │   │   ├── 0005_recipe_image_url.sql               # nullable image_url on recipes (hero image storage path key)
 │   │   ├── 0006_outgoing_beast.sql                 # nullable parse_error_message on drafts (concurrent import error tracking)
-│   │   └── 0007_structured_ingredients_servings.sql # baseline_servings on recipes + structured ingredient columns (amount, amount_max, unit, name, raw_text, is_scalable)
+│   │   ├── 0007_structured_ingredients_servings.sql # baseline_servings on recipes + structured ingredient columns (amount, amount_max, unit, name, raw_text, is_scalable)
+│   │   ├── 0008_auth_profiles_user_id.sql          # profiles table (1:1 auth.users), auto-create trigger, user_id columns on 4 domain tables, indexes
+│   │   └── 0009_rls_policies.sql                   # RLS enabled on 11 tables, 41 policies (authenticated role only, anon denied)
+│   ├── scripts/
+│   │   ├── migrate-0008-backfill.ts      # one-time backfill: seed user creation, user_id assignment, NOT NULL + FK enforcement (already executed)
+│   │   ├── run-0008-phase1.ts            # applies migration 0008 SQL (already executed)
+│   │   ├── run-0009-rls.ts               # applies migration 0009 SQL (already executed)
+│   │   ├── verify-0008.ts                # verifies migration 0008 success (schema, data, constraints)
+│   │   └── verify-0009-rls.ts            # verifies RLS policies are active (table count, policy count)
 │   ├── src/
-│   │   ├── app.ts                        # server entry point, Fastify setup, route registration, startup cleanup (stuck parsing + old cancelled drafts)
+│   │   ├── app.ts                        # server entry point, Fastify setup, auth middleware registration, route registration, startup cleanup (stuck parsing + old cancelled drafts)
+│   │   ├── middleware/
+│   │   │   └── auth.ts                   # JWT auth middleware: verifies Supabase access token, sets request.userId; /health exempt; returns 401 on missing/invalid token
 │   │   ├── api/
-│   │   │   ├── drafts.routes.ts          # 13 draft endpoints (create, upload, parse [202 fire-and-forget], edit, save [idempotent], cancel, etc.); resolved page image URLs on GET
-│   │   │   ├── recipes.routes.ts         # 11 recipe endpoints (list, get, put, delete, hero image post/delete, assign collection, notes CRUD, rating)
-│   │   │   └── collections.routes.ts     # 5 collection behaviors: POST create, GET list, GET :id/recipes, PATCH :id rename, DELETE :id (204)
+│   │   │   ├── drafts.routes.ts          # 13 draft endpoints — all pass request.userId to repository (create, upload, parse [202], edit, save [idempotent], cancel, etc.)
+│   │   │   ├── recipes.routes.ts         # 11 recipe endpoints — all pass request.userId; cross-user access returns 404 (list, get, put, delete, hero image, collection, notes CRUD, rating)
+│   │   │   └── collections.routes.ts     # 5 collection behaviors — all pass request.userId: POST create, GET list, GET :id/recipes, PATCH :id rename, DELETE :id (204)
 │   │   ├── domain/
 │   │   │   ├── save-decision.ts          # decideSave() — determines SAVE_CLEAN / SAVE_USER_VERIFIED / NO_SAVE
 │   │   │   └── validation/
@@ -1092,11 +1169,11 @@ RecipeJar/
 │   │   │       └── url-ai.adapter.ts     # GPT-5.4 fallback with simplified prompt (no signal arrays), smart truncation, retry, response validation
 │   │   └── persistence/
 │   │       ├── db.ts                     # Drizzle client initialization (lazy, uses DATABASE_URL, pool max: 20)
-│   │       ├── schema.ts                # 10 tables + recipes.baseline_servings + structured ingredient columns + drafts.parse_error_message
-│   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states + setParsedCandidate (race-safe, includes servings), setParseError, resetStuckParsingDrafts, deleteOldCancelledDrafts
-│   │       ├── recipes.repository.ts    # CRUD for recipes, structured ingredients, steps, source pages + assignToCollection/removeFromCollection via join table + rating; update() runs Rule A (ingredient re-parse)
-│   │       ├── recipe-notes.repository.ts # CRUD for recipe notes (create, update, delete, list by recipe) + touches parent recipe updatedAt
-│   │       └── collections.repository.ts # collections: create, list, findById, update (name + updatedAt), delete
+│   │       ├── schema.ts                # 11 tables: profiles (1:1 auth.users) + 4 domain tables with user_id NOT NULL FK + structured ingredient columns + drafts.parse_error_message
+│   │       ├── drafts.repository.ts     # CRUD for drafts, pages, warning states — all methods accept userId; findByIdInternal(id) for background tasks (no user filter); setParsedCandidate, setParseError, resetStuckParsingDrafts, deleteOldCancelledDrafts
+│   │       ├── recipes.repository.ts    # CRUD for recipes — all methods accept userId; structured ingredients, steps, source pages + assignToCollection/removeFromCollection + rating; update() runs Rule A
+│   │       ├── recipe-notes.repository.ts # CRUD for recipe notes — all methods accept userId; touches parent recipe updatedAt
+│   │       └── collections.repository.ts # collections — all methods accept userId: create, list, findById, update (name + updatedAt), delete
 │   └── tests/
 │       ├── validation.engine.test.ts    # 23 tests — all validation rules
 │       ├── save-decision.test.ts        # 8 tests — save decision logic
@@ -1366,7 +1443,8 @@ This is the shortest correct mental model for both human contributors and AI age
 
 1. Create or edit a route file in `server/src/api/`
 2. Register it in `server/src/app.ts` via `app.register(yourRoutes)`
-3. Add integration tests in `server/tests/integration.test.ts`
+3. **Every route handler must use `request.userId`** — the auth middleware populates this on all non-public routes. Pass it to repository methods. To make a route public, add its path to `PUBLIC_ROUTES` in `server/src/middleware/auth.ts`.
+4. Add integration tests in `server/tests/integration.test.ts`
 
 ### Extending the state machine
 
@@ -1415,6 +1493,59 @@ To modify the concurrent queue behavior:
 
 - `SERVINGS_MISSING` (BLOCK severity, `rules.servings.ts`): fires when `candidate.servings` is null or ≤ 0. The user must enter servings in the import preview before saving.
 - `PreviewEditView` shows the servings input and validation warning. `candidateSyncPending` in `ImportFlowScreen` disables save while the `PATCH /candidate` revalidation is in flight.
+
+### Authentication architecture & remaining work (WS-6 through WS-8)
+
+**Current state (server + mobile complete — WS-1/2/3/4/5 done):**
+
+Authentication is fully wired end-to-end. Here's how it works:
+
+1. **Supabase Auth** manages user accounts, sessions, and tokens (Email/password, Apple Sign-In, Google OAuth, TOTP MFA). Configuration is in the Supabase dashboard, not in code.
+2. **Fastify middleware** (`server/src/middleware/auth.ts`) intercepts every request (except `/health`), extracts the `Bearer` token from the `Authorization` header, and calls `supabase.auth.getUser(token)`. On success, `request.userId` is set to the user's UUID. On failure, 401 is returned.
+3. **Repositories** — every data access method in `collections.repository.ts`, `drafts.repository.ts`, `recipes.repository.ts`, and `recipe-notes.repository.ts` accepts `userId` and includes it in Drizzle WHERE clauses (e.g., `and(eq(recipes.id, id), eq(recipes.userId, userId))`). Cross-user access returns no rows (which routes surface as 404, not 403).
+4. **RLS (defense-in-depth)** — Postgres Row Level Security is enabled on all 11 public tables. Even if application code has a bug, RLS prevents cross-user data leakage at the database level. The Fastify server uses the `service_role` which bypasses RLS (by design — code-level scoping is primary). RLS protects against direct database access or future clients.
+5. **Profiles** — `profiles` table maps 1:1 with `auth.users`. A Postgres trigger (`handle_new_user`) auto-creates a profile row on every new signup. The `profiles.id` is the same UUID as the auth user's ID.
+6. **Seed user** — all pre-auth data (211 rows across 4 tables) was backfilled to a banned seed user (`migration-seed@recipejar.app`, id `2a739cca-69b9-4385-801f-946cd123041c`). This user cannot authenticate.
+7. **Mobile Supabase client** (`mobile/src/services/supabase.ts`) — uses anon key, Keychain storage adapter (`react-native-keychain`), `detectSessionInUrl: false`. Polyfills: `react-native-url-polyfill` (URL API for Hermes), `react-native-get-random-values@^1.11.0` (crypto).
+8. **Auth store** (`mobile/src/stores/auth.store.ts`) — Zustand: `session`, `user`, `isLoading`, `isAuthenticated`, `pendingPasswordReset`. Initializes from Keychain, subscribes to `onAuthStateChange`. `signOut()` clears all stores (recipes, collections, importQueue) and Keychain.
+9. **Auth-gated navigation** (`App.tsx`) — four-state root: splash (loading) → AuthStack (unauthenticated) → ResetPasswordScreen (recovery deep link) → AppStack (authenticated). Deep link handler parses Supabase hash fragments (`#access_token=...&type=recovery`).
+10. **Token injection** (`api.ts`) — `authenticatedFetch()` injects `Authorization: Bearer <token>` on every request (including 4 raw multipart `fetch` calls). Single-flight `refreshOnce()` prevents concurrent token refreshes. 401 → refresh → retry → signOut cascade.
+11. **Auth screens** — OnboardingScreen (3-card carousel, shows once), AuthScreen (social-first: Apple with SHA-256 nonce via `js-sha256`, Google with `iosClientId`/`webClientId` and JWT nonce extraction via `jwt-decode`), SignInScreen (email/password), SignUpScreen (12-char password hint, email confirmation), ForgotPasswordScreen, EmailConfirmationScreen, ResetPasswordScreen (standalone on recovery deep link), AccountScreen (profile, linked providers, sign-out).
+12. **iOS config** — `Info.plist` URL schemes (`app.recipejar.ios`, reversed Google client ID), `GIDClientID`, `RecipeJar.entitlements` (Apple Sign-In capability).
+
+**Supabase dashboard settings (manual, not in code):** Apple Bundle ID = `app.recipejar.ios`, Google "Skip nonce check" enabled (SDK v16 limitation), redirect URL `app.recipejar.ios://auth/callback`, email verification enabled.
+
+**WS-6 (Storage Security) — NEXT (WS-4 dependency satisfied):**
+
+1. Convert `recipe-pages` and `recipe-images` buckets from public to private in Supabase dashboard
+2. Change all upload paths to include `userId` prefix: `{userId}/drafts/{draftId}/{pageNum}.jpg`, `{userId}/recipes/{recipeId}/hero.jpg`
+3. Replace `getPublicUrl()` calls with `createSignedUrl(path, 3600)` (60-min TTL)
+4. Update `recipe-image.service.ts` to validate that the upload path userId matches the authenticated user
+5. Write a migration script to move existing storage objects from flat paths to user-scoped paths
+
+**WS-7 (Session Management & Recovery):**
+
+1. Session list/revoke: API endpoints to list active sessions and revoke specific ones
+2. Sign-out-all: revoke all sessions for the user
+3. Step-up auth: require reauthentication (within 10-min window) for email change, password change, MFA changes, account deletion
+4. ~~Password reset flow in the mobile app~~ ✅ Built (ForgotPasswordScreen + ResetPasswordScreen + deep link handler)
+5. Email change flow with confirmation
+6. MFA TOTP enrollment UI + backup codes generation and display
+7. Provider linking: allow users to link Apple ↔ Google ↔ email accounts
+8. Account deletion: 30-day soft delete (set `profiles.deleted_at`, ban user, schedule hard delete)
+
+**WS-8 (Abuse Controls & Testing):**
+
+1. Rate limiting: per-route limits on login, signup, password reset (e.g., 5 attempts per 15 min)
+2. CAPTCHA escalation: show CAPTCHA after repeated failures
+3. Audit event logging: log login, password change, MFA change, account deletion events
+4. User notifications: email on password change, new device login, MFA change
+5. Vitest integration tests: auth middleware, IDOR prevention, RLS enforcement, session management, recovery flows
+6. Manual security checklist document
+
+**None of WS-6/7/8 block TestFlight for trusted testers.** WS-6 should be completed before a public/App Store launch.
+
+**Reference:** `docs/AUTH_RLS_SECURITY_PLAN.md` contains the full 8-work-stream plan with detailed specifications.
 
 ### Adding testID props for iOS UI testing
 
@@ -1468,9 +1599,14 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 ### Known gaps
 
+- **Mobile authentication (WS-4 — COMPLETE)**: Supabase client on mobile with Keychain session, auth-gated navigation, Apple/Google/email sign-in, Bearer token injection, password reset via deep link, onboarding, account screen. All three auth methods tested on physical iPhone.
+- **Storage bucket privacy (WS-6 — NEXT)**: Both `recipe-pages` and `recipe-images` buckets are still public. WS-6 will convert them to private, implement user-scoped paths (`{userId}/...`), and use signed URLs. WS-4 dependency is now satisfied.
+- **Session lifecycle & MFA flows (WS-7)**: No session list/revoke UI, no step-up auth for sensitive actions, no MFA enrollment in the app, no account deletion flow. Password reset is built.
+- **Abuse controls & auth tests (WS-8)**: No rate limiting, no CAPTCHA escalation, no audit event logging, no auth-specific integration tests.
+- **Production deployment**: Fastify server is localhost-only. Must be deployed to a cloud host (Railway, Render, Fly.io, AWS, etc.) before TestFlight distribution. The mobile `api.ts` base URL needs updating to point to the production host.
+- **Apple client secret expiration**: The Apple OAuth client secret (ES256 JWT from `.p8` key) expires ~6 months from April 2026. Must be regenerated before expiry.
 - **Bot-protected URLs**: AllRecipes, Simply Recipes, Food Network can block server-side fetches. Browser-backed URL import now mitigates this by sending client-captured HTML from `WebRecipeImportScreen` into the normal URL parsing pipeline, with a one-time fallback to server fetch if capture fails technically. Remaining failures are usually challenge pages, consent walls, or other non-recipe HTML. Clipboard/manual URL entry still relies on server fetch unless those flows are later routed through the browser.
 - **Recipe metadata UI**: JSON-LD captures prep/cook/total time and image URL, but these timing fields are not yet displayed in the mobile UI. Servings are now captured and displayed.
-- **Authentication**: Single-user MVP. No auth, no user table, no data-ownership. Adding auth requires: user table, session/JWT middleware, user_id FKs, Supabase RLS policies.
 - **Offline / local-first**: Not implemented. All operations require network access. Future: local SQLite with sync.
 - **Multi-collection assignment UI**: Schema supports many-to-many; UI currently assigns one collection at a time.
 - **Varied cookbook formats**: Only tested on a few printed cookbook pages. Accuracy across handwritten, glossy, multi-column layouts is unverified.
@@ -1483,6 +1619,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-04-03** — **Authentication infrastructure, user ownership & Row Level Security:** Server-side auth is live. `profiles` table (1:1 with `auth.users`, auto-created by Postgres trigger), `user_id` NOT NULL FK on `recipes`/`collections`/`drafts`/`recipe_notes`. Fastify JWT middleware (`auth.ts`) on all routes (except `/health`). All repositories refactored for `userId` scoping. RLS enabled on 11 tables with 41 policies. Supabase Auth configured (Email, Apple, Google, TOTP MFA). Existing data backfilled to banned seed user. Migrations `0008` + `0009`. Mobile auth (WS-4), storage privacy (WS-6), session lifecycle (WS-7), and abuse controls (WS-8) still pending. See `docs/AUTH_RLS_SECURITY_PLAN.md`. Details in changelog.
 - **2026-03-31** — **Servings, structured ingredients & dynamic scaling:** every recipe stores `baselineServings`; ingredients persisted with structured fields (`amount`, `amountMax`, `unit`, `name`, `raw`, `isScalable`). New deterministic ingredient parser (`ingredient-parser.ts`) for JSON-LD/microdata strings and Rule A (re-parse on saved recipe edit). `SERVINGS_MISSING` validation rule (BLOCK severity). GPT prompts updated for structured output. URL DOM extractor captures serving metadata from auxiliary elements. Client-side scaling engine (`scaling.ts`) with mixed-number formatting and unicode fractions. Servings stepper on detail screen, servings input on import preview and edit screen. Migration `0007`. Details in changelog.
 - **2026-03-30** — **Collection folder rename & delete:** `PATCH /collections/:id`, mobile long-press folders + collection-screen ⋯ menu, `DeleteCollectionConfirmSheet`, assign-to-collection **404** if folder missing, `RecipeEditScreen` refetches collections on focus; **restart API** after pull so `PATCH` is registered. Details in changelog.
 - **2026-03-30** — **Concurrent import queue:** users can import up to 3 image-based recipes concurrently. Server returns `202 Accepted` for parse requests and processes in background with a concurrency semaphore (max 2 OpenAI Vision calls). Client-side Zustand store with AsyncStorage persistence, exponential-backoff poller, Import Hub screen, app-wide floating banner, enqueue function with retry/orphan cleanup. New endpoints: `POST /cancel`, idempotency guards, startup cleanup. New draft statuses: `PARSE_FAILED`, `CANCELLED`. Migration `0006` adds `parse_error_message`. Dependencies: `@react-native-async-storage/async-storage`. Details in changelog.

@@ -15,6 +15,7 @@ interface CollectionsState {
   createCollection: (name: string) => Promise<Collection>;
   updateCollection: (id: string, name: string) => Promise<Collection>;
   deleteCollection: (id: string) => Promise<void>;
+  reset: () => void;
 }
 
 export const useCollectionsStore = create<CollectionsState>((set, get) => ({
@@ -60,5 +61,9 @@ export const useCollectionsStore = create<CollectionsState>((set, get) => ({
       collections: get().collections.filter((c) => c.id !== id),
     });
     await useRecipesStore.getState().fetchRecipes();
+  },
+
+  reset() {
+    set({ collections: [], loading: false, error: null });
   },
 }));

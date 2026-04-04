@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../services/api";
+import { supabase } from "../services/supabase";
 
 export type QueueEntryStatus =
   | "uploading"
@@ -34,6 +35,7 @@ interface ImportQueueState {
   canImportMore: () => boolean;
   setReviewing: (localId: string) => void;
   clearReviewing: (localId: string) => void;
+  reset: () => void;
 }
 
 export const useImportQueueStore = create<ImportQueueState>()(
@@ -82,6 +84,11 @@ export const useImportQueueStore = create<ImportQueueState>()(
           ),
         }));
       },
+
+      reset() {
+        set({ entries: [] });
+        useImportQueueStore.persist.clearStorage();
+      },
     }),
     {
       name: "import-queue",
@@ -100,7 +107,10 @@ export const useImportQueueStore = create<ImportQueueState>()(
   ),
 );
 
-async function reconcileQueue() {
+export async function reconcileQueue() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+
   const { entries, updateEntry, removeEntry } = useImportQueueStore.getState();
 
   for (const entry of entries) {

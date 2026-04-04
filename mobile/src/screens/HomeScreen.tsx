@@ -27,7 +27,10 @@ import {
   Trash2,
   X,
   Pencil,
+  User,
 } from "lucide-react-native";
+import FastImage from "react-native-fast-image";
+import { useAuthStore } from "../stores/auth.store";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
 import { useImportQueueStore } from "../stores/importQueue.store";
@@ -83,6 +86,63 @@ interface CollectionItem {
   name: string;
   isVirtual?: boolean;
 }
+
+function ProfileAvatar() {
+  const user = useAuthStore((s) => s.user);
+  const avatarUrl = user?.user_metadata?.avatar_url;
+  const displayName = user?.user_metadata?.display_name || user?.user_metadata?.full_name;
+  const initial = displayName?.[0]?.toUpperCase();
+
+  const nav = require("@react-navigation/native").useNavigation();
+
+  return (
+    <TouchableOpacity
+      style={avatarStyles.container}
+      onPress={() => nav.navigate("Account")}
+      activeOpacity={0.7}
+    >
+      {avatarUrl ? (
+        <FastImage
+          source={{ uri: avatarUrl }}
+          style={avatarStyles.image}
+        />
+      ) : initial ? (
+        <View style={[avatarStyles.circle, { backgroundColor: "#fdba74" }]}>
+          <Text style={avatarStyles.initial}>{initial}</Text>
+        </View>
+      ) : (
+        <View style={[avatarStyles.circle, { backgroundColor: "#fdba74" }]}>
+          <User size={18} color="#6b7280" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+const avatarStyles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    right: 16,
+    top: 52,
+  },
+  image: {
+    width: 43,
+    height: 43,
+    borderRadius: 22,
+  },
+  circle: {
+    width: 43,
+    height: 43,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  initial: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+});
 
 export function HomeScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -367,6 +427,7 @@ export function HomeScreen({ navigation, route }: Props) {
         <Text style={styles.subtitle} testID="home-subtitle">
           Your recipe collection
         </Text>
+        <ProfileAvatar />
       </View>
 
       <View style={styles.searchContainer}>

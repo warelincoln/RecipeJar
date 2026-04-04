@@ -2,6 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
+import { registerAuth } from "./middleware/auth.js";
 import { draftsRoutes } from "./api/drafts.routes.js";
 import { recipesRoutes } from "./api/recipes.routes.js";
 import { collectionsRoutes } from "./api/collections.routes.js";
@@ -26,6 +27,8 @@ app.addContentTypeParser(
     }
   },
 );
+
+registerAuth(app);
 
 app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } });
 app.register(draftsRoutes);

@@ -208,7 +208,7 @@ async function runParseInBackground(
 
 export async function draftsRoutes(app: FastifyInstance) {
   app.post("/drafts", async (request, reply) => {
-    const draft = await draftsRepository.create({ sourceType: "image" });
+    const draft = await draftsRepository.create({ userId: request.userId, sourceType: "image" });
     logEvent("draft_created", { draftId: draft.id, sourceType: "image" });
     return reply.status(201).send(draft);
   });
@@ -219,6 +219,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "url is required" });
     }
     const draft = await draftsRepository.create({
+      userId: request.userId,
       sourceType: "url",
       originalUrl: url,
     });
@@ -230,7 +231,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/pages",
     async (request, reply) => {
       const { draftId } = request.params;
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -327,7 +328,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       };
       const suppliedHtml =
         typeof parseBody.html === "string" ? parseBody.html.trim() : "";
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -360,7 +361,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/cancel",
     async (request, reply) => {
       const { draftId } = request.params;
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -382,7 +383,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/candidate",
     async (request, reply) => {
       const { draftId } = request.params;
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -448,6 +449,10 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/dismiss-warning",
     async (request, reply) => {
       const { draftId } = request.params;
+      const existingDraft = await draftsRepository.findById(draftId, request.userId);
+      if (!existingDraft) {
+        return reply.status(404).send({ error: "Draft not found" });
+      }
       const { issueId } = request.body as { issueId: string };
       const result = await draftsRepository.dismissWarning(draftId, issueId);
       if (!result) {
@@ -462,6 +467,10 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/undismiss-warning",
     async (request, reply) => {
       const { draftId } = request.params;
+      const existingDraft = await draftsRepository.findById(draftId, request.userId);
+      if (!existingDraft) {
+        return reply.status(404).send({ error: "Draft not found" });
+      }
       const { issueId } = request.body as { issueId: string };
       const result = await draftsRepository.undismissWarning(draftId, issueId);
       if (!result) {
@@ -475,7 +484,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId",
     async (request, reply) => {
       const { draftId } = request.params;
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -498,7 +507,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     "/drafts/:draftId/save",
     async (request, reply) => {
       const { draftId } = request.params;
-      const draft = await draftsRepository.findById(draftId);
+      const draft = await draftsRepository.findById(draftId, request.userId);
       if (!draft) {
         return reply.status(404).send({ error: "Draft not found" });
       }
@@ -538,6 +547,7 @@ export async function draftsRoutes(app: FastifyInstance) {
       const pages = await draftsRepository.getPages(draftId);
 
       const recipe = await recipesRepository.save({
+        userId: request.userId,
         title: edited.title,
         description: edited.description,
         sourceType: draft.sourceType as "image" | "url",

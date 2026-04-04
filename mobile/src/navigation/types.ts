@@ -1,3 +1,12 @@
+export type AuthStackParamList = {
+  Onboarding: undefined;
+  Auth: undefined;
+  SignIn: undefined;
+  SignUp: undefined;
+  ForgotPassword: undefined;
+  EmailConfirmation: { email: string };
+};
+
 export type RootStackParamList = {
   Home: { openFab?: boolean } | undefined;
   RecipeDetail: { recipeId: string };
@@ -26,4 +35,5 @@ export type RootStackParamList = {
   };
   WebRecipeImport: { initialUrl?: string };
   ImportHub: undefined;
+  Account: undefined;
 };

@@ -6,7 +6,9 @@ import type {
   Recipe,
   RecipeNote,
 } from "@recipejar/shared";
+import type { Session } from "@supabase/supabase-js";
 import { RECIPEJAR_LAN_HOST } from "../devLanHost";
+import { supabase } from "./supabase";
 
 export interface UrlParseRequest {
   html?: string;
@@ -23,6 +25,53 @@ const BASE_URL = __DEV__
   ? `http://${RECIPEJAR_LAN_HOST}:3000`
   : "https://api.recipejar.app";
 
+// Single-flight token refresh lock
+let refreshPromise: Promise<Session | null> | null = null;
+
+async function refreshOnce(): Promise<Session | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = supabase.auth
+    .refreshSession()
+    .then(({ data }) => data.session)
+    .finally(() => {
+      refreshPromise = null;
+    });
+  return refreshPromise;
+}
+
+async function getAccessToken(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
+async function authenticatedFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  let response = await fetch(url, { ...init, headers });
+
+  if (response.status === 401 && token) {
+    const newSession = await refreshOnce();
+    if (newSession) {
+      headers["Authorization"] = `Bearer ${newSession.access_token}`;
+      response = await fetch(url, { ...init, headers });
+    } else {
+      const { useAuthStore } = await import("../stores/auth.store");
+      await useAuthStore.getState().signOut();
+    }
+  }
+
+  return response;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -31,7 +80,8 @@ async function request<T>(
   if (options.body) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(`${BASE_URL}${path}`, {
+
+  const response = await authenticatedFetch(`${BASE_URL}${path}`, {
     ...options,
     headers,
   });
@@ -82,10 +132,10 @@ export const api = {
         name: fileName ?? "page.jpg",
       } as unknown as Blob);
 
-      const response = await fetch(`${BASE_URL}/drafts/${draftId}/pages`, {
-        method: "POST",
-        body: formData,
-      });
+      const response = await authenticatedFetch(
+        `${BASE_URL}/drafts/${draftId}/pages`,
+        { method: "POST", body: formData },
+      );
 
       if (!response.ok) throw new ApiError(response.status, "Upload failed");
       return response.json();
@@ -109,7 +159,7 @@ export const api = {
         name: "retake.jpg",
       } as unknown as Blob);
 
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `${BASE_URL}/drafts/${draftId}/retake/${pageId}`,
         { method: "POST", body: formData },
       );
@@ -208,10 +258,10 @@ export const api = {
         name: fileName ?? "hero.jpg",
       } as unknown as Blob);
 
-      const response = await fetch(`${BASE_URL}/recipes/${id}/image`, {
-        method: "POST",
-        body: formData,
-      });
+      const response = await authenticatedFetch(
+        `${BASE_URL}/recipes/${id}/image`,
+        { method: "POST", body: formData },
+      );
       if (!response.ok) throw new ApiError(response.status, "Image upload failed");
       return response.json() as Promise<Recipe>;
     },
@@ -279,9 +329,10 @@ export const api = {
     },
 
     async delete(id: string) {
-      const response = await fetch(`${BASE_URL}/collections/${id}`, {
-        method: "DELETE",
-      });
+      const response = await authenticatedFetch(
+        `${BASE_URL}/collections/${id}`,
+        { method: "DELETE" },
+      );
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { error?: string };
         throw new ApiError(

@@ -40,7 +40,7 @@ case "$1" in
     stop_concurrent_xcodebuild
     # Default: Lincoln Ware's iPhone (wireless after Xcode "Connect via network"). Override: IOS_DEVICE_UDID
     UDID="${IOS_DEVICE_UDID:-00008140-00047D103499801C}"
-    BUNDLE_ID="org.reactjs.native.example.RecipeJar"
+    BUNDLE_ID="app.recipejar.ios"
     WORKSPACE="ios/RecipeJar.xcworkspace"
     DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
 
@@ -50,6 +50,7 @@ case "$1" in
     xcodebuild -workspace "$WORKSPACE" -scheme RecipeJar -configuration Debug \
       -destination "id=$UDID" \
       -derivedDataPath "$DERIVED/RecipeJar-device" \
+      -allowProvisioningUpdates \
       build 2>&1 | tail -1
 
     APP_PATH="$DERIVED/RecipeJar-device/Build/Products/Debug-iphoneos/RecipeJar.app"

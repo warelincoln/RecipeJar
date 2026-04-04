@@ -19,15 +19,15 @@ function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
 }
 
 export async function recipesRoutes(app: FastifyInstance) {
-  app.get("/recipes", async (_request, reply) => {
-    const recipes = await recipesRepository.list();
+  app.get("/recipes", async (request, reply) => {
+    const recipes = await recipesRepository.list(request.userId);
     return reply.send(recipes.map(withImageUrls));
   });
 
   app.get<{ Params: { id: string } }>(
     "/recipes/:id",
     async (request, reply) => {
-      const recipe = await recipesRepository.findById(request.params.id);
+      const recipe = await recipesRepository.findById(request.params.id, request.userId);
       if (!recipe) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
@@ -46,13 +46,14 @@ export async function recipesRoutes(app: FastifyInstance) {
       steps: { text: string; orderIndex: number; isHeader: boolean }[];
     };
   }>("/recipes/:id", async (request, reply) => {
-    const existing = await recipesRepository.findById(request.params.id);
+    const existing = await recipesRepository.findById(request.params.id, request.userId);
     if (!existing) {
       return reply.status(404).send({ error: "Recipe not found" });
     }
     const updated = await recipesRepository.update(
       request.params.id,
       request.body,
+      request.userId,
     );
     return reply.send(updated ? withImageUrls(updated) : null);
   });
@@ -60,7 +61,7 @@ export async function recipesRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>(
     "/recipes/:id",
     async (request, reply) => {
-      const existing = await recipesRepository.findById(request.params.id);
+      const existing = await recipesRepository.findById(request.params.id, request.userId);
       if (!existing) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
@@ -80,7 +81,7 @@ export async function recipesRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>(
     "/recipes/:id/image",
     async (request, reply) => {
-      const existing = await recipesRepository.findById(request.params.id);
+      const existing = await recipesRepository.findById(request.params.id, request.userId);
       if (!existing) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
@@ -98,7 +99,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       }
 
       await recipesRepository.setImage(request.params.id, imagePath);
-      const updated = await recipesRepository.findById(request.params.id);
+      const updated = await recipesRepository.findById(request.params.id, request.userId);
       return reply.send(updated ? withImageUrls(updated) : null);
     },
   );
@@ -106,13 +107,13 @@ export async function recipesRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>(
     "/recipes/:id/image",
     async (request, reply) => {
-      const existing = await recipesRepository.findById(request.params.id);
+      const existing = await recipesRepository.findById(request.params.id, request.userId);
       if (!existing) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
       await deleteRecipeImage(request.params.id);
       await recipesRepository.setImage(request.params.id, null);
-      const updated = await recipesRepository.findById(request.params.id);
+      const updated = await recipesRepository.findById(request.params.id, request.userId);
       return reply.send(updated ? withImageUrls(updated) : null);
     },
   );
@@ -121,14 +122,14 @@ export async function recipesRoutes(app: FastifyInstance) {
     Params: { id: string };
     Body: { collectionId: string | null };
   }>("/recipes/:id/collection", async (request, reply) => {
-    const existing = await recipesRepository.findById(request.params.id);
+    const existing = await recipesRepository.findById(request.params.id, request.userId);
     if (!existing) {
       return reply.status(404).send({ error: "Recipe not found" });
     }
 
     const { collectionId } = request.body;
     if (collectionId) {
-      const collection = await collectionsRepository.findById(collectionId);
+      const collection = await collectionsRepository.findById(collectionId, request.userId);
       if (!collection) {
         return reply.status(404).send({ error: "Collection not found" });
       }
@@ -140,7 +141,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       await recipesRepository.removeFromCollection(request.params.id);
     }
 
-    const updated = await recipesRepository.findById(request.params.id);
+    const updated = await recipesRepository.findById(request.params.id, request.userId);
     return reply.send(updated ? withImageUrls(updated) : null);
   });
 
@@ -149,7 +150,7 @@ export async function recipesRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { text: string } }>(
     "/recipes/:id/notes",
     async (request, reply) => {
-      const recipe = await recipesRepository.findById(request.params.id);
+      const recipe = await recipesRepository.findById(request.params.id, request.userId);
       if (!recipe) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
@@ -159,7 +160,7 @@ export async function recipesRoutes(app: FastifyInstance) {
           .status(400)
           .send({ error: `Note text is required and must be ${NOTE_MAX_LENGTH} characters or fewer` });
       }
-      const note = await recipeNotesRepository.create(request.params.id, trimmed);
+      const note = await recipeNotesRepository.create(request.params.id, trimmed, request.userId);
       return reply.status(201).send(note);
     },
   );
@@ -168,7 +169,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     Params: { id: string; noteId: string };
     Body: { text: string };
   }>("/recipes/:id/notes/:noteId", async (request, reply) => {
-    const note = await recipeNotesRepository.findById(request.params.noteId);
+    const note = await recipeNotesRepository.findById(request.params.noteId, request.userId);
     if (!note || note.recipeId !== request.params.id) {
       return reply.status(404).send({ error: "Note not found" });
     }
@@ -178,18 +179,18 @@ export async function recipesRoutes(app: FastifyInstance) {
         .status(400)
         .send({ error: `Note text is required and must be ${NOTE_MAX_LENGTH} characters or fewer` });
     }
-    const updated = await recipeNotesRepository.update(request.params.noteId, trimmed);
+    const updated = await recipeNotesRepository.update(request.params.noteId, trimmed, request.userId);
     return reply.send(updated);
   });
 
   app.delete<{ Params: { id: string; noteId: string } }>(
     "/recipes/:id/notes/:noteId",
     async (request, reply) => {
-      const note = await recipeNotesRepository.findById(request.params.noteId);
+      const note = await recipeNotesRepository.findById(request.params.noteId, request.userId);
       if (!note || note.recipeId !== request.params.id) {
         return reply.status(404).send({ error: "Note not found" });
       }
-      await recipeNotesRepository.delete(request.params.noteId);
+      await recipeNotesRepository.delete(request.params.noteId, request.userId);
       return reply.send({ success: true });
     },
   );
@@ -200,7 +201,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     Params: { id: string };
     Body: { rating: number | null };
   }>("/recipes/:id/rating", async (request, reply) => {
-    const existing = await recipesRepository.findById(request.params.id);
+    const existing = await recipesRepository.findById(request.params.id, request.userId);
     if (!existing) {
       return reply.status(404).send({ error: "Recipe not found" });
     }
@@ -212,7 +213,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     }
     const halfSteps = rating !== null ? Math.round(rating * 2) : null;
     await recipesRepository.setRating(request.params.id, halfSteps);
-    const updated = await recipesRepository.findById(request.params.id);
+    const updated = await recipesRepository.findById(request.params.id, request.userId);
     return reply.send(updated ? withImageUrls(updated) : null);
   });
 }

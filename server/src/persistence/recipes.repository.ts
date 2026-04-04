@@ -1,4 +1,4 @@
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "./db.js";
 import {
   recipes,
@@ -17,6 +17,7 @@ function mapRating(halfSteps: number | null): number | null {
 }
 
 export interface SaveRecipeInput {
+  userId: string;
   title: string;
   description?: string | null;
   sourceType: "image" | "url";
@@ -80,6 +81,7 @@ export const recipesRepository = {
     const [recipe] = await db
       .insert(recipes)
       .values({
+        userId: input.userId,
         title: input.title,
         description: input.description ?? null,
         sourceType: input.sourceType,
@@ -143,9 +145,9 @@ export const recipesRepository = {
     };
   },
 
-  async findById(id: string) {
+  async findById(id: string, userId: string) {
     const recipe = await db.query.recipes.findFirst({
-      where: eq(recipes.id, id),
+      where: and(eq(recipes.id, id), eq(recipes.userId, userId)),
     });
     if (!recipe) return null;
 
@@ -203,14 +205,15 @@ export const recipesRepository = {
     };
   },
 
-  async list() {
+  async list(userId: string) {
     const allRecipes = await db.query.recipes.findMany({
+      where: eq(recipes.userId, userId),
       orderBy: (r, { desc: d }) => [d(r.createdAt)],
     });
     return attachCollections(allRecipes);
   },
 
-  async listByCollection(collectionId: string) {
+  async listByCollection(collectionId: string, userId: string) {
     const joinRows = await db
       .select({ recipeId: recipeCollections.recipeId })
       .from(recipeCollections)
@@ -222,7 +225,7 @@ export const recipesRepository = {
     const recipeRows = await db
       .select()
       .from(recipes)
-      .where(inArray(recipes.id, recipeIds))
+      .where(and(inArray(recipes.id, recipeIds), eq(recipes.userId, userId)))
       .orderBy(desc(recipes.createdAt));
 
     return attachCollections(recipeRows);
@@ -239,6 +242,7 @@ export const recipesRepository = {
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
       steps: { text: string; orderIndex: number; isHeader: boolean }[];
     },
+    userId?: string,
   ) {
     const recipeSet: Record<string, unknown> = {
       title: input.title,
@@ -253,10 +257,14 @@ export const recipesRepository = {
           : null;
     }
 
+    const whereClause = userId
+      ? and(eq(recipes.id, id), eq(recipes.userId, userId))
+      : eq(recipes.id, id);
+
     const [recipe] = await db
       .update(recipes)
       .set(recipeSet)
-      .where(eq(recipes.id, id))
+      .where(whereClause!)
       .returning();
 
     if (!recipe) return null;
@@ -322,7 +330,7 @@ export const recipesRepository = {
       );
     }
 
-    return this.findById(id);
+    return this.findById(id, userId ?? recipe.userId);
   },
 
   async delete(id: string) {

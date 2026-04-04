@@ -8,6 +8,7 @@ interface RecipesState {
   error: string | null;
   fetchRecipes: () => Promise<void>;
   deleteRecipe: (id: string) => Promise<void>;
+  reset: () => void;
 }
 
 export const useRecipesStore = create<RecipesState>((set) => ({
@@ -33,5 +34,9 @@ export const useRecipesStore = create<RecipesState>((set) => ({
     set((state) => ({
       recipes: state.recipes.filter((r) => r.id !== id),
     }));
+  },
+
+  reset() {
+    set({ recipes: [], loading: false, error: null });
   },
 }));
