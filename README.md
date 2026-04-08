@@ -1,4 +1,4 @@
-# RecipeJar
+# Orzo
 
 ## 0. Fast Handoff
 
@@ -18,7 +18,7 @@ If you are a new developer or an AI agent, start here.
 
 1. From the repo root, run `npm install`  
    - Runs **`patch-package`** (see `patches/*.patch` — required for RN 0.76 + `react-native-svg` iOS build).  
-   - Runs **`scripts/write-recipejar-dev-host.cjs`** (writes gitignored `mobile/src/devLanHost.ts` for LAN API/Metro; edit or re-run if your Mac’s IP changes).
+   - Runs **`scripts/write-orzo-dev-host.cjs`** (writes gitignored `mobile/src/devLanHost.ts` for LAN API/Metro; edit or re-run if your Mac’s IP changes).
 2. Create `server/.env` from `server/.env.example`
 3. Start phone dev services with `npm run dev:phone`
 4. Verify:
@@ -57,7 +57,7 @@ If you are a new developer or an AI agent, start here.
 - `mobile/src/services/api.ts`
   - Mobile API client: `authenticatedFetch()` injects Bearer token on all requests (including 4 raw multipart uploads), single-flight `refreshOnce()` token refresh, 401 retry → signOut fallback. Draft page upload metadata passthrough, **`POST`/`DELETE` recipe hero image** (`/recipes/:id/image`), `cancel` method for drafts; **`collections.update`** (`PATCH`) and **`collections.delete`** (204-safe, no JSON parse on success); **`request()`** error messages prefer Fastify **`message`** then **`error`**
 - `mobile/src/services/supabase.ts`
-  - Supabase client init: anon key, `react-native-keychain` storage adapter (Keychain service `app.recipejar.session`), `detectSessionInUrl: false`, polyfills for URL and crypto
+  - Supabase client init: anon key, `react-native-keychain` storage adapter (Keychain service `app.orzo.session`), `detectSessionInUrl: false`, polyfills for URL and crypto
 - `mobile/src/stores/auth.store.ts`
   - Zustand auth store: `session`, `user`, `isLoading`, `isAuthenticated`, `pendingPasswordReset`. `initialize()` restores from Keychain, subscribes to `onAuthStateChange`. `signOut()` clears Keychain + resets recipes/collections/importQueue stores.
 - `mobile/src/screens/OnboardingScreen.tsx`
@@ -146,9 +146,9 @@ If you are a new developer or an AI agent, start here.
 ### Critical current gotchas
 
 - **Auth is fully wired end-to-end.** Every endpoint except `/health` requires a `Bearer` token. The mobile app sends tokens automatically via `authenticatedFetch()` in `api.ts`. If you're testing the API directly (curl, Postman), get a token via `supabase.auth.signInWithPassword()` or the Supabase dashboard.
-- **Server runs on localhost for development.** The Fastify API is not yet deployed to a cloud host. The mobile app connects to the local network IP (set at build time via `scripts/write-recipejar-dev-host.cjs`). For TestFlight, deploy using the Dockerfile and guide in `docs/PRODUCTION_DEPLOY.md`, then update `api.ts` to point to the production host.
+- **Server runs on localhost for development.** The Fastify API is not yet deployed to a cloud host. The mobile app connects to the local network IP (set at build time via `scripts/write-orzo-dev-host.cjs`). For TestFlight, deploy using the Dockerfile and guide in `docs/PRODUCTION_DEPLOY.md`, then update `api.ts` to point to the production host.
 - **Apple client secret expires ~6 months** from generation (April 2026). The `.p8` key is used to generate a JWT. When it expires, regenerate using the script pattern in the conversation history or via `docs/AUTH_RLS_SECURITY_PLAN.md`.
-- **New API routes (e.g. `PATCH /collections/:id`):** If folder **rename** fails with a generic error or Fastify **`Route PATCH:… not found`**, the Node process on port **3000** is almost certainly **stale**. Kill listeners on **3000**/**8081** and run **`npm run dev:phone`** again from the repo root. Release builds talking to **`api.recipejar.app`** need that backend deployed with the same routes.
+- **New API routes (e.g. `PATCH /collections/:id`):** If folder **rename** fails with a generic error or Fastify **`Route PATCH:… not found`**, the Node process on port **3000** is almost certainly **stale**. Kill listeners on **3000**/**8081** and run **`npm run dev:phone`** again from the repo root. Release builds talking to **`api.getorzo.com`** need that backend deployed with the same routes.
 - If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.
 - If you add/change a native dependency or touch `Podfile`, run `cd mobile/ios && pod install`, then `cd ../ && ./run.sh device`.  
   **`pod install`** also runs a **`Podfile` `post_install` hook** that rebuilds **`RCT-Folly` public `folly/json` header symlinks** on macOS case-insensitive volumes (fixes missing `folly/json/dynamic.h` during native compile).
@@ -158,7 +158,7 @@ If you are a new developer or an AI agent, start here.
 
 ## 1. What This Project Is
 
-RecipeJar converts cookbook page photos and recipe URLs into structured digital recipes. It is a **trust-gated, validation-first** ingestion system. No recipe is saved unless it passes a deterministic validation engine. The system never trusts AI output directly — every parsed result is validated, and the user must explicitly resolve or acknowledge all issues before a save is allowed.
+Orzo converts cookbook page photos and recipe URLs into structured digital recipes. It is a **trust-gated, validation-first** ingestion system. No recipe is saved unless it passes a deterministic validation engine. The system never trusts AI output directly — every parsed result is validated, and the user must explicitly resolve or acknowledge all issues before a save is allowed.
 
 **What is implemented (MVP):**
 
@@ -183,7 +183,7 @@ RecipeJar converts cookbook page photos and recipe URLs into structured digital 
 - Star rating: half-star precision (0.5–5.0), tap-to-toggle UX (first tap → half star, second tap → full, third tap → half), clearable to unrated, debounced API persistence, compact read-only display on grid cards (gold star + numeric value, hidden when unrated)
 - Real-time client-side search by recipe title on home screen and all collection/folder views
 - Lucide icon system (`lucide-react-native`) — all UI icons use Lucide components (no emoji/unicode glyphs). Collection folders auto-assign a contextual icon and color based on their name (keyword rules live in **`mobile/src/features/collections/collectionIconRules.ts`**; falls back to a neutral folder style for unmatched names)
-- **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), and **Save to RecipeJar** now tries to capture the currently loaded page HTML from the WebView before handing off to `ImportFlow`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app. If HTML capture fails for a technical reason (injection failure, timeout, message transport failure, oversized payload), the app falls back once to the existing server-side URL fetch path.
+- **URL import (WebView):** Jar "**URL**" opens `WebRecipeImportScreen` — omnibar, **Google** search for non-URL typed queries (`resolveOmnibarInput` in `webImportUrl.ts`), and **Save to Orzo** now tries to capture the currently loaded page HTML from the WebView before handing off to `ImportFlow`. Requests to major ad/tracking hosts are blocked in `onShouldStartLoadWithRequest` for a cleaner browse experience. **tel: / mailto: / sms:** and **intent:** (Android) require a confirmation alert before leaving the app. If HTML capture fails for a technical reason (injection failure, timeout, message transport failure, oversized payload), the app falls back once to the existing server-side URL fetch path.
 - **Home clipboard prompt:** If the pasteboard has text (`Clipboard.hasString()` — avoids proactive `getString()` / permission churn on iOS), a bottom sheet offers **Paste**; reading and URL validation happen only on that tap. After **Paste** or dismiss, the sheet stays suppressed until the app returns from **background** (not `inactive`, so system dialogs like paste permission do not re-enable the prompt).
 - **Photo library import:** Jar "**Photos**" fan action opens the system image picker (`react-native-image-picker`). After the user picks an image, the app shows a full-screen preview with **Back** and **Import This Photo**. **Back** reopens the library picker so the user can choose a different image. **Import This Photo** sends the asset through the same upload → parse → preview → save pipeline as camera-captured images. On parse failure, a "Could Not Read Photo" screen with a "Go Home" button replaces the camera-oriented retake flow. Permission denial shows a gentle alert with an "Open Settings" link.
 - **Recipe Saved → Add more:** URL imports and Photos imports return to Home; camera imports return to `ImportFlow` in image mode.
@@ -330,7 +330,7 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 |---|---|
 | Production server deployment | Fastify API runs on localhost only. Dockerfile and guide exist (`docs/PRODUCTION_DEPLOY.md`) but deployment not yet executed. Must be deployed before TestFlight. |
 | Email template branding | Supabase sends default unbranded confirmation/reset/email-change emails. Must customize in Supabase dashboard before public launch. |
-| Supabase Site URL + redirect allowlist | Dashboard "Site URL" should be updated from `localhost:3000` to `app.recipejar.ios://auth/callback`. Redirect URL allowlist should include the same. |
+| Supabase Site URL + redirect allowlist | Dashboard "Site URL" should be updated from `localhost:3000` to `app.orzo.ios://auth/callback`. Redirect URL allowlist should include the same. |
 | MFA recovery code usage during sign-in | Recovery codes generated and stored, but the MFA challenge screen does not yet offer a "Use recovery code" option (endpoint exists, UI not wired). |
 | Hard-delete cron in production | `server/scripts/hard-delete-accounts.ts` exists but needs a scheduler (Railway cron, Render cron job, or external trigger). |
 | Storage migration execution | `server/scripts/migrate-storage-user-scoped.ts` is ready but has not been run against production (safe to run — idempotent). |
@@ -350,13 +350,13 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 ### Monorepo Layout
 
 ```
-RecipeJar/              ← npm workspace root
+Orzo/              ← npm workspace root
 ├── shared/             ← TypeScript domain types (no runtime deps)
 ├── server/             ← Fastify API + Drizzle ORM + parsers + validation
 └── mobile/             ← React Native app + XState machine + Zustand store
 ```
 
-Workspaces are linked via npm workspaces. `shared/` is referenced as `@recipejar/shared` by both `server/` and `mobile/`.
+Workspaces are linked via npm workspaces. `shared/` is referenced as `@orzo/shared` by both `server/` and `mobile/`.
 
 ### Data Flow
 
@@ -567,13 +567,13 @@ Example: password `@Fht*mB_Q7/&-Uz` becomes `%40Fht%2AmB_Q7%2F%26-Uz`
 
 ## 6. First-Time Setup
 
-Every command below should be run from the monorepo root (`RecipeJar/`) unless stated otherwise.
+Every command below should be run from the monorepo root (`Orzo/`) unless stated otherwise.
 
 ### Step 1: Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/RecipeJar.git
-cd RecipeJar
+git clone https://github.com/YOUR_USERNAME/Orzo.git
+cd Orzo
 ```
 
 ### Step 2: Install all dependencies
@@ -741,7 +741,7 @@ Each incoming request logs:
 
 Use this for day-to-day work on screens, navigation, state, and API calls. **You should not run a full native build on every save** — that is what leads to 10–20 minute loops.
 
-1. **API + Metro (required for a physical iPhone):** from the **repo root** (`RecipeJar/`), run:
+1. **API + Metro (required for a physical iPhone):** from the **repo root** (`Orzo/`), run:
    ```bash
    npm run dev:phone
    ```
@@ -778,7 +778,7 @@ React Native’s CLI prints lines like `- Building the app.....` over and over w
 | **You only change `mobile/src/**` (JS/TS)** | **No** `./run.sh device` — seconds with Fast Refresh. |
 | **First** device/simulator build after clone, or after **Clean Build Folder** / wiping DerivedData | Often **many minutes** (Pods, Swift/ObjC, all native deps). |
 | **Later** `./run.sh device` with small native edits | Usually **much shorter** — incremental compile. Still slower than JS reload. |
-| **Terminal looks “stuck” with no new text** | Often **not** a second build. Check **Xcode**, **Keychain**, or **macOS** for code-signing, Apple ID, 2FA, or “verification” dialogs. Until you complete those, `xcodebuild` waits. Opening **`RecipeJar.xcworkspace`** in Xcode and building once (**Cmd+R**) surfaces the same prompts in the GUI. |
+| **Terminal looks “stuck” with no new text** | Often **not** a second build. Check **Xcode**, **Keychain**, or **macOS** for code-signing, Apple ID, 2FA, or “verification” dialogs. Until you complete those, `xcodebuild` waits. Opening **`Orzo.xcworkspace`** in Xcode and building once (**Cmd+R**) surfaces the same prompts in the GUI. |
 
 **When you need more than the default**
 
@@ -972,14 +972,14 @@ To list available simulators: `xcrun simctl list devices available`
 If you replace the phone or the UDID changes, either update the default in `run.sh` or set `IOS_DEVICE_UDID` (see Step 3).
 
 **Alternative (Xcode GUI):**
-1. Open `mobile/ios/RecipeJar.xcworkspace` in Xcode (use `.xcworkspace`, NOT `.xcodeproj`)
-2. Select your Apple Developer team: Project Navigator → RecipeJar target → Signing & Capabilities → Team
+1. Open `mobile/ios/Orzo.xcworkspace` in Xcode (use `.xcworkspace`, NOT `.xcodeproj`)
+2. Select your Apple Developer team: Project Navigator → Orzo target → Signing & Capabilities → Team
 3. Connect your iPhone via USB or Wi-Fi, select it as the build target
 4. Press **Cmd+R** to build and run
 
 #### Step 5: Run iOS UI tests on a physical iPhone
 
-The project includes an XCUITest target (`RecipeJarUITests`) with 21 automated UI tests. These tests launch the app on the device and interact with the UI programmatically.
+The project includes an XCUITest target (`OrzoUITests`) with 21 automated UI tests. These tests launch the app on the device and interact with the UI programmatically.
 
 **Prerequisites:**
 - Metro must be running (Step 2 above — `npm start` / `./run.sh metro`)
@@ -988,7 +988,7 @@ The project includes an XCUITest target (`RecipeJarUITests`) with 21 automated U
 
 **To run:**
 
-1. Open `mobile/ios/RecipeJar.xcworkspace` in Xcode (use `.xcworkspace`, NOT `.xcodeproj`)
+1. Open `mobile/ios/Orzo.xcworkspace` in Xcode (use `.xcworkspace`, NOT `.xcodeproj`)
 2. Select your iPhone as the destination in the Xcode toolbar
 3. Press **Cmd+U** to run all tests
 
@@ -1011,9 +1011,9 @@ The project includes an XCUITest target (`RecipeJarUITests`) with 21 automated U
 
 - iOS Simulator uses `localhost`, so the default API URL (`http://localhost:3000`) works without changes.
 - For a **physical iPhone**, change `BASE_URL` in `mobile/src/services/api.ts` to your Mac's LAN IP: `http://192.168.x.x:3000`. Find your LAN IP with `ifconfig | grep "inet " | grep -v 127.0.0.1`.
-- **Metro on a physical iPhone:** Debug builds read **`RecipeJarDevPackagerHost`** in [`mobile/ios/RecipeJar/Info.plist`](mobile/ios/RecipeJar/Info.plist) (host only, no `http://`, no port). It **must be the same LAN IP** as in `api.ts`, or the phone may load a **stale JS bundle** while API calls still work — so the UI never matches your latest `mobile/src` edits. After changing that plist key, run **`./run.sh device`** once. The simulator ignores this key and still uses the default packager discovery.
+- **Metro on a physical iPhone:** Debug builds read **`OrzoDevPackagerHost`** in [`mobile/ios/Orzo/Info.plist`](mobile/ios/Orzo/Info.plist) (host only, no `http://`, no port). It **must be the same LAN IP** as in `api.ts`, or the phone may load a **stale JS bundle** while API calls still work — so the UI never matches your latest `mobile/src` edits. After changing that plist key, run **`./run.sh device`** once. The simulator ignores this key and still uses the default packager discovery.
 - Camera is **not available** in the iOS Simulator. Use a physical device to test camera capture flows.
-- The app requires camera permission. The `Info.plist` should contain `NSCameraUsageDescription`. If missing, add it in Xcode: Info tab → add `Privacy - Camera Usage Description` with value `RecipeJar needs camera access to photograph cookbook pages`.
+- The app requires camera permission. The `Info.plist` should contain `NSCameraUsageDescription`. If missing, add it in Xcode: Info tab → add `Privacy - Camera Usage Description` with value `Orzo needs camera access to photograph cookbook pages`.
 
 ### Common mobile build errors
 
@@ -1047,7 +1047,7 @@ For physical device networking, change `BASE_URL` in `mobile/src/services/api.ts
 ```typescript
 const BASE_URL = __DEV__
   ? "http://192.168.x.x:3000"
-  : "https://api.recipejar.app";
+  : "https://api.getorzo.com";
 ```
 
 Find your LAN IP: `ipconfig` (Windows) or `ifconfig` (macOS).
@@ -1113,10 +1113,10 @@ Full checklist is in `QA_CHECKLIST.md` with 11 scenarios, expected validation is
 ## 11. Project Structure
 
 ```
-RecipeJar/
+Orzo/
 ├── package.json                          # npm workspace root; `npm run dev:phone` starts API + Metro; `postinstall` → patch-package + dev LAN host script
 ├── patches/                              # patch-package: `react-native@0.76.9`, `react-native-svg@15.15.4` (do not delete; required after `npm install`)
-├── scripts/                              # e.g. `ensure-phone-dev.sh`, `write-recipejar-dev-host.cjs`
+├── scripts/                              # e.g. `ensure-phone-dev.sh`, `write-orzo-dev-host.cjs`
 ├── .gitignore
 ├── README.md                             # this file
 ├── CHANGELOG.md                          # dated release notes; start here after a long break
@@ -1230,7 +1230,7 @@ RecipeJar/
 └── mobile/                              # React Native app
     ├── package.json
     ├── tsconfig.json
-    ├── app.json                         # native project name: "RecipeJar"
+    ├── app.json                         # native project name: "Orzo"
     ├── index.js                         # app entry point
     ├── App.tsx                          # root component, SafeAreaProvider, NavigationContainer, stack navigator, MfaChallengeScreen (conditional on needsMfaVerify), PendingImportsBanner + AppPoller at root
     ├── run.sh                           # convenience script: metro (default), metro-fresh, sim, device
@@ -1239,14 +1239,14 @@ RecipeJar/
     ├── react-native.config.js           # CLI project source dirs
     ├── Gemfile                          # Ruby deps for CocoaPods (iOS)
     ├── .gitignore
-    ├── android/                         # Android native project (com.recipejar)
-    ├── ios/                             # iOS native project (RecipeJar)
+    ├── android/                         # Android native project (com.getorzo.app)
+    ├── ios/                             # iOS native project (Orzo)
     │   ├── Podfile                      # CocoaPods config + post_install patches (includes Xcode 26.4 fmt/Hermes workaround)
-    │   ├── RecipeJarTests/             # XCTest unit test target (1 test)
-    │   │   ├── RecipeJarTests.m        # Verifies home screen renders "RecipeJar" text
+    │   ├── OrzoTests/             # XCTest unit test target (1 test)
+    │   │   ├── OrzoTests.m        # Verifies home screen renders "Orzo" text
     │   │   └── Info.plist
-    │   └── RecipeJarUITests/           # XCUITest UI test target
-    │       ├── RecipeJarUITests.swift   # Home screen, navigation, recipe detail tests
+    │   └── OrzoUITests/           # XCUITest UI test target
+    │       ├── OrzoUITests.swift   # Home screen, navigation, recipe detail tests
     │       ├── ImportFlowUITests.swift  # Import flow screen tests (capture, URL input, preview, saved, etc.)
     │       └── Info.plist
     └── src/
@@ -1340,7 +1340,7 @@ RecipeJar/
 
 **How to detect:** After making server-side changes, look for the `Server listening at ...` log message in the terminal. If it only appears once (from the original startup), the server never restarted. You can also add or change a `console.log` and verify it appears.
 
-**Fix:** Manually restart the server. Kill the process (`lsof -iTCP:3000 -sTCP:LISTEN -t | xargs kill -9`) and re-run `npm run dev -w @recipejar/server` or `npm run dev:phone`. Always restart after major changes to server code — do not trust `tsx watch` to catch everything.
+**Fix:** Manually restart the server. Kill the process (`lsof -iTCP:3000 -sTCP:LISTEN -t | xargs kill -9`) and re-run `npm run dev -w @orzo/server` or `npm run dev:phone`. Always restart after major changes to server code — do not trust `tsx watch` to catch everything.
 
 ### Folder rename fails (or `Route PATCH:/collections/... not found`)
 
@@ -1350,7 +1350,7 @@ RecipeJar/
 
 **Fix:** Restart local API from current repo (**`npm run dev:phone`**). Verify with  
 `curl -X PATCH http://127.0.0.1:3000/collections/<uuid> -H "Content-Type: application/json" -d '{"name":"x"}'`  
-— expect **`{"error":"Collection not found"}`** for a fake UUID (route exists), not a Fastify route-not-found JSON shape. Deploy the same server revision for release builds using **`api.recipejar.app`**.
+— expect **`{"error":"Collection not found"}`** for a fake UUID (route exists), not a Fastify route-not-found JSON shape. Deploy the same server revision for release builds using **`api.getorzo.com`**.
 
 ### Metro Port Conflict
 
@@ -1411,8 +1411,8 @@ RecipeJar/
 **Fix:** Run raw `xcodebuild` from `mobile/` when debugging native build failures:
 
 ```bash
-xcodebuild -workspace ios/RecipeJar.xcworkspace \
-  -scheme RecipeJar \
+xcodebuild -workspace ios/Orzo.xcworkspace \
+  -scheme Orzo \
   -configuration Debug \
   -destination "id=<YOUR_DEVICE_UDID>" \
   build
@@ -1578,7 +1578,7 @@ To modify the concurrent queue behavior:
 | `GET /account/recovery-codes/remaining` | Count unused recovery codes | Auth required |
 | `GET /account/sessions` | List active sessions | Auth required |
 
-**Supabase dashboard settings (manual, not in code):** Apple Bundle ID = `app.recipejar.ios`, Google "Skip nonce check" enabled (SDK v16 limitation), Site URL should be `app.recipejar.ios://auth/callback`, redirect URL allowlist must include `app.recipejar.ios://auth/callback`, email verification enabled. See `docs/SECURITY_CHECKLIST.md` for the full configuration audit.
+**Supabase dashboard settings (manual, not in code):** Apple Bundle ID = `app.orzo.ios`, Google "Skip nonce check" enabled (SDK v16 limitation), Site URL should be `app.orzo.ios://auth/callback`, redirect URL allowlist must include `app.orzo.ios://auth/callback`, email verification enabled. See `docs/SECURITY_CHECKLIST.md` for the full configuration audit.
 
 **Integration tests** (`server/tests/auth-security.test.ts`): 12 tests covering auth middleware (401 for missing/invalid token, 200 with correct userId, /health public) and IDOR prevention (cross-user 404 for recipes, collections, drafts).
 
@@ -1618,7 +1618,7 @@ Non-interactive elements (Text, View containers) only need `testID`:
 
 ### Adding iOS UI tests
 
-1. Add Swift test methods to `mobile/ios/RecipeJarUITests/RecipeJarUITests.swift` or `ImportFlowUITests.swift`
+1. Add Swift test methods to `mobile/ios/OrzoUITests/OrzoUITests.swift` or `ImportFlowUITests.swift`
 2. Use the `element("testID")` helper (calls `app.descendants(matching: .any)["testID"]`)
 3. Always call `waitForHomeScreen()` at the start of each test — this waits up to 120 seconds for the JS bundle to download and the home screen to render
 4. Use `guard element.waitForExistence(timeout:) else { return }` for screens that may not be reachable (e.g., retake required depends on a specific parse result)
@@ -1644,7 +1644,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 - **Authentication & security (COMPLETE)**: All 8 work streams finished. Private storage buckets with signed URLs, user-scoped paths, account deletion, sign-out-all, MFA enrollment/challenge, step-up auth, rate limiting, recovery codes, session tracking, integration tests, security checklist. See "Authentication & security architecture" section above.
 - **Production deployment**: Fastify server runs on localhost for development. Dockerfile and deployment guide exist (`docs/PRODUCTION_DEPLOY.md`) but the server is not yet deployed to a cloud host. Must be deployed before TestFlight distribution. The mobile `api.ts` base URL needs updating to point to the production host.
-- **Supabase dashboard configuration**: Site URL needs to be set to `app.recipejar.ios://auth/callback` (currently `localhost:3000`). Redirect URL allowlist needs the same. CAPTCHA not yet enabled. Email templates use default Supabase branding.
+- **Supabase dashboard configuration**: Site URL needs to be set to `app.orzo.ios://auth/callback` (currently `localhost:3000`). Redirect URL allowlist needs the same. CAPTCHA not yet enabled. Email templates use default Supabase branding.
 - **MFA recovery code UI during sign-in**: Recovery code generation and verification endpoints exist, but the MFA challenge screen does not yet offer a "Use recovery code" option. The server endpoint is ready.
 - **Hard-delete cron scheduler**: `server/scripts/hard-delete-accounts.ts` is written but needs a production scheduler (Railway cron, Render cron job, or external trigger).
 - **Apple client secret expiration**: The Apple OAuth client secret (ES256 JWT from `.p8` key) expires ~October 2026. Must be regenerated before expiry. Tracked in `docs/SECURITY_CHECKLIST.md`.

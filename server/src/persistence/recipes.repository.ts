@@ -9,7 +9,7 @@ import {
   recipeNotes,
   collections,
 } from "./schema.js";
-import type { SaveDecision } from "@recipejar/shared";
+import type { SaveDecision } from "@orzo/shared";
 import { parseIngredientLine } from "../parsing/ingredient-parser.js";
 
 function mapRating(halfSteps: number | null): number | null {

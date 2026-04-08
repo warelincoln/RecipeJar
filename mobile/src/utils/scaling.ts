@@ -1,4 +1,4 @@
-import type { RecipeIngredientEntry } from "@recipejar/shared";
+import type { RecipeIngredientEntry } from "@orzo/shared";
 
 const FRACTION_TABLE: [number, string][] = [
   [0.125, "⅛"],

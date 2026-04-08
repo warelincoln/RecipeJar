@@ -15,7 +15,7 @@ import { Camera, FolderOpen, ChefHat } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const ONBOARDING_STORAGE_KEY = "@recipejar/onboarding-complete";
+const ONBOARDING_STORAGE_KEY = "@orzo/onboarding-complete";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 type Slide = {

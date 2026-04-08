@@ -1,4 +1,4 @@
-import type { ParsedRecipeCandidate, ValidationResult } from "@recipejar/shared";
+import type { ParsedRecipeCandidate, ValidationResult } from "@orzo/shared";
 import { evaluateStructure } from "./rules.structure.js";
 import { evaluateIntegrity } from "./rules.integrity.js";
 import { evaluateRequiredFields } from "./rules.required-fields.js";

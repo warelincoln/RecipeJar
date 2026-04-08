@@ -75,9 +75,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.recipejar"
+    namespace "com.getorzo.app"
     defaultConfig {
-        applicationId "com.recipejar"
+        applicationId "com.getorzo.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

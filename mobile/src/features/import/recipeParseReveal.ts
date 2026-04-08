@@ -1,4 +1,4 @@
-import type { EditedRecipeCandidate } from "@recipejar/shared";
+import type { EditedRecipeCandidate } from "@orzo/shared";
 
 export type RevealBlockKind = "title" | "ingredient" | "step";
 

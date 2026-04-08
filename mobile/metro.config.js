@@ -29,7 +29,7 @@ const config = {
       path.resolve(monorepoRoot, "node_modules"),
     ],
     extraNodeModules: {
-      "@recipejar/shared": path.resolve(monorepoRoot, "shared", "src"),
+      "@orzo/shared": path.resolve(monorepoRoot, "shared", "src"),
       "react-native-svg": reactNativeSvgRoot,
     },
   },

@@ -11,7 +11,7 @@ import { normalizeUrl } from "../src/parsing/url/url-fetch.service.js";
 import * as urlAiAdapter from "../src/parsing/url/url-ai.adapter.js";
 import { parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
 import { validateRecipe } from "../src/domain/validation/validation.engine.js";
-import type { SourcePage } from "@recipejar/shared";
+import type { SourcePage } from "@orzo/shared";
 
 afterEach(() => {
   vi.restoreAllMocks();

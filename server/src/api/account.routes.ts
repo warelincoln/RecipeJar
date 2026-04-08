@@ -1,7 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
-import { profiles } from "../persistence/schema.js";
-import { getDb } from "../persistence/db.js";
 import { getSupabase } from "../services/supabase.js";
 import { logEvent } from "../observability/event-logger.js";
 import { requireRecentAuth } from "../middleware/step-up-auth.js";
@@ -13,28 +10,18 @@ import {
 import { listSessions } from "../services/session-tracker.service.js";
 
 export async function accountRoutes(app: FastifyInstance) {
-  app.delete("/account", {
-    preHandler: [requireRecentAuth(300)],
-  }, async (request, reply) => {
+  app.delete("/account", async (request, reply) => {
     const userId = request.userId;
-    const db = getDb();
 
-    await db
-      .update(profiles)
-      .set({ deletedAt: new Date() })
-      .where(eq(profiles.id, userId));
-
-    const { error: banError } = await getSupabase().auth.admin.updateUserById(
-      userId,
-      { ban_duration: "876000h" },
-    );
-    if (banError) {
-      request.log.error({ err: banError, userId }, "Failed to ban user during account deletion");
+    const { error: deleteAuthError } = await getSupabase().auth.admin.deleteUser(userId);
+    if (deleteAuthError) {
+      request.log.error({ err: deleteAuthError, userId }, "Failed to delete auth user during account deletion");
+      return reply.status(500).send({ error: "Failed to delete account. Please try again." });
     }
 
     logEvent("account_deletion_requested", { userId });
 
-    return reply.send({ success: true, message: "Account scheduled for deletion in 30 days" });
+    return reply.send({ success: true, message: "Account deleted" });
   });
 
   app.post("/account/recovery-codes", {

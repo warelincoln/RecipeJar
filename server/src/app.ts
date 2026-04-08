@@ -2,7 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
-import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
+import { URL_IMPORT_HTML_MAX_BYTES } from "@orzo/shared";
 import { registerAuth } from "./middleware/auth.js";
 import { draftsRoutes } from "./api/drafts.routes.js";
 import { recipesRoutes } from "./api/recipes.routes.js";

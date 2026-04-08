@@ -4,7 +4,7 @@ import path from "path";
 export default defineConfig({
   resolve: {
     alias: {
-      "@recipejar/shared": path.resolve(__dirname, "../shared/src"),
+      "@orzo/shared": path.resolve(__dirname, "../shared/src"),
     },
   },
   test: {

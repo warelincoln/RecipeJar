@@ -1,4 +1,4 @@
-# RecipeJar Security Checklist
+# Orzo Security Checklist
 
 Review periodically (recommend quarterly). Last updated: April 2026.
 
@@ -7,7 +7,7 @@ Review periodically (recommend quarterly). Last updated: April 2026.
 ### Authentication Providers
 - [ ] **Email/Password**: Enabled, email confirmation required
 - [ ] **Apple Sign-In**: Enabled
-  - Services ID: `app.recipejar.ios.auth`
+  - Services ID: `app.orzo.ios.auth`
   - Redirect URLs match production
   - Client secret not expired (check `.p8`-derived JWT expiry)
 - [ ] **Google OAuth**: Enabled
@@ -35,13 +35,13 @@ Review periodically (recommend quarterly). Last updated: April 2026.
 - [ ] Applied to: sign-in, sign-up, password reset
 
 ### Email Templates
-- [ ] All templates customized with RecipeJar branding
+- [ ] All templates customized with Orzo branding
 - [ ] Confirm signup, password reset, email change, magic link
 
 ## Apple Developer Account
 
 ### Services ID
-- [ ] `app.recipejar.ios.auth` — configured and active
+- [ ] `app.orzo.ios.auth` — configured and active
 - [ ] Redirect URLs match production Supabase callback
 - [ ] Associated domains configured in Xcode
 

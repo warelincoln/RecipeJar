@@ -14,7 +14,7 @@ import { enqueueImport } from "../features/import/enqueueImport";
 import { api } from "../services/api";
 import { useImportQueueStore } from "../stores/importQueue.store";
 import { useRecipesStore } from "../stores/recipes.store";
-import type { EditedRecipeCandidate } from "@recipejar/shared";
+import type { EditedRecipeCandidate } from "@orzo/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import FastImage from "react-native-fast-image";
 import LinearGradient from "react-native-linear-gradient";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "./RecipeImagePlaceholder";
 

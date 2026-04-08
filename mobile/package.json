@@ -1,10 +1,10 @@
 {
-  "name": "@recipejar/mobile",
+  "name": "@orzo/mobile",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "node ../scripts/write-recipejar-dev-host.cjs && CI= react-native start --host 0.0.0.0",
-    "start:reset": "node ../scripts/write-recipejar-dev-host.cjs && CI= react-native start --host 0.0.0.0 --reset-cache",
+    "start": "node ../scripts/write-orzo-dev-host.cjs && CI= react-native start --host 0.0.0.0",
+    "start:reset": "node ../scripts/write-orzo-dev-host.cjs && CI= react-native start --host 0.0.0.0 --reset-cache",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "typecheck": "tsc --noEmit"
@@ -16,7 +16,7 @@
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-navigation/native": "^6.1.0",
     "@react-navigation/native-stack": "^6.9.0",
-    "@recipejar/shared": "*",
+    "@orzo/shared": "*",
     "@supabase/supabase-js": "^2.101.1",
     "@xstate/react": "^4.1.0",
     "js-sha256": "^0.11.1",
@@ -31,6 +31,7 @@
     "react-native-image-picker": "^8.2.1",
     "react-native-keychain": "^10.0.0",
     "react-native-linear-gradient": "^2.8.3",
+    "react-native-qrcode-svg": "^6.3.21",
     "react-native-reanimated": "3.16.1",
     "react-native-safe-area-context": "^4.14.0",
     "react-native-screens": "~3.35.0",

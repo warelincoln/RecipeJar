@@ -5,9 +5,9 @@ import type {
   ValidationResult,
   Recipe,
   RecipeNote,
-} from "@recipejar/shared";
+} from "@orzo/shared";
 import type { Session } from "@supabase/supabase-js";
-import { RECIPEJAR_LAN_HOST } from "../devLanHost";
+import { ORZO_LAN_HOST } from "../devLanHost";
 import { supabase } from "./supabase";
 
 export interface UrlParseRequest {
@@ -22,8 +22,8 @@ export interface UrlParseRequest {
 }
 
 const BASE_URL = __DEV__
-  ? `http://${RECIPEJAR_LAN_HOST}:3000`
-  : "https://api.recipejar.app";
+  ? `http://${ORZO_LAN_HOST}:3000`
+  : "https://api.getorzo.com";
 
 // Single-flight token refresh lock
 let refreshPromise: Promise<Session | null> | null = null;

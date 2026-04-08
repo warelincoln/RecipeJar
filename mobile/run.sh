@@ -40,20 +40,20 @@ case "$1" in
     stop_concurrent_xcodebuild
     # Default: Lincoln Ware's iPhone (wireless after Xcode "Connect via network"). Override: IOS_DEVICE_UDID
     UDID="${IOS_DEVICE_UDID:-00008140-00047D103499801C}"
-    BUNDLE_ID="app.recipejar.ios"
-    WORKSPACE="ios/RecipeJar.xcworkspace"
+    BUNDLE_ID="app.orzo.ios"
+    WORKSPACE="ios/Orzo.xcworkspace"
     DERIVED="$HOME/Library/Developer/Xcode/DerivedData"
 
     echo "Building for device $UDID..."
     echo "Tip: First build may take 15+ min. Subsequent builds with ccache are much faster (2-5 min)."
 
-    xcodebuild -workspace "$WORKSPACE" -scheme RecipeJar -configuration Debug \
+    xcodebuild -workspace "$WORKSPACE" -scheme Orzo -configuration Debug \
       -destination "id=$UDID" \
-      -derivedDataPath "$DERIVED/RecipeJar-device" \
+      -derivedDataPath "$DERIVED/Orzo-device" \
       -allowProvisioningUpdates \
       build 2>&1 | tail -1
 
-    APP_PATH="$DERIVED/RecipeJar-device/Build/Products/Debug-iphoneos/RecipeJar.app"
+    APP_PATH="$DERIVED/Orzo-device/Build/Products/Debug-iphoneos/Orzo.app"
     if [ ! -d "$APP_PATH" ]; then
       echo "ERROR: Build failed — no .app bundle found at $APP_PATH"
       exit 1
@@ -68,11 +68,11 @@ case "$1" in
     echo "Done. App is running on your iPhone."
     ;;
   metro)
-    node "$REPO_ROOT/scripts/write-recipejar-dev-host.cjs"
+    node "$REPO_ROOT/scripts/write-orzo-dev-host.cjs"
     npx react-native start --host 0.0.0.0
     ;;
   metro-fresh)
-    node "$REPO_ROOT/scripts/write-recipejar-dev-host.cjs"
+    node "$REPO_ROOT/scripts/write-orzo-dev-host.cjs"
     npx react-native start --host 0.0.0.0 --reset-cache
     ;;
   *)

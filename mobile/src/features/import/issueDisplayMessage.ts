@@ -1,4 +1,4 @@
-import type { ValidationIssue } from "@recipejar/shared";
+import type { ValidationIssue } from "@orzo/shared";
 
 /**
  * User-facing copy for validation issues. Prefer this over `issue.message` so

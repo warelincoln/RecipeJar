@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 COPY shared/package.json shared/
 COPY server/package.json server/
 
-RUN npm ci --workspace=@recipejar/shared --workspace=@recipejar/server --ignore-scripts=false
+RUN npm ci --workspace=@orzo/shared --workspace=@orzo/server --ignore-scripts=false
 
 COPY shared/ shared/
 COPY server/ server/

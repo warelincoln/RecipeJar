@@ -1,5 +1,5 @@
-import type { ParsedRecipeCandidate } from "@recipejar/shared";
-import type { ValidationIssue } from "@recipejar/shared";
+import type { ParsedRecipeCandidate } from "@orzo/shared";
+import type { ValidationIssue } from "@orzo/shared";
 
 export function evaluateRequiredFields(
   candidate: ParsedRecipeCandidate,

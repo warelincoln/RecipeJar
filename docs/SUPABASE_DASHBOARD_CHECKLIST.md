@@ -5,10 +5,10 @@ Apply these settings in the Supabase Dashboard before TestFlight.
 ## Authentication > Settings
 
 ### General
-- [ ] **Site URL**: Set to your production deep link scheme (e.g., `app.recipejar.ios://`)
+- [ ] **Site URL**: Set to your production deep link scheme (e.g., `app.orzo.ios://`)
 - [ ] **Redirect URLs**: Add all valid redirect URLs for OAuth and email links:
-  - `app.recipejar.ios://auth/callback`
-  - `https://api.recipejar.app/auth/callback` (if needed)
+  - `app.orzo.ios://auth/callback`
+  - `https://api.getorzo.com/auth/callback` (if needed)
 
 ### Session
 - [ ] **JWT Expiry**: `600` seconds (10 minutes) — already configured
@@ -35,15 +35,15 @@ Review and tighten built-in GoTrue rate limits:
 ## Authentication > Email Templates
 
 Customize branding for all email templates:
-- [ ] **Confirm signup** — Add RecipeJar branding, logo, clear CTA
-- [ ] **Reset password** — RecipeJar branding, explain expiry
+- [ ] **Confirm signup** — Add Orzo branding, logo, clear CTA
+- [ ] **Reset password** — Orzo branding, explain expiry
 - [ ] **Change email** — Explain the dual-confirmation flow
-- [ ] **Magic link** — RecipeJar branding (if enabled)
+- [ ] **Magic link** — Orzo branding (if enabled)
 
 ## Authentication > Providers
 
 - [ ] **Email**: Enabled, confirm email required
-- [ ] **Apple**: Enabled, Services ID `app.recipejar.ios.auth`, redirect URL correct
+- [ ] **Apple**: Enabled, Services ID `app.orzo.ios.auth`, redirect URL correct
 - [ ] **Google**: Enabled, OAuth client IDs correct, redirect URLs correct
 - [ ] Disable any providers you don't use (GitHub, Twitter, etc.)
 

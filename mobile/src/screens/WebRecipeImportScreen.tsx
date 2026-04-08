@@ -27,7 +27,7 @@ import {
 import { LUCIDE } from "../theme/lucideSizes";
 import { StackActions } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
+import { URL_IMPORT_HTML_MAX_BYTES } from "@orzo/shared";
 import type { RootStackParamList } from "../navigation/types";
 import {
   looksLikeHttpUrl,
@@ -39,7 +39,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "WebRecipeImport">;
 type CaptureFailureReason =
   NonNullable<RootStackParamList["ImportFlow"]["urlCaptureFailureReason"]>;
 
-const HTML_CAPTURE_MESSAGE_TYPE = "recipejar-html-capture";
+const HTML_CAPTURE_MESSAGE_TYPE = "orzo-html-capture";
 const HTML_CAPTURE_TIMEOUT_MS = 4_000;
 
 const AD_DOMAIN_KEYWORDS = [
@@ -94,7 +94,7 @@ function isAdUrl(url: string): boolean {
 function promptExternalUrl(url: string, label: string) {
   Alert.alert(
     "Open external app",
-    `${label}\n\nAllow leaving RecipeJar to open this link?`,
+    `${label}\n\nAllow leaving Orzo to open this link?`,
     [
       { text: "Cancel", style: "cancel" },
       {
@@ -454,7 +454,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
               <Text style={styles.landingTitle}>Find a recipe</Text>
               <Text style={styles.landingSubtitle}>
                 Search the web for a recipe, then open a recipe page and tap
-                Save to RecipeJar.
+                Save to Orzo.
               </Text>
               <TextInput
                 style={styles.landingInput}
@@ -513,10 +513,10 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             disabled={saveInFlight || navState.loading}
             testID="web-recipe-import-save"
             accessibilityRole="button"
-            accessibilityLabel="Save to RecipeJar"
+            accessibilityLabel="Save to Orzo"
           >
             <Text style={styles.saveBtnText}>
-              {saveInFlight ? "Preparing Import..." : "Save to RecipeJar"}
+              {saveInFlight ? "Preparing Import..." : "Save to Orzo"}
             </Text>
           </TouchableOpacity>
           <View style={styles.navRow}>

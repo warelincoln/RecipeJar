@@ -75,7 +75,7 @@ async function main() {
       SELECT p.id, p.display_name, p.subscription_tier
       FROM profiles p
       JOIN auth.users u ON u.id = p.id
-      WHERE u.email = 'migration-seed@recipejar.app'
+      WHERE u.email = 'migration-seed@getorzo.com'
     `;
     if (seedProfile.length > 0) {
       console.log(

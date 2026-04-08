@@ -6,7 +6,7 @@ import * as Keychain from "react-native-keychain";
 const SUPABASE_URL = "https://ttpgamwmjtrdnsfmdkec.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_5MtAOYkHnILB0W6pw6RQpg_BicQm1b2";
 
-const KEYCHAIN_SERVICE = "app.recipejar.session";
+const KEYCHAIN_SERVICE = "app.orzo.session";
 
 const keychainStorage = {
   async getItem(key: string): Promise<string | null> {

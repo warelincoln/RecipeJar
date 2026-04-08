@@ -18,7 +18,7 @@ import { api } from "../services/api";
 import { useCollectionsStore } from "../stores/collections.store";
 import FastImage from "react-native-fast-image";
 import { launchCamera, launchImageLibrary } from "react-native-image-picker";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";

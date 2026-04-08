@@ -98,7 +98,7 @@ import { recipesRepository } from "../src/persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../src/persistence/recipe-notes.repository.js";
 import { parseImages } from "../src/parsing/image/image-parse.adapter.js";
 import { parseUrl, parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
-import type { ParsedRecipeCandidate } from "@recipejar/shared";
+import type { ParsedRecipeCandidate } from "@orzo/shared";
 
 const draftRepo = vi.mocked(draftsRepository);
 const recipeRepo = vi.mocked(recipesRepository);

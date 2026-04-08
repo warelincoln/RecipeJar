@@ -10,8 +10,8 @@ import type {
   ValidationResult,
   SourcePage,
   DraftStatus,
-} from "@recipejar/shared";
-import { URL_IMPORT_HTML_MAX_BYTES } from "@recipejar/shared";
+} from "@orzo/shared";
+import { URL_IMPORT_HTML_MAX_BYTES } from "@orzo/shared";
 import { parseImages } from "../parsing/image/image-parse.adapter.js";
 import {
   parseUrl,

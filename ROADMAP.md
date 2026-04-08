@@ -1,4 +1,4 @@
-# RecipeJar — Product Roadmap
+# Orzo — Product Roadmap
 
 ## Path to $20k MRR
 
@@ -159,9 +159,9 @@ The following shipped features are not called out as roadmap items (they're part
 
 | Phase | Name | Timeline | Strategic Goal |
 |---|---|---|---|
-| 0 | Foundation | Weeks 1–4 | Make RecipeJar a real product that can ship to testers and accept money |
+| 0 | Foundation | Weeks 1–4 | Make Orzo a real product that can ship to testers and accept money |
 | 1 | Acquisition Engine | Weeks 5–6 | Give people reasons to download and import recipes |
-| 2 | Daily-Use Retention | Weeks 7–10 | Make RecipeJar indispensable in the weekly cooking routine |
+| 2 | Daily-Use Retention | Weeks 7–10 | Make Orzo indispensable in the weekly cooking routine |
 | 3 | Emotional Lock-In | Weeks 11–12 | Make leaving feel like losing a part of your life |
 | 4 | Revenue Expansion | Weeks 13–15 | Add secondary revenue streams and premium upsells |
 | 5 | Growth & Network Effects | Weeks 16–19 | Turn users into acquisition channels |
@@ -170,7 +170,7 @@ The following shipped features are not called out as roadmap items (they're part
 
 ## Phase 0: Foundation (Weeks 1–4)
 
-**Goal:** Make RecipeJar a real product that can accept money, ship to testers, and support multiple users. Nothing here is exciting — it's all plumbing. But without it, everything else is built on sand.
+**Goal:** Make Orzo a real product that can accept money, ship to testers, and support multiple users. Nothing here is exciting — it's all plumbing. But without it, everything else is built on sand.
 
 ### 0.1 — User Authentication & Accounts
 
@@ -190,7 +190,7 @@ The following shipped features are not called out as roadmap items (they're part
 - JWT session middleware on all Fastify routes (`server/src/middleware/auth.ts`) — verifies token via `supabase.auth.getUser()`, sets `request.userId`
 - All 4 repository files (`collections`, `drafts`, `recipes`, `recipe-notes`) refactored to accept and enforce `userId` in every query
 - All 3 route files (`collections`, `drafts`, `recipes`) updated to pass `request.userId`
-- Existing data backfilled to a banned seed user (`migration-seed@recipejar.app`)
+- Existing data backfilled to a banned seed user (`migration-seed@getorzo.com`)
 - Session/JWT settings: 600s access token TTL, refresh token rotation with reuse detection, 7-day inactivity timeout
 - Password policy: minimum 12 characters, must contain letters and numbers
 - Apple client secret generated (ES256 JWT from `.p8` key — expires ~6 months from April 2026, renewal needed)
@@ -211,15 +211,15 @@ The following shipped features are not called out as roadmap items (they're part
 - `api.ts`: `authenticatedFetch()` injects Bearer token on all requests (including 4 raw multipart `fetch` calls), single-flight `refreshOnce()` lock, 401 retry → signOut fallback
 - All Zustand stores (`recipes`, `collections`, `importQueue`) have `reset()` methods called on sign-out
 - `importQueue.store.ts`: `reconcileQueue()` guarded against unauthenticated calls
-- iOS config: `Info.plist` URL schemes (`app.recipejar.ios`, reversed Google client ID), `GIDClientID`, `RecipeJar.entitlements` (Apple Sign-In), Xcode project references entitlements
+- iOS config: `Info.plist` URL schemes (`app.orzo.ios`, reversed Google client ID), `GIDClientID`, `Orzo.entitlements` (Apple Sign-In), Xcode project references entitlements
 - Hermes polyfills: `react-native-url-polyfill` (URL API), `react-native-get-random-values@^1.11.0` (crypto)
 
 **Supabase dashboard settings (not in code, must be configured manually):**
 
-- Apple provider: Bundle ID = `app.recipejar.ios`
+- Apple provider: Bundle ID = `app.orzo.ios`
 - Google provider: "Skip nonce check" enabled (Google Sign-In SDK v16 limitation)
-- Site URL: should be set to `app.recipejar.ios://auth/callback` (prevents email confirmation links from redirecting to localhost)
-- Redirect URLs allowlist: must include `app.recipejar.ios://auth/callback`
+- Site URL: should be set to `app.orzo.ios://auth/callback` (prevents email confirmation links from redirecting to localhost)
+- Redirect URLs allowlist: must include `app.orzo.ios://auth/callback`
 - Email verification: enabled
 - Email templates: currently default Supabase branding (customize in dashboard > Authentication > Email Templates before public launch)
 - CAPTCHA: not yet enabled (hCaptcha or Turnstile available — enable when abuse signals appear)
@@ -250,7 +250,7 @@ The following shipped features are not called out as roadmap items (they're part
 
 **The next blocker for TestFlight is deploying the Fastify server to a cloud host** (currently runs on localhost). All auth work is complete.
 
-**Migration strategy for existing data:** ✅ Complete. Seed user (`migration-seed@recipejar.app`, banned) owns all 211 pre-auth rows. Storage objects migrated to user-scoped paths.
+**Migration strategy for existing data:** ✅ Complete. Seed user (`migration-seed@getorzo.com`, banned) owns all 211 pre-auth rows. Storage objects migrated to user-scoped paths.
 
 **Why this is first:** Every feature after this touches user identity. Subscriptions need a user to bill. Sync needs a user to sync. Sharing needs a user to share with. This is the foundation of the foundation.
 
@@ -266,13 +266,13 @@ The following shipped features are not called out as roadmap items (they're part
 
 **What to build:**
 
-- **Apple Developer Program setup:** Provisioning profiles, signing certificates, bundle ID registration (`app.recipejar.ios`)
+- **Apple Developer Program setup:** Provisioning profiles, signing certificates, bundle ID registration (`app.orzo.ios`)
 - **App Store Connect listing:** App name, category (Food & Drink), age rating, App Store description, keywords, screenshots (at least iPhone 15 Pro + iPhone SE sizes), preview video (optional but high-impact)
 - **Privacy nutrition labels:** Apple requires you to declare all data collected. With auth built, this includes: email address (account creation), photos (recipe images uploaded to Supabase), usage data (if analytics is added). Fill these out accurately — Apple rejects apps with incorrect privacy labels.
 - **TestFlight distribution:** Archive build from Xcode, upload to App Store Connect, create a TestFlight group for internal testing. First build triggers Apple's beta review (usually <48 hours). After approval, distribute to external testers via public link or email invite.
 - **Crash reporting:** Integrate Sentry (`@sentry/react-native`) for crash and error tracking on both JS and native layers. Free tier covers solo dev volume. This catches the issues your testers won't report.
 - **Analytics:** Integrate PostHog (`posthog-react-native`). PostHog is open-source, has a generous free tier (1M events/mo), and gives you: event tracking, funnels, retention charts, and feature flags (useful for Phase 1+ rollouts). Track at minimum: import started/completed (by source type), recipe saved, recipe viewed, collection created, paywall shown/converted (when 0.3 is built). This data is essential for knowing which import method drives retention and where users drop off.
-- **Privacy policy & terms of service:** Host on `recipejar.app/privacy` and `recipejar.app/terms`. Apple requires a privacy policy URL in the App Store listing. Can be simple markdown-to-HTML for v1 — cover what data you collect (email, recipe content, images), how it's stored (Supabase, PostgreSQL), and that you don't sell data.
+- **Privacy policy & terms of service:** Host on `getorzo.com/privacy` and `getorzo.com/terms`. Apple requires a privacy policy URL in the App Store listing. Can be simple markdown-to-HTML for v1 — cover what data you collect (email, recipe content, images), how it's stored (Supabase, PostgreSQL), and that you don't sell data.
 - **App icon & launch screen:** Final app icon (1024×1024 for App Store, plus all device sizes via asset catalog), launch screen (simple branded splash).
 
 **TestFlight steps (first-time checklist):**
@@ -301,8 +301,8 @@ The following shipped features are not called out as roadmap items (they're part
 **What to build:**
 
 - RevenueCat SDK integration (handles Apple IAP + Google Play Billing + receipt validation + subscription lifecycle)
-- Two subscription products: `recipejar_pro_monthly` ($4.99/mo), `recipejar_pro_annual` ($39.99/yr)
-- One non-consumable (unlocked in Phase 4): `recipejar_cookbook_bundle` ($19.99)
+- Two subscription products: `orzo_pro_monthly` ($4.99/mo), `orzo_pro_annual` ($39.99/yr)
+- One non-consumable (unlocked in Phase 4): `orzo_cookbook_bundle` ($19.99)
 - **$1.99 Starter Pack (trial ramp):** A consumable IAP that grants 30 additional AI imports and starts a 15-day introductory window. At the end of the 15 days, the user auto-converts to the $4.99/mo Pro subscription (with required Apple disclosure). The intent is a low-friction on-ramp: "Not ready to commit? Pay $1.99 for 30 imports — we'll remind you before your Pro subscription starts in 15 days." This bridges the gap between free and $4.99/mo for users who need more time to see value.
   - **⚠️ RevenueCat confirmation needed:** Verify that RevenueCat supports a consumable IAP that triggers an auto-renewing subscription transition. Apple's StoreKit 2 supports introductory offers and promotional offers natively, but the specific flow (consumable → deferred subscription start) may need to be implemented as: (1) consumable purchase + (2) schedule a promotional offer that activates after 15 days, or (3) RevenueCat's "Experiments" / "Offerings" feature. Confirm the exact mechanism before building.
   - **Apple compliance:** Auto-renewing subscriptions require clear disclosure of price, renewal period, and how to cancel — both in the app and on the App Store listing. The 15-day-to-subscription transition must be communicated transparently to avoid App Review rejection or user trust issues.
@@ -343,7 +343,7 @@ The following shipped features are not called out as roadmap items (they're part
 
 ## Phase 1: Acquisition Engine (Weeks 5–6)
 
-**Goal:** Dramatically expand *how* recipes get into RecipeJar. Right now you have camera, photo library, and URL. The modern recipe discovery loop starts on TikTok and Instagram, not in a cookbook. If you aren't where the recipes are being found, you're invisible to the largest segment of potential users.
+**Goal:** Dramatically expand *how* recipes get into Orzo. Right now you have camera, photo library, and URL. The modern recipe discovery loop starts on TikTok and Instagram, not in a cookbook. If you aren't where the recipes are being found, you're invisible to the largest segment of potential users.
 
 Social media import is prioritized here — before daily-use retention features — because **you can't retain users you never acquired**. This is the top of the funnel.
 
@@ -359,13 +359,13 @@ Social media import is prioritized here — before daily-use retention features 
 **What to build:**
 
 - **YouTube import:** Fetch video page, extract structured recipe from description or comments (many creators include full recipes). If no structured data, extract auto-generated transcript via YouTube API and pass to GPT for recipe extraction. Your existing AI fallback pipeline handles the heavy lifting.
-- **Instagram import:** User shares Instagram post URL to RecipeJar (via iOS Share Sheet, built in 1.2). Fetch the post page, extract caption text, parse with GPT. For reels/video posts, use the caption (Instagram doesn't expose transcripts to third parties).
+- **Instagram import:** User shares Instagram post URL to Orzo (via iOS Share Sheet, built in 1.2). Fetch the post page, extract caption text, parse with GPT. For reels/video posts, use the caption (Instagram doesn't expose transcripts to third parties).
 - **TikTok import:** Same pattern — user shares TikTok URL, fetch page, extract description/caption, GPT parse. TikTok captions are often sparse, so accuracy will be lower. Consider a "fill in what's missing" prompt for the user after AI extraction.
 - **Import source tagging:** Tag each recipe with its source platform (camera, url, youtube, instagram, tiktok) for analytics and for showing a small source icon on recipe cards.
 
 **Architecture notes:** Your 4-tier URL cascade (JSON-LD → Microdata → DOM → AI) is already built for this. Social media imports are essentially URL imports where the extraction leans heavier on the AI fallback tier. The main new work is platform-specific transcript/caption fetching — the Share Sheet extension (1.2) handles the "share from any app" gesture.
 
-**Why this is Phase 1, not Phase 2:** ReciMe, Pestle, Honeydew, and Forkee all lead with social media import as their primary marketing message. The person who sees a recipe on TikTok and wants to save it is the highest-intent user you can find — they already want to cook, they just need a place to put the recipe. If RecipeJar doesn't catch that moment, someone else will.
+**Why this is Phase 1, not Phase 2:** ReciMe, Pestle, Honeydew, and Forkee all lead with social media import as their primary marketing message. The person who sees a recipe on TikTok and wants to save it is the highest-intent user you can find — they already want to cook, they just need a place to put the recipe. If Orzo doesn't catch that moment, someone else will.
 
 ---
 
@@ -381,11 +381,11 @@ Social media import is prioritized here — before daily-use retention features 
 **What to build:**
 
 - iOS Share Extension target that accepts URLs
-- Extension sends URL to RecipeJar app and triggers existing URL import flow
-- Minimal UI in the extension: "Saving to RecipeJar..." → "Saved!" or "Open to review"
+- Extension sends URL to Orzo app and triggers existing URL import flow
+- Minimal UI in the extension: "Saving to Orzo..." → "Saved!" or "Open to review"
 - Works from Safari, Chrome, TikTok, Instagram, YouTube, any app with share functionality
 
-**Why this is separate from 1.1:** The Share Sheet works for ALL URLs, not just social media. It's the "save for later" gesture that makes RecipeJar feel native to iOS. Paprika and Mela both have this and it's one of their most-used features.
+**Why this is separate from 1.1:** The Share Sheet works for ALL URLs, not just social media. It's the "save for later" gesture that makes Orzo feel native to iOS. Paprika and Mela both have this and it's one of their most-used features.
 
 ---
 
@@ -412,7 +412,7 @@ Social media import is prioritized here — before daily-use retention features 
 
 ## Phase 2: Daily-Use Retention (Weeks 7–10)
 
-**Goal:** Give users reasons to open RecipeJar multiple times per week. These are the features that transform RecipeJar from a digitization tool into a cooking companion — and that justify a recurring subscription.
+**Goal:** Give users reasons to open Orzo multiple times per week. These are the features that transform Orzo from a digitization tool into a cooking companion — and that justify a recurring subscription.
 
 ### 2.1 — Grocery List
 
@@ -477,7 +477,7 @@ Social media import is prioritized here — before daily-use retention features 
 - Missing ingredient callout: "You're missing: garam masala, coconut milk"
 - "Add missing to grocery list" button (ties into 2.1)
 
-**Key distinction from competitors:** ChefGPT and FoodiePrep *generate new AI recipes* from your ingredients. That's cool but gimmicky — different recipe every time, quality varies, no trust. RecipeJar filters *your own saved recipes* — recipes you've validated, maybe cooked before, and trust. Fundamentally different and better for someone who's invested time building a personal cookbook.
+**Key distinction from competitors:** ChefGPT and FoodiePrep *generate new AI recipes* from your ingredients. That's cool but gimmicky — different recipe every time, quality varies, no trust. Orzo filters *your own saved recipes* — recipes you've validated, maybe cooked before, and trust. Fundamentally different and better for someone who's invested time building a personal cookbook.
 
 ---
 
@@ -549,9 +549,9 @@ Social media import is prioritized here — before daily-use retention features 
 
 ## Phase 3: Emotional Lock-In (Weeks 11–12)
 
-**Goal:** Make RecipeJar feel like a personal artifact — something that becomes more valuable over time, harder to leave, and emotionally meaningful. These features are cheap to build but disproportionately powerful for retention.
+**Goal:** Make Orzo feel like a personal artifact — something that becomes more valuable over time, harder to leave, and emotionally meaningful. These features are cheap to build but disproportionately powerful for retention.
 
-The best analogy: Instagram started as a photo filter app. People stayed because their memories were there. RecipeJar starts as a digitization tool. People stay because their cooking life is there.
+The best analogy: Instagram started as a photo filter app. People stayed because their memories were there. Orzo starts as a digitization tool. People stay because their cooking life is there.
 
 ### 3.1 — "Cooked It" Log & Cooking Journal
 
@@ -571,7 +571,7 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 - Sort recipes by "most cooked" and "recently cooked"
 - Free tier: log without photos · Pro: photos + detailed stats
 
-**Why this is so important:** This is the single cheapest feature with the highest emotional lock-in. Once someone has 6 months of cooking history in RecipeJar, switching to Paprika means losing that history. It's the same reason people don't leave Strava — their entire running history lives there. Build early so data accumulates from day one.
+**Why this is so important:** This is the single cheapest feature with the highest emotional lock-in. Once someone has 6 months of cooking history in Orzo, switching to Paprika means losing that history. It's the same reason people don't leave Strava — their entire running history lives there. Build early so data accumulates from day one.
 
 ---
 
@@ -596,7 +596,7 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 - **Year in Review** (December feature): Spotify Wrapped-style shareable summary
   - "In 2026, you cooked 89 meals from 42 recipes. Your most-made recipe was Grandma's Chicken Soup (12 times). You tried 23 new recipes."
   - Shareable card (generate as image) → social media, Messages
-  - Every shared "Year in Review" card is a free ad for RecipeJar — a viral acquisition moment
+  - Every shared "Year in Review" card is a free ad for Orzo — a viral acquisition moment
 
 ---
 
@@ -616,7 +616,7 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 - Displayed prominently on recipe detail, above ingredients
 - Optional: attach a photo to the story (the original handwritten card, a photo of grandma cooking)
 
-**Why this is free-tier:** This is the feature that makes people fall in love with RecipeJar during the free trial. It's what separates "a recipe app" from "my family's digital cookbook." It costs you nothing to serve (text + optional image) and creates deep emotional investment that makes the paywall conversion feel natural.
+**Why this is free-tier:** This is the feature that makes people fall in love with Orzo during the free trial. It's what separates "a recipe app" from "my family's digital cookbook." It costs you nothing to serve (text + optional image) and creates deep emotional investment that makes the paywall conversion feel natural.
 
 ---
 
@@ -658,10 +658,10 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 - Apply to Instacart Developer Platform (IDP) — they actively recruit recipe/meal planning apps. Your structured ingredient data and grocery list make you an ideal partner.
 - "Order on Instacart" button on grocery list screen → opens Instacart with pre-populated cart
 - IDP provides: item catalog matching, store selection, cart building, fulfillment, delivery tracking
-- Affiliate commission on every order placed through RecipeJar (typically $1–3 per order)
+- Affiliate commission on every order placed through Orzo (typically $1–3 per order)
 - Future: add Walmart Grocery API, Amazon Fresh, or Kroger as additional delivery partners
 
-**Revenue math:** If 500 Pro users order groceries through RecipeJar once per week at ~$2 commission, that's $4,000/mo in affiliate revenue — on top of subscription revenue.
+**Revenue math:** If 500 Pro users order groceries through Orzo once per week at ~$2 commission, that's $4,000/mo in affiliate revenue — on top of subscription revenue.
 
 **IDP application tips:** They want to see structured ingredient data, an active user base, and a clear recipe-to-cart flow. Emphasize your validation engine — "every ingredient in our app is structured and verified, not free-text." They vet partners but are actively expanding; recipe apps are their #1 target category.
 
@@ -736,13 +736,13 @@ The best analogy: Instagram started as a photo filter app. People stayed because
   - Typical price: $25–40 per book. You earn 15–25% margin.
 - **Digital PDF export** as a lighter alternative (Pro only)
 
-**Why this matters beyond revenue:** "Turn your RecipeJar collection into a real printed cookbook for Mom's birthday" is the single most compelling marketing message for the cookbook digitization audience. It completes the circle: physical cookbook → digital → physical again, but curated and personalized. Every gifted cookbook is a RecipeJar advertisement.
+**Why this matters beyond revenue:** "Turn your Orzo collection into a real printed cookbook for Mom's birthday" is the single most compelling marketing message for the cookbook digitization audience. It completes the circle: physical cookbook → digital → physical again, but curated and personalized. Every gifted cookbook is a Orzo advertisement.
 
 ---
 
 ## Phase 5: Growth & Network Effects (Weeks 16–19)
 
-**Goal:** Turn existing users into acquisition channels. Every feature here creates reasons for a RecipeJar user to bring in non-users.
+**Goal:** Turn existing users into acquisition channels. Every feature here creates reasons for a Orzo user to bring in non-users.
 
 ### 5.1 — Recipe Sharing & Export
 
@@ -756,16 +756,16 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 **What to build:**
 
 - Share a recipe via:
-  - **Link:** Generate a public URL (`recipejar.app/r/abc123`) with a clean web view of the recipe. Non-users see the recipe + "Get RecipeJar" CTA. This is your #1 organic acquisition channel.
+  - **Link:** Generate a public URL (`getorzo.com/r/abc123`) with a clean web view of the recipe. Non-users see the recipe + "Get Orzo" CTA. This is your #1 organic acquisition channel.
   - **Messages / email:** Share as formatted text (title, ingredients, steps)
   - **Image card:** Generate a beautiful recipe card image (hero photo + title + key stats) for Instagram Stories, iMessage, etc.
-- "Import from link" — RecipeJar users who receive a shared link can one-tap import into their own library
+- "Import from link" — Orzo users who receive a shared link can one-tap import into their own library
 - Share analytics (Pro): see how many times your shared recipes were viewed/imported
 
-**Deep linking prerequisite:** For shared links (`recipejar.app/r/abc123`) to open the app on iOS (or redirect to the App Store if not installed), you need:
+**Deep linking prerequisite:** For shared links (`getorzo.com/r/abc123`) to open the app on iOS (or redirect to the App Store if not installed), you need:
 
-- Apple Universal Links: an `apple-app-site-association` file hosted at `recipejar.app/.well-known/apple-app-site-association`, registered in Xcode's Associated Domains capability
-- A lightweight web service (or static page) at `recipejar.app/r/:id` that renders a clean recipe view for non-app visitors (title, ingredients, hero image, "Get RecipeJar" CTA)
+- Apple Universal Links: an `apple-app-site-association` file hosted at `getorzo.com/.well-known/apple-app-site-association`, registered in Xcode's Associated Domains capability
+- A lightweight web service (or static page) at `getorzo.com/r/:id` that renders a clean recipe view for non-app visitors (title, ingredients, hero image, "Get Orzo" CTA)
 - App-side URL handling: when the app opens via a universal link, route to the recipe detail screen or trigger an import flow
 - This infrastructure is also reusable for family invites (5.2) and public profiles (5.3)
 
@@ -777,7 +777,7 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 
 **Recommended approach for v1:** When sharing a recipe that was imported from an external source (`sourceType: "url"`), share only the title, ingredient list, and a link back to the original URL (already stored in `originalUrl`). Omit the full step text and any imported hero image from the public share page. For user-created recipes (`sourceType: "image"` from their own cookbook) or recipes where the user has substantially edited the steps, full sharing is lower risk. This can be enforced server-side when generating the public share page.
 
-**Viral math:** If 1,000 users share 2 recipes/month and each shared recipe is seen by 5 people, that's 10,000 monthly impressions of "Get RecipeJar" CTAs. At even 2% conversion, that's 200 new users/month — for free.
+**Viral math:** If 1,000 users share 2 recipes/month and each shared recipe is seen by 5 people, that's 10,000 monthly impressions of "Get Orzo" CTAs. At even 2% conversion, that's 200 new users/month — for free.
 
 ---
 
@@ -801,7 +801,7 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 
 **Pricing:** Family sharing included with Pro — no extra cost. This is the Apple Music / Spotify Family model. Slightly reduces per-user revenue but dramatically reduces churn (cancellation requires a *family discussion*, not a solo decision).
 
-**Why this drives retention:** The moment a second person in the household depends on RecipeJar for the shared grocery list, cancellation becomes a multi-person decision. Multi-user dependency is the strongest form of lock-in.
+**Why this drives retention:** The moment a second person in the household depends on Orzo for the shared grocery list, cancellation becomes a multi-person decision. Multi-user dependency is the strongest form of lock-in.
 
 ---
 
@@ -817,12 +817,12 @@ The best analogy: Instagram started as a photo filter app. People stayed because
 **What to build:**
 
 - Optional public profile: display name, bio, public recipe count
-- "Publish" a recipe to make it discoverable by other RecipeJar users
+- "Publish" a recipe to make it discoverable by other Orzo users
 - Community cookbooks: curated collections published by users ("My 20 Best Italian Recipes")
 - Browse/search published recipes, one-tap import to your own library
 - Follow other cooks, see their new published recipes
 
-**Why this is optional/long-term:** Community features are expensive to moderate, slow to reach critical mass, and distract from the core "personal cookbook" value prop. Only build this if RecipeJar has 10,000+ active users and you see organic sharing behavior. Don't chase this until everything above is solid.
+**Why this is optional/long-term:** Community features are expensive to moderate, slow to reach critical mass, and distract from the core "personal cookbook" value prop. Only build this if Orzo has 10,000+ active users and you see organic sharing behavior. Don't chase this until everything above is solid.
 
 ---
 
@@ -903,7 +903,7 @@ Things that seem tempting but are traps for a solo dev:
 |---|---|
 | **Android-first or simultaneous launch** | Ship iOS first. Your dev setup, testing, and daily driver are iOS. Android comes after model validation with revenue. React Native makes the port straightforward later. |
 | **Web app** | Adds an entire frontend codebase and deployment surface. Mobile-first is right for a cooking app. Web can come in year 2. |
-| **AI recipe generation** | "Give me a recipe using chicken and rice" — this is ChefGPT's territory and the output is generic AI slop. RecipeJar's value is *your* recipes, validated and trusted. Don't dilute that. |
+| **AI recipe generation** | "Give me a recipe using chicken and rice" — this is ChefGPT's territory and the output is generic AI slop. Orzo's value is *your* recipes, validated and trusted. Don't dilute that. |
 | **Social feed / discovery** | Community features are expensive to moderate, slow to grow, and distract from the personal cookbook value prop. Only consider at 10k+ users. |
 | **Barcode scanning for pantry** | Cool feature, massive engineering effort (UPC database, camera scanning, edge cases). Simple text-based pantry is 90% of the value at 10% of the cost. |
 | **Apple Watch / widgets** | Nice-to-have, but only after the core app is monetizing. Retention features, not acquisition features. |

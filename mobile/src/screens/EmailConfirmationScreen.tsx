@@ -11,7 +11,7 @@ import { Mail } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { supabase } from "../services/supabase";
 
-const REDIRECT = "app.recipejar.ios://auth/callback";
+const REDIRECT = "app.orzo.ios://auth/callback";
 
 type Props = NativeStackScreenProps<any, "EmailConfirmation">;
 

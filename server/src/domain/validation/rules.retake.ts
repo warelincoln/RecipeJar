@@ -1,5 +1,5 @@
-import type { ParsedRecipeCandidate } from "@recipejar/shared";
-import type { ValidationIssue } from "@recipejar/shared";
+import type { ParsedRecipeCandidate } from "@orzo/shared";
+import type { ValidationIssue } from "@orzo/shared";
 
 const MAX_RETAKES_PER_PAGE = 2;
 

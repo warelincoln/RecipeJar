@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { decideSave } from "../src/domain/save-decision.js";
-import type { ValidationResult } from "@recipejar/shared";
+import type { ValidationResult } from "@orzo/shared";
 
 function makeCleanResult(
   overrides: Partial<ValidationResult> = {},

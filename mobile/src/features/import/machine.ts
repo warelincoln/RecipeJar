@@ -5,7 +5,7 @@ import type {
   EditedRecipeCandidate,
   ValidationResult,
   DraftStatus,
-} from "@recipejar/shared";
+} from "@orzo/shared";
 
 export interface CapturedPage {
   pageId: string;

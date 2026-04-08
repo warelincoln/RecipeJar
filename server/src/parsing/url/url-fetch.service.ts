@@ -1,7 +1,7 @@
 import { assertUrlSafeForSsrf } from "./url-ssrf-guard.js";
 
 const BOT_UA =
-  "Mozilla/5.0 (compatible; RecipeJar/1.0; +https://recipejar.app)";
+  "Mozilla/5.0 (compatible; Orzo/1.0; +https://getorzo.com)";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";

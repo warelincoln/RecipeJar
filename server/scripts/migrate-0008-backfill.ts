@@ -22,7 +22,7 @@ import "dotenv/config";
 import postgres from "postgres";
 import { createClient } from "@supabase/supabase-js";
 
-const SEED_EMAIL = "migration-seed@recipejar.app";
+const SEED_EMAIL = "migration-seed@getorzo.com";
 const TABLES_TO_BACKFILL = [
   "recipes",
   "collections",

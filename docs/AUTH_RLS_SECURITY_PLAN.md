@@ -1,6 +1,6 @@
 ---
 name: Auth and RLS context
-overview: "Security-first authentication foundation for RecipeJar: Supabase Auth with email, Sign in with Apple, and Google from day one (plus optional providers documented with tradeoffs), dual enforcement via Fastify JWT + Postgres/Storage RLS, explicit threat and data-loss modeling, and alignment with README.md and ROADMAP.md Phase 0.1–0.2."
+overview: "Security-first authentication foundation for Orzo: Supabase Auth with email, Sign in with Apple, and Google from day one (plus optional providers documented with tradeoffs), dual enforcement via Fastify JWT + Postgres/Storage RLS, explicit threat and data-loss modeling, and alignment with README.md and ROADMAP.md Phase 0.1–0.2."
 todos:
   - id: supabase-providers
     content: "Configure Supabase Auth: email (password + magic link), Apple, Google; redirect URIs, secrets, Apple/Google console apps; decide optional providers (e.g. GitHub) vs attack surface"
@@ -29,7 +29,7 @@ todos:
 workspace_note: "Copy of the Cursor plan for sharing with reviewers or other models. Path in repo: docs/AUTH_RLS_SECURITY_PLAN.md"
 ---
 
-# Airtight authentication and RLS — revised plan (RecipeJar)
+# Airtight authentication and RLS — revised plan (Orzo)
 
 ## North star
 
@@ -62,7 +62,7 @@ This plan stays aligned with [README.md](../README.md) (monorepo, Fastify + Driz
 | Category | Provider | Notes |
 |----------|----------|--------|
 | Email | **Password** + **Magic link** (if enabled in Supabase) | Password: rate-limit friendly flows, reset email; magic link: no password storage, phishing-aware UX |
-| Apple | **Sign in with Apple** | Expected on iOS; ROADMAP references `app.recipejar.ios`; required if you offer other third-party login per Apple guidelines |
+| Apple | **Sign in with Apple** | Expected on iOS; ROADMAP references `app.orzo.ios`; required if you offer other third-party login per Apple guidelines |
 | Google | **Google OAuth** | Common user expectation; configure OAuth client IDs (iOS + Web as needed for Supabase) |
 
 **Other “standard” providers** (GitHub, Facebook, Microsoft, etc.): Supabase supports them, but each adds **OAuth client maintenance**, **redirect URI surface**, and **support burden**. Recommendation: **ship Apple + Google + email first**; add more providers only with a product reason, and document each in a short “provider register” (client IDs, redirect URLs, owners). If you still want a fourth provider at launch, pick **one** with clear user demand rather than enabling many by default.
@@ -86,7 +86,7 @@ This plan stays aligned with [README.md](../README.md) (monorepo, Fastify + Driz
    - **`WITH CHECK`** — which new/changed rows are allowed for `INSERT` / `UPDATE`.
 3. Typical pattern for user-owned rows: `user_id = auth.uid()` where **`auth.uid()`** is Supabase’s function returning the UUID from the JWT `sub` when the request is executed **as** the Supabase **`authenticated`** role (e.g. PostgREST, Realtime, or a session configured with JWT claims).
 
-### Mental model for RecipeJar
+### Mental model for Orzo
 
 Think of **two doors** into the same Postgres data:
 
@@ -147,7 +147,7 @@ flowchart TB
   Media --> ST
 ```
 
-1. **Transport:** TLS everywhere (production API `api.recipejar.app`, Supabase endpoints).
+1. **Transport:** TLS everywhere (production API `api.getorzo.com`, Supabase endpoints).
 2. **Identity:** Supabase Auth for Apple / Google / email; use **platform-native** flows (e.g. Apple on iOS).
 3. **Tokens on device:** Access token for API calls; refresh token stored in **Keychain** (or library that uses it); never log tokens; avoid putting tokens in URLs or deep links query strings where possible.
 4. **Fastify:** Verify JWT (**signature** via JWKS, **issuer**, **audience** if you restrict it, **expiry**, clock skew tolerance); reject unsigned / wrong-alg tokens; attach `userId`; **require auth on all non-public routes** (including health policy if you want split public/operator health).
@@ -176,7 +176,7 @@ The plan must define **how a session begins, refreshes, ages out, and dies**. �
 | **Security-triggered revocation** | Revoke or step up sessions after password reset, email change, MFA enrollment/removal, suspected compromise, or provider unlinking. |
 | **Session visibility** | Show users at least device/platform, created-at, last-seen, and current-device markers for active sessions. |
 
-**Implementation note for RecipeJar:** Because the mobile app talks to Fastify with bearer tokens, the API layer should enforce revocation-sensitive actions based on current session state, not only the JWT signature. Stateless acceptance of any unexpired token is too weak for logout-all, compromise response, and sensitive-account changes.
+**Implementation note for Orzo:** Because the mobile app talks to Fastify with bearer tokens, the API layer should enforce revocation-sensitive actions based on current session state, not only the JWT signature. Stateless acceptance of any unexpired token is too weak for logout-all, compromise response, and sensitive-account changes.
 
 ---
 

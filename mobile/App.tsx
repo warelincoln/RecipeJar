@@ -120,7 +120,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.getItem("@recipejar/onboarding-complete").then((value) => {
+    AsyncStorage.getItem("@orzo/onboarding-complete").then((value) => {
       setShowOnboarding(value !== "true");
       setCheckingOnboarding(false);
     });
@@ -155,7 +155,7 @@ export default function App() {
   if (isLoading || checkingOnboarding) {
     return (
       <View style={splashStyles.container}>
-        <Text style={splashStyles.logo}>RecipeJar</Text>
+        <Text style={splashStyles.logo}>Orzo</Text>
         <ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 24 }} />
       </View>
     );

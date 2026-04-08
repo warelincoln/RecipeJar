@@ -37,7 +37,7 @@ import { useImportQueueStore } from "../stores/importQueue.store";
 import { api, ApiError } from "../services/api";
 import { ToastQueue, type ToastQueueHandle } from "../components/ToastQueue";
 import { RecipeCard } from "../components/RecipeCard";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -325,7 +325,7 @@ export function HomeScreen({ navigation, route }: Props) {
         if (result.errorCode === "permission") {
           Alert.alert(
             "Photo Access Required",
-            "RecipeJar needs access to your photo library. You can enable it in Settings.",
+            "Orzo needs access to your photo library. You can enable it in Settings.",
             [
               { text: "Not Now", style: "cancel" },
               { text: "Open Settings", onPress: () => Linking.openSettings() },
@@ -422,10 +422,10 @@ export function HomeScreen({ navigation, route }: Props) {
     <View style={styles.container} testID="home-screen">
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.title} testID="home-title">
-          RecipeJar
+          Orzo
         </Text>
         <Text style={styles.subtitle} testID="home-subtitle">
-          Your recipe collection
+          Save, Plan, Cook.
         </Text>
         <ProfileAvatar />
       </View>
@@ -918,6 +918,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
+    letterSpacing: 0,
     color: "#111827",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },

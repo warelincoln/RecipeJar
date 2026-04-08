@@ -2,7 +2,7 @@
 
 ## Server Deployment (Fastify API)
 
-The mobile app expects the production API at `https://api.recipejar.app` (configured in `mobile/src/services/api.ts`).
+The mobile app expects the production API at `https://api.getorzo.com` (configured in `mobile/src/services/api.ts`).
 
 ### Option A: Railway
 
@@ -22,16 +22,16 @@ Set environment variables in Railway dashboard:
 - `OPENAI_API_KEY` — OpenAI API key for recipe parsing
 - `PORT` — Railway sets this automatically
 
-Custom domain: Point `api.recipejar.app` CNAME to the Railway-provided domain.
+Custom domain: Point `api.getorzo.com` CNAME to the Railway-provided domain.
 
 ### Option B: Render
 
 1. Connect GitHub repo
 2. Set root directory to repo root
-3. Build command: `npm ci --workspace=@recipejar/shared --workspace=@recipejar/server`
+3. Build command: `npm ci --workspace=@orzo/shared --workspace=@orzo/server`
 4. Start command: `node --import tsx server/src/app.ts`
 5. Set environment variables (same as above)
-6. Custom domain: `api.recipejar.app`
+6. Custom domain: `api.getorzo.com`
 
 ### Option C: Fly.io
 
@@ -45,13 +45,13 @@ fly deploy
 ### Post-Deploy Verification
 
 ```bash
-curl https://api.recipejar.app/health
+curl https://api.getorzo.com/health
 # Expected: {"status":"ok"}
 ```
 
 ### Mobile Native Rebuild
 
-After the production API is live, do a clean native build so the app connects to `api.recipejar.app` in release mode:
+After the production API is live, do a clean native build so the app connects to `api.getorzo.com` in release mode:
 
 ```bash
 cd mobile
@@ -60,5 +60,5 @@ npx react-native run-ios --mode Release
 
 ### DNS Configuration
 
-Point `api.recipejar.app` to your chosen cloud host via CNAME record.
+Point `api.getorzo.com` to your chosen cloud host via CNAME record.
 Ensure HTTPS/TLS is configured (most platforms handle this automatically).

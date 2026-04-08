@@ -1,4 +1,4 @@
-import type { ValidationResult, SaveDecision } from "@recipejar/shared";
+import type { ValidationResult, SaveDecision } from "@orzo/shared";
 
 export function decideSave(input: {
   validationResult: ValidationResult;

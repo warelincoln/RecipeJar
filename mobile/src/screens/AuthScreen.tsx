@@ -121,8 +121,8 @@ export function AuthScreen({ navigation }: Props) {
       ]}
     >
       <View style={styles.header}>
-        <Text style={styles.logo}>RecipeJar</Text>
-        <Text style={styles.subtitle}>Your personal cookbook</Text>
+        <Text style={styles.logo}>Orzo</Text>
+        <Text style={styles.subtitle}>Save, Plan, Cook.</Text>
       </View>
 
       <View style={styles.bottomBlock}>

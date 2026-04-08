@@ -19,7 +19,7 @@ import { ShimmerPlaceholder } from "../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
 import { FullScreenImageViewer } from "../components/FullScreenImageViewer";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import { scaleIngredient } from "../utils/scaling";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
@@ -139,7 +139,9 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const heroUrl = recipe.imageUrl ? `${recipe.imageUrl}?t=${imgCacheBuster}` : null;
+  const heroUrl = recipe.imageUrl
+    ? `${recipe.imageUrl}${recipe.imageUrl.includes("?") ? "&" : "?"}t=${imgCacheBuster}`
+    : null;
 
   return (
     <>

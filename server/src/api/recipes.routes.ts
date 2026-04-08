@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { collectionsRepository } from "../persistence/collections.repository.js";
 import { recipesRepository } from "../persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../persistence/recipe-notes.repository.js";
-import { NOTE_MAX_LENGTH } from "@recipejar/shared";
+import { NOTE_MAX_LENGTH } from "@orzo/shared";
 import {
   deleteRecipeImage,
   resolveImageUrls,

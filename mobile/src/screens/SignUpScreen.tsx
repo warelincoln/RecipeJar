@@ -36,7 +36,7 @@ export function SignUpScreen({ navigation }: Props) {
         password,
         options: {
           data: trimmedName ? { display_name: trimmedName } : undefined,
-          emailRedirectTo: "app.recipejar.ios://auth/callback",
+          emailRedirectTo: "app.orzo.ios://auth/callback",
         },
       });
       if (signUpError) {

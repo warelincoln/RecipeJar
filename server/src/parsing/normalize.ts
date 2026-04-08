@@ -7,7 +7,7 @@ import type {
   IngredientSignal,
   StepSignal,
   SourcePage,
-} from "@recipejar/shared";
+} from "@orzo/shared";
 
 export interface RecipeMetadata {
   yield?: string;

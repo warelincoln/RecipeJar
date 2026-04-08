@@ -1,4 +1,4 @@
-import type { SourcePage, ParsedRecipeCandidate } from "@recipejar/shared";
+import type { SourcePage, ParsedRecipeCandidate } from "@orzo/shared";
 import { fetchUrl } from "./url-fetch.service.js";
 import { extractStructuredData, extractMicrodata } from "./url-structured.adapter.js";
 import { extractDomBoundary } from "./url-dom.adapter.js";

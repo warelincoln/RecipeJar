@@ -13,7 +13,7 @@ In your current setup:
 - Your missing piece is your own **Fastify API server**, which is still running only on your laptop.
 - Your mobile app is currently set up so:
   - in development, it talks to your laptop
-  - in release, it is intended to talk to `https://api.recipejar.app`
+  - in release, it is intended to talk to `https://api.getorzo.com`
 
 So the real question is:
 
@@ -48,7 +48,7 @@ That means:
 For a real TestFlight setup, the architecture should be:
 
 1. The tester installs the app from TestFlight.
-2. The app talks to your public API at something like `https://api.recipejar.app`.
+2. The app talks to your public API at something like `https://api.getorzo.com`.
 3. That API talks to Supabase and OpenAI.
 
 So yes, you need a cloud-hosted API server.
@@ -105,7 +105,7 @@ This means:
 1. Pick a hosting platform for the Fastify API
 2. Deploy the `server/` app there
 3. Set environment variables there
-4. Point `api.recipejar.app` at that host
+4. Point `api.getorzo.com` at that host
 5. Make sure HTTPS works
 6. Verify the health endpoint works
 7. Build and upload the iOS app to TestFlight
@@ -362,7 +362,7 @@ In other words:
 
 ---
 
-## Recommended environment plan for RecipeJar
+## Recommended environment plan for Orzo
 
 ### Best practical setup
 
@@ -373,7 +373,7 @@ In other words:
 
 #### Production / TestFlight
 - TestFlight build
-- cloud Fastify server at `api.recipejar.app`
+- cloud Fastify server at `api.getorzo.com`
 - prod Supabase
 
 ### Optional later
@@ -391,7 +391,7 @@ If I want the smoothest path to TestFlight, the order should be:
 1. Finish the important storage/security deployment work
 2. Decide whether I am splitting Supabase into dev and prod now
 3. Deploy the Fastify server to Railway/Render/Fly
-4. Point `api.recipejar.app` to that host
+4. Point `api.getorzo.com` to that host
 5. Verify the production API works
 6. Verify the mobile release build talks to production correctly
 7. Finish the most important TestFlight-blocking account/security features
@@ -429,7 +429,7 @@ Once testers have a build, compatibility matters.
 - your Fastify API server
 
 ### What do remote TestFlight testers need?
-- a public API endpoint like `https://api.recipejar.app`
+- a public API endpoint like `https://api.getorzo.com`
 
 ### Do I need multiple local folders?
 - no
@@ -450,7 +450,7 @@ Once testers have a build, compatibility matters.
 
 ## Personal operating rule going forward
 
-A good default rule for RecipeJar is:
+A good default rule for Orzo is:
 
 **Build locally, test locally, merge intentionally, deploy backend carefully, and only ship mobile changes through a new TestFlight build.**
 

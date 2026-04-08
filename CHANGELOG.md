@@ -1,4 +1,4 @@
-# RecipeJar Changelog
+# Orzo Changelog
 
 ### 2026-04-04 — WS-6/7/8: Storage security, session management, abuse controls & testing (complete)
 
@@ -21,15 +21,13 @@ All remaining authentication work streams are now complete. The full security ha
 **WS-7a — TestFlight essentials (complete):**
 
 - **Account deletion (Apple requirement):**
-  - `DELETE /account` endpoint: sets `profiles.deleted_at`, bans user via Supabase Admin API (`ban_duration: '876000h'`), logs `account_deletion_requested` event. Protected by `requireRecentAuth(300)`.
+  - `DELETE /account` endpoint: calls `supabase.auth.admin.deleteUser(userId)` which cascades through `profiles` to all user data. Logs `account_deletion_requested` event. User can re-register with the same email immediately.
   - `server/scripts/hard-delete-accounts.ts`: cron script permanently deletes accounts soft-deleted 30+ days prior — removes storage objects, profile row (cascading to all related tables), and `auth.users` row.
   - Mobile: "Delete Account" section on AccountScreen with double-confirmation dialog ("Delete My Account" → "I Understand, Delete"), calls API then signs out.
 - **Sign-out-all-devices:**
   - `signOutAll()` method in `auth.store.ts` calls `supabase.auth.signOut({ scope: "global" })`, resets all stores.
   - "Sign Out All Devices" button on AccountScreen with confirmation dialog.
-- **Email change flow:**
-  - "Change Email" link on AccountScreen expands an inline input card. Calls `supabase.auth.updateUser({ email }, { emailRedirectTo: "app.recipejar.ios://auth/callback" })`.
-  - Success feedback: form collapses, alert explains dual-confirmation required.
+- **Email change flow:** _Shelved (2026-04-04)._ UI and handler removed from AccountScreen. The server-side `supabase.auth.updateUser({ email })` call works and sends confirmation emails, but the iOS confirmation link redirect lands on `about:blank` in Safari due to a known limitation with custom URL scheme (`app.orzo.ios://`) server-side 302 redirects. Repeated testing also destabilizes the auth session. Not an Apple requirement. To re-enable: implement a hosted HTTPS redirect page or Universal Links, then restore the `handleChangeEmail` handler and "Change Email" UI on AccountScreen. See git history for the removed code.
 - **MFA TOTP enrollment:**
   - "Security" section on AccountScreen: "Enable Two-Factor Authentication" → calls `supabase.auth.mfa.enroll({ factorType: "totp" })`, displays QR URI, accepts 6-digit verification code. "Disable" option with confirmation.
   - `MfaChallengeScreen.tsx`: dedicated screen for entering TOTP code during sign-in. Renders when `needsMfaVerify` is true (checked via `supabase.auth.mfa.getAuthenticatorAssuranceLevel()`).
@@ -117,9 +115,9 @@ All remaining authentication work streams are now complete. The full security ha
 
 ### 2026-04-04 — Fix: email change redirect URL + UX feedback
 
-- **`emailRedirectTo` added** to `supabase.auth.updateUser()` call in `AccountScreen.tsx` — now passes `"app.recipejar.ios://auth/callback"`, matching sign-up and forgot-password flows. Without this, Supabase fell back to the dashboard "Site URL" (`localhost:3000`), causing the confirmation link to land on the Fastify server and show "Authentication required."
+- **`emailRedirectTo` added** to `supabase.auth.updateUser()` call in `AccountScreen.tsx` — now passes `"app.orzo.ios://auth/callback"`, matching sign-up and forgot-password flows. Without this, Supabase fell back to the dashboard "Site URL" (`localhost:3000`), causing the confirmation link to land on the Fastify server and show "Authentication required."
 - **UX improvement:** form collapses before the alert appears, providing immediate visual feedback that the action succeeded. Alert text updated to explain dual-confirmation requirement.
-- **Supabase dashboard action needed:** Set "Site URL" to `app.recipejar.ios://auth/callback` and add it to the "Redirect URLs" allowlist to prevent this class of issue for any flow that doesn't explicitly pass `emailRedirectTo`.
+- **Supabase dashboard action needed:** Set "Site URL" to `app.orzo.ios://auth/callback` and add it to the "Redirect URLs" allowlist to prevent this class of issue for any flow that doesn't explicitly pass `emailRedirectTo`.
 
 ---
 
@@ -151,7 +149,7 @@ Mobile app now authenticates users end-to-end. All three auth methods (Apple, Go
 - `mobile/src/screens/ResetPasswordScreen.tsx` — standalone new-password form (rendered by four-state root on deep link recovery)
 - `mobile/src/screens/AccountScreen.tsx` — profile display (avatar/initial, name, email), linked providers list, sign-out with confirmation, app version
 - `mobile/src/navigation/types.ts` — `AuthStackParamList` (Onboarding, Auth, SignIn, SignUp, ForgotPassword, EmailConfirmation) + `Account` route in `RootStackParamList`
-- `mobile/ios/RecipeJar/RecipeJar.entitlements` — Apple Sign-In capability
+- `mobile/ios/Orzo/Orzo.entitlements` — Apple Sign-In capability
 
 **Files modified:**
 
@@ -161,14 +159,14 @@ Mobile app now authenticates users end-to-end. All three auth methods (Apple, Go
 - `mobile/src/stores/collections.store.ts` — added `reset()` method
 - `mobile/src/stores/importQueue.store.ts` — added `reset()` method + `reconcileQueue()` guarded with auth session check (prevents unauthenticated API calls on rehydration), exported `reconcileQueue` for App.tsx
 - `mobile/src/screens/HomeScreen.tsx` — profile avatar circle (top-right header), navigates to AccountScreen, shows user initial or avatar image, orange theme matching FAB
-- `mobile/ios/RecipeJar/Info.plist` — added `CFBundleURLTypes` (URL schemes: `app.recipejar.ios` for auth callbacks, reversed Google iOS Client ID for Google Sign-In), `GIDClientID`
-- `mobile/ios/RecipeJar.xcodeproj/project.pbxproj` — `CODE_SIGN_ENTITLEMENTS` added to Debug + Release build configs
+- `mobile/ios/Orzo/Info.plist` — added `CFBundleURLTypes` (URL schemes: `app.orzo.ios` for auth callbacks, reversed Google iOS Client ID for Google Sign-In), `GIDClientID`
+- `mobile/ios/Orzo.xcodeproj/project.pbxproj` — `CODE_SIGN_ENTITLEMENTS` added to Debug + Release build configs
 
 **Supabase dashboard configuration (required, not in code):**
 
-- Apple provider: Bundle ID set to `app.recipejar.ios` (not `app.recipejar.ios.auth`)
+- Apple provider: Bundle ID set to `app.orzo.ios` (not `app.orzo.ios.auth`)
 - Google provider: "Skip nonce check" enabled (Google Sign-In SDK v16 generates internal nonces not exposed to JS)
-- Redirect URL added: `app.recipejar.ios://auth/callback`
+- Redirect URL added: `app.orzo.ios://auth/callback`
 - Email verification: enabled (sign-up requires email confirmation)
 
 **Tested and verified on physical iPhone:**
@@ -200,7 +198,7 @@ Server-side auth is now **live**. Every API endpoint (except `/health`) requires
 - **`profiles` table** — maps 1:1 with `auth.users` via FK `profiles_id_auth_users_fk` (CASCADE). Columns: `id` (uuid PK, matches auth UID), `display_name`, `avatar_url`, `subscription_tier` (default `'free'`), `subscription_expires_at`, `deleted_at` (for future soft-delete), `created_at`, `updated_at`.
 - **Postgres trigger** `on_auth_user_created` — fires `AFTER INSERT ON auth.users`, auto-creates a `profiles` row pulling `display_name` and `avatar_url` from `raw_user_meta_data`. Defined via `handle_new_user()` (SECURITY DEFINER, `search_path = public`).
 - **`user_id` column** added to `recipes`, `collections`, `drafts`, `recipe_notes` — each is `uuid NOT NULL`, FK to `profiles(id)`, with B-tree index (`idx_<table>_user_id`).
-- **Seed user backfill** — a migration-only user (`migration-seed@recipejar.app`, id `2a739cca-69b9-4385-801f-946cd123041c`) was created via the Supabase Admin API. All 211 existing rows (9 recipes, 7 collections, 195 drafts, 0 notes) were assigned to this user. The seed user is banned for 100 years and cannot authenticate.
+- **Seed user backfill** — a migration-only user (`migration-seed@getorzo.com`, id `2a739cca-69b9-4385-801f-946cd123041c`) was created via the Supabase Admin API. All 211 existing rows (9 recipes, 7 collections, 195 drafts, 0 notes) were assigned to this user. The seed user is banned for 100 years and cannot authenticate.
 - **Row Level Security** enabled on all 11 public tables with 41 policies total. All policies target the `authenticated` role only; the `anon` role gets zero access. Direct-`user_id` tables (profiles, recipes, collections, drafts, recipe_notes) use `auth.uid() = user_id`. Child tables (draft_pages, draft_warning_states, recipe_collections, recipe_ingredients, recipe_steps, recipe_source_pages) use `EXISTS` subqueries via parent FK. The `service_role` used by Fastify bypasses RLS by design — code-level scoping is the primary defense.
 
 **Server — auth middleware (`server/src/middleware/auth.ts`):**
@@ -230,9 +228,9 @@ Server-side auth is now **live**. Every API endpoint (except `/health`) requires
 - User sessions: inactivity timeout 7 days.
 - Password policy: minimum 8 characters.
 - MFA: TOTP (app authenticator) enabled, max 10 factors.
-- Apple Services ID (`app.recipejar.ios.auth`) configured with `.p8` key-based client secret (expires ~6 months, renewal needed).
+- Apple Services ID (`app.orzo.ios.auth`) configured with `.p8` key-based client secret (expires ~6 months, renewal needed).
 - Google Cloud OAuth clients created (Web Application + iOS).
-- iOS Bundle ID: `app.recipejar.ios` (updated from default React Native identifier).
+- iOS Bundle ID: `app.orzo.ios` (updated from default React Native identifier).
 
 **Files created:**
 
@@ -257,7 +255,7 @@ Server-side auth is now **live**. Every API endpoint (except `/health`) requires
 - `server/src/api/collections.routes.ts` — pass `request.userId`
 - `server/src/app.ts` — register auth middleware
 - `server/drizzle/meta/_journal.json` — entries 8 and 9
-- `mobile/ios/RecipeJar.xcodeproj/project.pbxproj` — bundle ID `app.recipejar.ios`
+- `mobile/ios/Orzo.xcodeproj/project.pbxproj` — bundle ID `app.orzo.ios`
 - `mobile/run.sh` — bundle ID + `-allowProvisioningUpdates`
 
 **What remains for full auth:** ~~WS-4 through WS-8~~ — **All complete.** See 2026-04-04 and 2026-04-03 (WS-4) changelog entries above.
@@ -406,7 +404,7 @@ Users can **rename** folders (collections) and **delete** them. Renaming updates
 
 - **No new DB migration** — `collections` already had `name` and `updated_at`.
 - **Restart the API** after pulling this work (`npm run dev:phone` or server workspace). A stale Node process returns Fastify **404** `Route PATCH:/collections/:id not found` — easy to mistake for an app bug.
-- **Release builds** use **`https://api.recipejar.app`**; folder rename/delete requires that host to ship the same routes.
+- **Release builds** use **`https://api.getorzo.com`**; folder rename/delete requires that host to ship the same routes.
 - Virtual **"All Recipes"** (`isAllRecipes` / `__all__`) has **no** folder menu or long-press folder actions.
 
 ---
@@ -620,13 +618,13 @@ Major feature: users can now import up to **3 image-based recipes concurrently**
 - **`server/tests/machine.test.ts`:** resume mocks use `parsedCandidate` / `editedCandidate` / `validationResult` to match API client shape.
 - **`server/tests/integration.test.ts`:** GET draft asserts `parsedCandidate` present and `parsedCandidateJson` absent on JSON body.
 
-**Verification (2026-03-28):** `npx patch-package --check`; `npm run typecheck` in `shared`, `server`, `mobile`; `npm test -w @recipejar/server` (127 tests).
+**Verification (2026-03-28):** `npx patch-package --check`; `npm run typecheck` in `shared`, `server`, `mobile`; `npm test -w @orzo/server` (127 tests).
 
 ### 2026-03-26 — Browser-backed URL import for blocked recipe sites
 
 **Mobile — in-app browser (`WebRecipeImportScreen`):**
 
-- **Save to RecipeJar** now attempts to capture the currently loaded page HTML from the WebView before leaving the browser.
+- **Save to Orzo** now attempts to capture the currently loaded page HTML from the WebView before leaving the browser.
 - Save uses the final navigated top-level URL, disables double-submit while capture is in flight, and enforces a client-side HTML size cap before import handoff.
 - If HTML capture fails technically (`injection_failed`, `capture_timeout`, `page_not_ready`, `payload_too_large`, `message_transport_failed`), the browser falls back once to the existing server-fetch URL import path.
 
@@ -650,7 +648,7 @@ Major feature: users can now import up to **3 image-based recipes concurrently**
 
 **Mobile — in-app browser (`WebRecipeImportScreen`):**
 
-- Jar **URL** opens full-screen WebView: omnibar, refresh, back/forward, **Save to RecipeJar** → `ImportFlow` URL mode (`StackActions.replace`).
+- Jar **URL** opens full-screen WebView: omnibar, refresh, back/forward, **Save to Orzo** → `ImportFlow` URL mode (`StackActions.replace`).
 - Default search for typed queries uses Google (`NEUTRAL_SEARCH_TEMPLATE` in `webImportUrl.ts`).
 - Blocks common ad/tracking hostnames in `onShouldStartLoadWithRequest` (top-frame and subframe).
 - External schemes (`tel:`, `mailto:`, `sms:`, `intent:`) prompt before `Linking.openURL`.
@@ -870,7 +868,7 @@ Major feature: users can now import up to **3 image-based recipes concurrently**
 
 ### 2026-03-21 — `npm run dev:phone` (API + Metro)
 
-- Root **`package.json`** adds **`npm run dev:phone`**: runs **`@recipejar/server`** `dev` and **`@recipejar/mobile`** `start` together via **`concurrently`** (one terminal; Ctrl+C stops both). Use this before testing on a physical iPhone so the app never hits "Network request failed" from a missing API.
+- Root **`package.json`** adds **`npm run dev:phone`**: runs **`@orzo/server`** `dev` and **`@orzo/mobile`** `start` together via **`concurrently`** (one terminal; Ctrl+C stops both). Use this before testing on a physical iPhone so the app never hits "Network request failed" from a missing API.
 - **README Section 8** step 1 documents this as the default for phone testing.
 
 ### 2026-03-21 — Phone dev environment automation
@@ -880,8 +878,8 @@ Major feature: users can now import up to **3 image-based recipes concurrently**
 
 ### 2026-03-21 — Physical iPhone: force Metro to Mac LAN IP
 
-- **`AppDelegate.mm`**: On a **physical device** in **Debug**, the JS bundle URL uses **`RecipeJarDevPackagerHost`** from **Info.plist** so Metro is always your Mac (same IP as `api.ts`), instead of falling back to a **stale offline bundle** where the UI never updates.
-- **`Info.plist`**: `RecipeJarDevPackagerHost` (currently `192.168.146.239`), `NSLocalNetworkUsageDescription` for local-network access to Metro.
+- **`AppDelegate.mm`**: On a **physical device** in **Debug**, the JS bundle URL uses **`OrzoDevPackagerHost`** from **Info.plist** so Metro is always your Mac (same IP as `api.ts`), instead of falling back to a **stale offline bundle** where the UI never updates.
+- **`Info.plist`**: `OrzoDevPackagerHost` (currently `192.168.146.239`), `NSLocalNetworkUsageDescription` for local-network access to Metro.
 
 ### 2026-03-21 — Major update: collections, recipe editing, validation simplification, Lucide icons
 
@@ -942,13 +940,13 @@ Major feature: users can now import up to **3 image-based recipes concurrently**
 ### 2026-03-21 — iOS UI tests + URL input screen
 
 **iOS UI testing (XCUITest):**
-- Created `RecipeJarUITests` XCUITest target with 21 automated UI tests across 2 test files (`RecipeJarUITests.swift`, `ImportFlowUITests.swift`)
+- Created `OrzoUITests` XCUITest target with 21 automated UI tests across 2 test files (`OrzoUITests.swift`, `ImportFlowUITests.swift`)
 - Tests cover: home screen elements, FAB navigation, camera import flow, URL import flow, cancel confirmation dialogs, recipe detail navigation with back button, capture view buttons, URL input screen, and deeper import states (preview edit, saved, warning gate, retake, guided correction)
 - Added `testID`, `accessibilityRole`, and `accessibilityLabel` props to all interactive React Native components across all screens for XCUITest element discovery
 - All XCUITest queries use `app.descendants(matching: .any)["identifier"]` instead of type-specific queries (e.g., `app.buttons["id"]`) because React Native's `TouchableOpacity` does not reliably map to a native button in the iOS accessibility tree
 - Tests use 120-second timeouts for initial home screen load to accommodate JS bundle download over the network on physical devices
-- Fixed legacy `RecipeJarTests.m` unit test: changed search text from "Welcome to React" (React Native template default) to "RecipeJar", reduced timeout from 600 seconds to 30 seconds, renamed test method to `testRendersHomeScreen`
-- Added `RecipeJarUITests` target to the `RecipeJar.xcscheme` shared scheme (both in `BuildActionEntries` and `Testables`) so tests appear in Xcode's Test Navigator and run with Cmd+U
+- Fixed legacy `OrzoTests.m` unit test: changed search text from "Welcome to React" (React Native template default) to "Orzo", reduced timeout from 600 seconds to 30 seconds, renamed test method to `testRendersHomeScreen`
+- Added `OrzoUITests` target to the `Orzo.xcscheme` shared scheme (both in `BuildActionEntries` and `Testables`) so tests appear in Xcode's Test Navigator and run with Cmd+U
 - 19 of 21 tests pass on a physical iPhone 16 running iOS 26.2. The 2 tests that rely on reaching deeper import states (saved view, warning gate, etc.) skip gracefully when the API server is not running
 
 **URL input screen:**

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import { api } from "../services/api";
 
 interface RecipesState {

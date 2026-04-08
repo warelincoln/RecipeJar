@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { SourcePage, ParsedRecipeCandidate } from "@recipejar/shared";
+import type { SourcePage, ParsedRecipeCandidate } from "@orzo/shared";
 import {
   normalizeToCandidate,
   buildErrorCandidate,

@@ -8,7 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   TextInput,
-  Platform,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -18,7 +18,6 @@ import {
   Mail,
   Check,
   Trash2,
-  Pencil,
   Shield,
   ShieldOff,
 } from "lucide-react-native";
@@ -36,9 +35,6 @@ export function AccountScreen({ navigation }: Props) {
   const [signingOut, setSigningOut] = React.useState(false);
   const [signingOutAll, setSigningOutAll] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [editingEmail, setEditingEmail] = React.useState(false);
-  const [newEmail, setNewEmail] = React.useState("");
-  const [changingEmail, setChangingEmail] = React.useState(false);
   const [mfaEnrolling, setMfaEnrolling] = React.useState(false);
   const [mfaQrUri, setMfaQrUri] = React.useState<string | null>(null);
   const [mfaFactorId, setMfaFactorId] = React.useState<string | null>(null);
@@ -56,7 +52,7 @@ export function AccountScreen({ navigation }: Props) {
   const displayName =
     user?.user_metadata?.display_name ||
     user?.user_metadata?.full_name ||
-    "RecipeJar User";
+    "Orzo User";
   const email = user?.email ?? "";
   const initial = displayName[0]?.toUpperCase();
 
@@ -84,19 +80,28 @@ export function AccountScreen({ navigation }: Props) {
     setMfaEnrolling(true);
     setMfaError(null);
     try {
+      const { data: factorsData } = await supabase.auth.mfa.listFactors();
+      const staleFactors = (factorsData?.totp ?? []).filter(
+        (f) => f.status === "unverified",
+      );
+      for (const f of staleFactors) {
+        await supabase.auth.mfa.unenroll({ factorId: f.id });
+      }
+
       const { data, error } = await supabase.auth.mfa.enroll({
         factorType: "totp",
-        friendlyName: "RecipeJar Authenticator",
+        issuer: "Orzo",
+        friendlyName: "Orzo Authenticator",
       });
       if (error) {
-        setMfaError(error.message);
+        Alert.alert("MFA Error", error.message);
         setMfaEnrolling(false);
         return;
       }
       setMfaQrUri(data.totp.uri);
       setMfaFactorId(data.id);
-    } catch {
-      setMfaError("Failed to start MFA enrollment.");
+    } catch (e: any) {
+      Alert.alert("MFA Error", e?.message ?? "Failed to start MFA enrollment.");
       setMfaEnrolling(false);
     }
   };
@@ -160,6 +165,7 @@ export function AccountScreen({ navigation }: Props) {
               if (error) {
                 Alert.alert("Error", error.message);
               } else {
+                await supabase.auth.refreshSession();
                 Alert.alert("Disabled", "Two-factor authentication has been disabled.");
               }
             } catch {
@@ -171,36 +177,6 @@ export function AccountScreen({ navigation }: Props) {
         },
       ],
     );
-  };
-
-  const handleChangeEmail = async () => {
-    const trimmed = newEmail.trim();
-    if (!trimmed || !trimmed.includes("@")) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
-      return;
-    }
-    setChangingEmail(true);
-    try {
-      const { error } = await supabase.auth.updateUser(
-        { email: trimmed },
-        { emailRedirectTo: "app.recipejar.ios://auth/callback" },
-      );
-      if (error) {
-        Alert.alert("Error", error.message);
-      } else {
-        setEditingEmail(false);
-        setNewEmail("");
-        Alert.alert(
-          "Confirmation Sent",
-          "We sent confirmation links to both your current and new email. " +
-            "You must confirm from both to complete the change.",
-        );
-      }
-    } catch {
-      Alert.alert("Error", "Failed to update email. Please try again.");
-    } finally {
-      setChangingEmail(false);
-    }
   };
 
   const handleSignOutAll = () => {
@@ -228,7 +204,7 @@ export function AccountScreen({ navigation }: Props) {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "This will permanently delete your account and all your data after 30 days. This action cannot be undone.",
+      "This will permanently delete your account and all your data. This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -297,53 +273,7 @@ export function AccountScreen({ navigation }: Props) {
           )}
           <Text style={styles.displayName}>{displayName}</Text>
           <Text style={styles.email}>{email}</Text>
-          {providers.includes("email") && (
-            <TouchableOpacity
-              style={styles.changeEmailTrigger}
-              onPress={() => setEditingEmail(!editingEmail)}
-            >
-              <Pencil size={14} color="#2563eb" />
-              <Text style={styles.changeEmailTriggerText}>Change Email</Text>
-            </TouchableOpacity>
-          )}
         </View>
-
-        {editingEmail && (
-          <View style={styles.emailChangeCard}>
-            <TextInput
-              style={styles.emailInput}
-              placeholder="New email address"
-              placeholderTextColor="#9ca3af"
-              value={newEmail}
-              onChangeText={setNewEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <View style={styles.emailChangeActions}>
-              <TouchableOpacity
-                style={styles.emailCancelBtn}
-                onPress={() => {
-                  setEditingEmail(false);
-                  setNewEmail("");
-                }}
-              >
-                <Text style={styles.emailCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.emailConfirmBtn}
-                onPress={handleChangeEmail}
-                disabled={changingEmail}
-              >
-                {changingEmail ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.emailConfirmText}>Update</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         <Text style={styles.sectionLabel}>Linked accounts</Text>
         <View style={styles.linkedCard}>
@@ -394,13 +324,33 @@ export function AccountScreen({ navigation }: Props) {
           ) : mfaEnrolling && mfaQrUri ? (
             <View>
               <Text style={styles.mfaInstructionText}>
-                Scan this URI with your authenticator app, then enter the 6-digit code:
+                Tap the button below to add Orzo to your authenticator app, then enter the 6-digit code:
               </Text>
-              <View style={styles.mfaUriContainer}>
-                <Text style={styles.mfaUriText} selectable>
-                  {mfaQrUri}
-                </Text>
-              </View>
+              <TouchableOpacity
+                style={styles.mfaOpenAuthBtn}
+                onPress={() => {
+                  Linking.openURL(mfaQrUri!).catch(() => {
+                    Alert.alert(
+                      "No Authenticator App",
+                      "Install an authenticator app like Google Authenticator or 1Password, then try again.",
+                    );
+                  });
+                }}
+              >
+                <Shield size={20} color="#fff" />
+                <Text style={styles.mfaOpenAuthText}>Open in Authenticator App</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.mfaCopyFallback}
+                onPress={() => {
+                  import("@react-native-clipboard/clipboard").then(({ default: Clipboard }) => {
+                    Clipboard.setString(mfaQrUri!);
+                    Alert.alert("Copied", "Secret URI copied. Paste it into your authenticator app.");
+                  });
+                }}
+              >
+                <Text style={styles.mfaCopyFallbackText}>Or copy secret to clipboard</Text>
+              </TouchableOpacity>
               <TextInput
                 style={styles.mfaCodeInput}
                 placeholder="000000"
@@ -498,7 +448,7 @@ export function AccountScreen({ navigation }: Props) {
           )}
         </TouchableOpacity>
 
-        <Text style={styles.version}>RecipeJar v{version}</Text>
+        <Text style={styles.version}>Orzo v{version}</Text>
       </ScrollView>
     </View>
   );
@@ -523,10 +473,18 @@ function LinkedRow({
     if (provider === "email") return;
     setLoading(true);
     try {
-      const { error } = await supabase.auth.linkIdentity({
+      const { data, error } = await supabase.auth.linkIdentity({
         provider: provider as "apple" | "google",
+        options: {
+          skipBrowserRedirect: true,
+          redirectTo: "app.orzo.ios://auth/callback",
+        },
       });
-      if (error) Alert.alert("Error", error.message);
+      if (error) {
+        Alert.alert("Error", error.message);
+      } else if (data?.url) {
+        await Linking.openURL(data.url);
+      }
     } catch {
       Alert.alert("Error", `Failed to link ${label}`);
     } finally {
@@ -551,7 +509,11 @@ function LinkedRow({
           setLoading(true);
           try {
             const { error } = await supabase.auth.unlinkIdentity(identity);
-            if (error) Alert.alert("Error", error.message);
+            if (error) {
+              Alert.alert("Error", error.message);
+            } else {
+              await supabase.auth.refreshSession();
+            }
           } catch {
             Alert.alert("Error", `Failed to unlink ${label}`);
           } finally {
@@ -650,60 +612,6 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     marginTop: 4,
   },
-  changeEmailTrigger: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    gap: 4,
-  },
-  changeEmailTriggerText: {
-    fontSize: 13,
-    color: "#2563eb",
-    fontWeight: "600",
-  },
-  emailChangeCard: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 12,
-  },
-  emailInput: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: "#111827",
-  },
-  emailChangeActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 12,
-    gap: 8,
-  },
-  emailCancelBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  emailCancelText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6b7280",
-  },
-  emailConfirmBtn: {
-    backgroundColor: "#2563eb",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  emailConfirmText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#fff",
-  },
   sectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -778,16 +686,29 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     marginBottom: 12,
   },
-  mfaUriContainer: {
-    backgroundColor: "#f3f4f6",
-    borderRadius: 8,
-    padding: 12,
+  mfaOpenAuthBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2563eb",
+    borderRadius: 10,
+    paddingVertical: 14,
+    gap: 10,
+    marginBottom: 12,
+  },
+  mfaOpenAuthText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  mfaCopyFallback: {
+    alignItems: "center",
     marginBottom: 16,
   },
-  mfaUriText: {
-    fontSize: 12,
-    color: "#374151",
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  mfaCopyFallbackText: {
+    fontSize: 13,
+    color: "#6b7280",
+    textDecorationLine: "underline",
   },
   mfaCodeInput: {
     borderWidth: 2,

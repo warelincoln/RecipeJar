@@ -8,8 +8,8 @@
     "skipLibCheck": true,
     "jsx": "react-native",
     "paths": {
-      "@recipejar/shared": ["../shared/src"],
-      "@recipejar/shared/*": ["../shared/src/*"]
+      "@orzo/shared": ["../shared/src"],
+      "@orzo/shared/*": ["../shared/src/*"]
     }
   },
   "include": ["src", "App.tsx", "index.js"]

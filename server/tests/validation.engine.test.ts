@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { validateRecipe } from "../src/domain/validation/validation.engine.js";
-import type { ParsedRecipeCandidate } from "@recipejar/shared";
+import type { ParsedRecipeCandidate } from "@orzo/shared";
 
 function makeCandidate(
   overrides: Partial<ParsedRecipeCandidate> = {},

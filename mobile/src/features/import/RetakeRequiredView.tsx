@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import type { ValidationIssue } from "@recipejar/shared";
+import type { ValidationIssue } from "@orzo/shared";
 
 interface RetakeRequiredViewProps {
   pages: { pageId: string; imageUri: string; retakeCount: number }[];

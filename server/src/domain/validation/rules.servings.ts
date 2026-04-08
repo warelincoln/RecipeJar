@@ -1,4 +1,4 @@
-import type { ParsedRecipeCandidate, ValidationIssue } from "@recipejar/shared";
+import type { ParsedRecipeCandidate, ValidationIssue } from "@orzo/shared";
 
 export function evaluateServings(
   candidate: ParsedRecipeCandidate,

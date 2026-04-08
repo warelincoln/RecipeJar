@@ -11,8 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { NOTE_MAX_LENGTH } from "@recipejar/shared";
-import type { RecipeNote } from "@recipejar/shared";
+import { NOTE_MAX_LENGTH } from "@orzo/shared";
+import type { RecipeNote } from "@orzo/shared";
 
 interface RecipeNotesSectionProps {
   notes: RecipeNote[];

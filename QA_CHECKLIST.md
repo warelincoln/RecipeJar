@@ -1,4 +1,4 @@
-# RecipeJar MVP — Manual QA Checklist
+# Orzo MVP — Manual QA Checklist
 
 ## How to use this document
 
@@ -244,7 +244,7 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 
 **API sequence (browser-backed path):**
 1. Open the page in `WebRecipeImportScreen`
-2. Tap **Save to RecipeJar**
+2. Tap **Save to Orzo**
 3. App attempts WebView HTML capture and calls `POST /drafts/:id/parse` with `{ html, acquisitionMethod: "webview-html" }`
 4. If capture fails technically, app retries once with `POST /drafts/:id/parse` and `{ acquisitionMethod: "server-fetch-fallback", captureFailureReason }`
 

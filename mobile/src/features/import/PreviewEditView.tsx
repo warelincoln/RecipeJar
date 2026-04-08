@@ -14,7 +14,7 @@ import type {
   EditedRecipeCandidate,
   ValidationResult,
   ValidationIssue,
-} from "@recipejar/shared";
+} from "@orzo/shared";
 import {
   blockIndexForField,
   sliceWordsToText,

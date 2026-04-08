@@ -55,20 +55,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
+      (_event: AuthChangeEvent, session: Session | null) => {
         if (session) {
           const factors = session.user?.factors ?? [];
           const hasVerifiedTotp = factors.some(
             (f) => f.factor_type === "totp" && f.status === "verified",
           );
-          const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-          const needsMfa = hasVerifiedTotp && aalData?.currentLevel !== "aal2";
+
           set({
             session,
             user: session.user,
             isAuthenticated: true,
-            needsMfaVerify: needsMfa,
           });
+
+          // Defer AAL check to avoid deadlocking the Supabase session lock
+          // (onAuthStateChange fires while the lock is held by the triggering call)
+          setTimeout(async () => {
+            try {
+              const { data: aalData } =
+                await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+              const needsMfa =
+                hasVerifiedTotp && aalData?.currentLevel !== "aal2";
+              set({ needsMfaVerify: needsMfa });
+            } catch {
+              if (hasVerifiedTotp) set({ needsMfaVerify: true });
+            }
+          }, 0);
         } else {
           set({
             session: null,

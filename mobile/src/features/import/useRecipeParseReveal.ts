@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AccessibilityInfo } from "react-native";
-import type { EditedRecipeCandidate } from "@recipejar/shared";
+import type { EditedRecipeCandidate } from "@orzo/shared";
 import {
   buildRevealPlan,
   candidateContentFingerprint,

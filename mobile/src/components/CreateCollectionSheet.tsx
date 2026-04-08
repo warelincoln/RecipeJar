@@ -64,7 +64,7 @@ export function CreateCollectionSheet({
           (/^Route\s+\w+:/i.test(m) || m.includes("Route PATCH"))
         ) {
           detail =
-            "This phone is talking to an API that doesn’t support renaming folders yet. On your Mac, restart the RecipeJar server (npm run dev) so it loads the latest code. If you’re on a release build, the hosted API needs to be updated.";
+            "This phone is talking to an API that doesn’t support renaming folders yet. On your Mac, restart the Orzo server (npm run dev) so it loads the latest code. If you’re on a release build, the hosted API needs to be updated.";
         } else {
           detail = m || detail;
         }

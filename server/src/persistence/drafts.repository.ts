@@ -5,7 +5,7 @@ import type {
   ParsedRecipeCandidate,
   EditedRecipeCandidate,
   ValidationResult,
-} from "@recipejar/shared";
+} from "@orzo/shared";
 
 export interface CreateDraftInput {
   userId: string;

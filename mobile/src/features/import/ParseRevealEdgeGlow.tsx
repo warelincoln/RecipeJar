@@ -79,7 +79,7 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
       >
         <Svg width={topW} height={TOP_BAND_H} viewBox={`0 0 ${topW} ${TOP_BAND_H}`}>
           <Defs>
-            <LinearGradient id="rjGlowTop" x1="0%" y1="0%" x2="0%" y2="100%">
+            <LinearGradient id="orzoGlowTop" x1="0%" y1="0%" x2="0%" y2="100%">
               <Stop offset="0%" stopColor="#ea580c" stopOpacity={0.55} />
               <Stop offset="28%" stopColor="#f97316" stopOpacity={0.32} />
               <Stop offset="55%" stopColor="#fbbf24" stopOpacity={0.14} />
@@ -87,7 +87,7 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
               <Stop offset="100%" stopColor="#fff7ed" stopOpacity={0} />
             </LinearGradient>
           </Defs>
-          <Rect x={0} y={0} width={topW} height={TOP_BAND_H} fill="url(#rjGlowTop)" />
+          <Rect x={0} y={0} width={topW} height={TOP_BAND_H} fill="url(#orzoGlowTop)" />
         </Svg>
       </Animated.View>
 
@@ -97,7 +97,7 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
       >
         <Svg width={topW} height={TOP_BAND_H} viewBox={`0 0 ${topW} ${TOP_BAND_H}`}>
           <Defs>
-            <LinearGradient id="rjGlowBottom" x1="0%" y1="100%" x2="0%" y2="0%">
+            <LinearGradient id="orzoGlowBottom" x1="0%" y1="100%" x2="0%" y2="0%">
               <Stop offset="0%" stopColor="#c2410c" stopOpacity={0.5} />
               <Stop offset="30%" stopColor="#ea580c" stopOpacity={0.3} />
               <Stop offset="58%" stopColor="#fb923c" stopOpacity={0.12} />
@@ -105,7 +105,7 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
               <Stop offset="100%" stopColor="#fffbeb" stopOpacity={0} />
             </LinearGradient>
           </Defs>
-          <Rect x={0} y={0} width={topW} height={TOP_BAND_H} fill="url(#rjGlowBottom)" />
+          <Rect x={0} y={0} width={topW} height={TOP_BAND_H} fill="url(#orzoGlowBottom)" />
         </Svg>
       </Animated.View>
 
@@ -119,14 +119,14 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
           viewBox={`0 0 ${SIDE_BAND_W} ${sideH}`}
         >
           <Defs>
-            <LinearGradient id="rjGlowLeft" x1="0%" y1="0%" x2="100%" y2="0%">
+            <LinearGradient id="orzoGlowLeft" x1="0%" y1="0%" x2="100%" y2="0%">
               <Stop offset="0%" stopColor="#ea580c" stopOpacity={0.52} />
               <Stop offset="32%" stopColor="#f97316" stopOpacity={0.28} />
               <Stop offset="62%" stopColor="#fbbf24" stopOpacity={0.1} />
               <Stop offset="100%" stopColor="#fff7ed" stopOpacity={0} />
             </LinearGradient>
           </Defs>
-          <Rect x={0} y={0} width={SIDE_BAND_W} height={sideH} fill="url(#rjGlowLeft)" />
+          <Rect x={0} y={0} width={SIDE_BAND_W} height={sideH} fill="url(#orzoGlowLeft)" />
         </Svg>
       </Animated.View>
 
@@ -140,14 +140,14 @@ export default function ParseRevealEdgeGlow({ active }: ParseRevealEdgeGlowProps
           viewBox={`0 0 ${SIDE_BAND_W} ${sideH}`}
         >
           <Defs>
-            <LinearGradient id="rjGlowRight" x1="100%" y1="0%" x2="0%" y2="0%">
+            <LinearGradient id="orzoGlowRight" x1="100%" y1="0%" x2="0%" y2="0%">
               <Stop offset="0%" stopColor="#ea580c" stopOpacity={0.52} />
               <Stop offset="32%" stopColor="#f97316" stopOpacity={0.28} />
               <Stop offset="62%" stopColor="#fbbf24" stopOpacity={0.1} />
               <Stop offset="100%" stopColor="#fff7ed" stopOpacity={0} />
             </LinearGradient>
           </Defs>
-          <Rect x={0} y={0} width={SIDE_BAND_W} height={sideH} fill="url(#rjGlowRight)" />
+          <Rect x={0} y={0} width={SIDE_BAND_W} height={sideH} fill="url(#orzoGlowRight)" />
         </Svg>
       </Animated.View>
     </View>

@@ -32,7 +32,7 @@ import {
   DeleteCollectionConfirmSheet,
   type RecipeQuickAction,
 } from "../components/RecipeQuickActionsSheet";
-import type { Recipe } from "@recipejar/shared";
+import type { Recipe } from "@orzo/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { LUCIDE } from "../theme/lucideSizes";
@@ -464,6 +464,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
+    letterSpacing: 0,
     color: "#111827",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },

@@ -8,8 +8,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "paths": {
-      "@recipejar/shared": ["../shared/src"],
-      "@recipejar/shared/*": ["../shared/src/*"]
+      "@orzo/shared": ["../shared/src"],
+      "@orzo/shared/*": ["../shared/src/*"]
     }
   },
   "include": ["src", "tests"],
