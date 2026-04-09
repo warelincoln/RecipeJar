@@ -10,7 +10,8 @@ COPY package.json package-lock.json ./
 COPY shared/package.json shared/
 COPY server/package.json server/
 
-RUN npm ci --workspace=@orzo/shared --workspace=@orzo/server --ignore-scripts
+RUN npm pkg delete scripts.postinstall && \
+    npm ci --workspace=@orzo/shared --workspace=@orzo/server
 
 COPY shared/ shared/
 COPY server/ server/
