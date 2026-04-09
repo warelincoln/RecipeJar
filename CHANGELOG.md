@@ -1,5 +1,65 @@
 # Orzo Changelog
 
+### 2026-04-08 — Production deployment, external service configuration, Release build
+
+The Fastify API server is now deployed in production on Railway at `https://api.getorzo.com`. All external services (Apple, Google, Supabase) are configured for the `app.orzo.ios` bundle identifier. A Release build has been tested end-to-end on a physical iPhone — sign-in, recipe import (URL + camera), and recipe viewing all work against the production API.
+
+**Railway deployment:**
+
+- `server/Dockerfile` fixed for production builds:
+  - Root `postinstall` script (`patch-package && node scripts/write-orzo-dev-host.cjs`) removed at build time via `npm pkg delete scripts.postinstall` — `patch-package` is a devDependency not available in the workspace-scoped install, and `write-orzo-dev-host.cjs` is a local dev tool.
+  - Explicit `npm install --no-save @img/sharp-linux-x64` added — `sharp` requires platform-specific native binaries that aren't installed by default when the install runs on macOS and the runtime is Linux x64.
+  - Both fixes allow `esbuild`'s own `postinstall` (required by `tsx`) to run normally.
+- Railway environment variables configured: `DATABASE_URL` (Supabase Postgres session pooler, port 5432), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`.
+- Health check: `GET /health` → `{"status":"ok"}`.
+- Auto-deploy from `master` branch enabled.
+
+**Custom domain:**
+
+- `api.getorzo.com` CNAME record created in Cloudflare DNS pointing to Railway's generated domain.
+- Proxy status set to **DNS only** (gray cloud) — required for Railway's SSL certificate management.
+- Railway custom domain verified and SSL certificate provisioned.
+
+**Apple Developer Portal:**
+
+- App ID `app.orzo.ios` registered.
+- Services ID `app.orzo.ios.auth` created (used for Sign in with Apple web flow via Supabase).
+
+**Google Cloud Console:**
+
+- Existing OAuth clients renamed from RecipeJar → Orzo.
+- iOS OAuth client updated with bundle ID `app.orzo.ios`.
+- Web OAuth client ID unchanged (used by Supabase Google provider).
+
+**Supabase Dashboard:**
+
+- Apple provider: Client ID updated to `app.orzo.ios`.
+- Google provider: "Skip nonce check" confirmed enabled.
+- Site URL set to `app.orzo.ios://auth/callback`.
+- Redirect URLs allowlist includes `app.orzo.ios://auth/callback`.
+
+**Xcode & iOS:**
+
+- Bundle identifier: `app.orzo.ios`, team `82MCB6UFTX`, automatic code signing.
+- Debug build verified: dev servers → LAN IP → local API.
+- Release build verified: production API at `https://api.getorzo.com`.
+- Release build command: `xcodebuild -workspace ios/Orzo.xcworkspace -scheme Orzo -configuration Release -destination "id=<device-udid>" -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Orzo-device-release" -allowProvisioningUpdates build`
+- Install via: `xcrun devicectl device install app --device <device-udid> <path-to-.app>`
+
+**react-native patch extended (`patches/react-native+0.76.9.patch`):**
+
+- `sdks/hermes-engine/utils/replace_hermes_version.js`: quoted paths in `tar -xf` command — fixes Release builds failing when the project path contains spaces (e.g. `MACBOOK PRO DESKTOP`).
+- `scripts/xcode/with-environment.sh`: quoted `$1` argument execution — same spaces-in-path fix.
+- `scripts/react-native-xcode.sh`: used `printf '%q'` for `--config-cmd` to handle spaces in `$NODE_BINARY` and `$REACT_NATIVE_DIR`.
+- These patches survive `npm install` via `patch-package`.
+
+**Files modified:**
+
+- `server/Dockerfile` — production build fixes (postinstall skip, sharp linux binary)
+- `patches/react-native+0.76.9.patch` — extended with Hermes/xcode spaces-in-path fixes
+
+---
+
 ### 2026-04-04 — WS-6/7/8: Storage security, session management, abuse controls & testing (complete)
 
 All remaining authentication work streams are now complete. The full security hardening plan (`docs/AUTH_RLS_SECURITY_PLAN.md`) — 8 work streams, 20 tasks — is finished. WS-7 was split into WS-7a (TestFlight requirements) and WS-7b (post-TestFlight hardening) during the review; both are done.
