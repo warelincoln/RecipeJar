@@ -11,7 +11,8 @@ COPY shared/package.json shared/
 COPY server/package.json server/
 
 RUN npm pkg delete scripts.postinstall && \
-    npm ci --workspace=@orzo/shared --workspace=@orzo/server
+    npm ci --workspace=@orzo/shared --workspace=@orzo/server && \
+    npm rebuild sharp --platform=linux --arch=x64
 
 COPY shared/ shared/
 COPY server/ server/
