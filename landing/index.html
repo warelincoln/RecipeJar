@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orzo — Your Cookbook, Upgraded</title>
+
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-9RJ2D98SZW"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-9RJ2D98SZW');
+  </script>
+  <meta name="description" content="Save recipes from anywhere — cookbooks, websites, TikTok, Instagram. Orzo organizes them, scales them, and helps you cook them. Coming soon to iOS.">
+  <meta name="theme-color" content="#FFF8F0">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Orzo — Your Cookbook, Upgraded">
+  <meta property="og:description" content="Save recipes from anywhere — cookbooks, websites, TikTok, Instagram. Orzo organizes them, scales them, and helps you cook them.">
+  <meta property="og:image" content="/icon-1024.png">
+  <meta property="og:type" content="website">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Orzo — Your Cookbook, Upgraded">
+  <meta name="twitter:description" content="Save recipes from anywhere — cookbooks, websites, TikTok, Instagram. Orzo organizes them, scales them, and helps you cook them.">
+  <meta name="twitter:image" content="/icon-1024.png">
+
+  <!-- Apple -->
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="/icon-180.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #C4633A;
+      --primary-hover: #A14E2A;
+      --primary-light: #FFF8F0;
+      --primary-50: #FDEEE3;
+      --text-primary: #2D1F14;
+      --text-secondary: #7A6E64;
+      --text-tertiary: #4A3F36;
+      --surface: #ffffff;
+      --divider: #E8DFD5;
+      --amber: #D4952B;
+      --green: #6B8F71;
+      --red: #C43A3A;
+      --purple: #8B7355;
+      --pink: #B86B4A;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      overflow-x: hidden;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text-primary);
+      background: var(--surface);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.6;
+    }
+
+    /* ---- Layout ---- */
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 80px 0;
+    }
+
+    /* ---- Animations ---- */
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(24px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .fade-up {
+      animation: fadeUp 0.7s ease-out both;
+    }
+
+    .fade-up-1 { animation-delay: 0.1s; }
+    .fade-up-2 { animation-delay: 0.2s; }
+    .fade-up-3 { animation-delay: 0.3s; }
+    .fade-up-4 { animation-delay: 0.4s; }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .fade-up, .reveal {
+        animation: none;
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+    }
+
+    /* ---- Hero ---- */
+
+    .hero {
+      background: linear-gradient(180deg, var(--primary-light) 0%, var(--surface) 100%);
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+
+    .hero-icon {
+      width: 120px;
+      height: 120px;
+      border-radius: 27px;
+      box-shadow: 0 8px 32px rgba(196, 99, 58, 0.2);
+    }
+
+    .hero h1 {
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-top: 24px;
+      color: var(--text-primary);
+    }
+
+    .hero-tagline {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      margin-top: 12px;
+    }
+
+    .hero-sub {
+      font-size: 17px;
+      color: var(--text-secondary);
+      max-width: 520px;
+      margin: 16px auto 0;
+      line-height: 1.65;
+    }
+
+    /* ---- Email Form ---- */
+
+    .email-form-wrap {
+      margin-top: 36px;
+    }
+
+    .email-form {
+      display: flex;
+      gap: 10px;
+      max-width: 440px;
+      margin: 0 auto;
+    }
+
+    .email-form input[type="email"] {
+      flex: 1;
+      padding: 14px 18px;
+      font-size: 16px;
+      font-family: inherit;
+      border: 1.5px solid var(--divider);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .email-form input[type="email"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .email-form input[type="email"]::placeholder {
+      color: #9ca3af;
+    }
+
+    .btn-primary {
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: var(--primary);
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .form-hint {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 12px;
+    }
+
+    .form-message {
+      font-size: 14px;
+      margin-top: 12px;
+      min-height: 20px;
+    }
+
+    .form-message.success {
+      color: var(--green);
+    }
+
+    .form-message.error {
+      color: var(--red);
+    }
+
+    .app-store-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 28px;
+      padding: 10px 20px;
+      background: var(--text-primary);
+      color: #FFF8F0;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0.9;
+    }
+
+    .app-store-badge svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ---- How It Works ---- */
+
+    .how-it-works {
+      background: var(--surface);
+    }
+
+    .section-label {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+
+    .section-heading {
+      text-align: center;
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 40px;
+      margin-top: 56px;
+    }
+
+    .step {
+      text-align: center;
+    }
+
+    .step-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: var(--primary-light);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-icon svg {
+      width: 28px;
+      height: 28px;
+      stroke: var(--primary);
+      stroke-width: 1.75;
+      fill: none;
+    }
+
+    .step-number {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      line-height: 24px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 16px;
+    }
+
+    .step h3 {
+      font-size: 19px;
+      font-weight: 700;
+      margin-top: 12px;
+      color: var(--text-primary);
+    }
+
+    .step p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+      line-height: 1.6;
+    }
+
+    /* ---- Features ---- */
+
+    .features {
+      background: var(--primary-light);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 56px;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 32px 28px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.06);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .feature-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke-width: 1.75;
+      fill: none;
+    }
+
+    .feature-card h3 {
+      font-size: 17px;
+      font-weight: 700;
+      margin-top: 16px;
+      color: var(--text-primary);
+    }
+
+    .feature-card p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+      line-height: 1.55;
+    }
+
+    /* ---- Differentiator ---- */
+
+    .diff {
+      background: var(--surface);
+      text-align: center;
+    }
+
+    .diff-inner {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .diff h2 {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .diff p {
+      font-size: 17px;
+      color: var(--text-secondary);
+      margin-top: 16px;
+      line-height: 1.7;
+    }
+
+    /* ---- CTA ---- */
+
+    .cta {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--primary-light) 100%);
+      text-align: center;
+    }
+
+    .cta h2 {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .cta p {
+      font-size: 17px;
+      color: var(--text-secondary);
+      margin-top: 12px;
+    }
+
+    .cta .email-form-wrap {
+      margin-top: 32px;
+    }
+
+    /* ---- Footer ---- */
+
+    footer {
+      padding: 40px 0;
+      text-align: center;
+      border-top: 1px solid var(--divider);
+    }
+
+    .footer-brand {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .footer-links {
+      margin-top: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+    }
+
+    .footer-links a {
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover {
+      color: var(--primary);
+    }
+
+    .footer-copy {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-top: 16px;
+    }
+
+    /* ---- Responsive ---- */
+
+    @media (max-width: 1024px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .hero {
+        padding: 72px 0 60px;
+      }
+
+      .hero h1 {
+        font-size: 36px;
+      }
+
+      .hero-tagline {
+        font-size: 18px;
+      }
+
+      .hero-sub {
+        font-size: 16px;
+      }
+
+      .email-form {
+        flex-direction: column;
+      }
+
+      .btn-primary {
+        width: 100%;
+      }
+
+      section {
+        padding: 56px 0;
+      }
+
+      .section-heading, .diff h2, .cta h2 {
+        font-size: 28px;
+      }
+
+      .steps-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+        margin-top: 40px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+        margin-top: 40px;
+      }
+
+      .feature-card {
+        padding: 24px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ======== HERO ======== -->
+  <section class="hero">
+    <div class="container">
+      <img src="/icon-180.png" alt="Orzo app icon" class="hero-icon fade-up" width="120" height="120">
+      <h1 class="fade-up fade-up-1">Orzo</h1>
+      <p class="hero-tagline fade-up fade-up-2">Your cookbook, upgraded.</p>
+      <p class="hero-sub fade-up fade-up-3">Save recipes from anywhere &mdash; cookbooks, websites, TikTok, Instagram. Orzo organizes them, scales them, and helps you cook them.</p>
+
+      <div class="email-form-wrap fade-up fade-up-4">
+        <form class="email-form" id="hero-form" onsubmit="return handleSubmit(event, this)">
+          <input type="email" name="email" placeholder="you@email.com" required autocomplete="email" aria-label="Email address">
+          <button type="submit" class="btn-primary">Notify Me</button>
+        </form>
+        <p class="form-hint">Be first to know when Orzo launches on the App Store.</p>
+        <p class="form-message" id="hero-msg"></p>
+      </div>
+
+      <div class="app-store-badge fade-up fade-up-4">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+        Coming soon to iOS
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== HOW IT WORKS ======== -->
+  <section class="how-it-works" id="how-it-works">
+    <div class="container">
+      <p class="section-label reveal">How It Works</p>
+      <h2 class="section-heading reveal">Three steps to a digital recipe</h2>
+
+      <div class="steps-grid">
+        <div class="step reveal">
+          <div class="step-icon">
+            <!-- Camera icon -->
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          </div>
+          <div class="step-number">1</div>
+          <h3>Save from anywhere</h3>
+          <p>Snap a cookbook page, paste a URL, or share from TikTok, Instagram, and YouTube.</p>
+        </div>
+
+        <div class="step reveal">
+          <div class="step-icon">
+            <!-- Sparkles icon -->
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+          </div>
+          <div class="step-number">2</div>
+          <h3>Organized &amp; verified</h3>
+          <p>AI reads your recipe and extracts structured ingredients and steps. Every recipe is checked for accuracy before it's saved.</p>
+        </div>
+
+        <div class="step reveal">
+          <div class="step-icon">
+            <!-- Book Open icon -->
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          </div>
+          <div class="step-number">3</div>
+          <h3>Plan, cook, shop</h3>
+          <p>Scale servings, plan meals for the week, build grocery lists, and get them delivered.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== FEATURES ======== -->
+  <section class="features" id="features">
+    <div class="container">
+      <p class="section-label reveal">Features</p>
+      <h2 class="section-heading reveal">Everything your recipe box should be</h2>
+
+      <div class="features-grid">
+        <!-- Snap & Digitize -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #FDEEE3;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--primary)"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          </div>
+          <h3>Snap &amp; Digitize</h3>
+          <p>Photograph cookbook pages with multi-page support. AI reads handwritten and printed recipes into structured ingredients.</p>
+        </div>
+
+        <!-- Smart URL Import -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #E8F0E9;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--green)"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </div>
+          <h3>Save from Any App</h3>
+          <p>Share from TikTok, Instagram, YouTube, Pinterest, or any website. Orzo strips the clutter and saves just the recipe.</p>
+        </div>
+
+        <!-- Verified, Not Guessed -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #FBF0DC;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--amber)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <h3>Verified, Not Guessed</h3>
+          <p>Every recipe is checked by a validation engine before it's saved. No blind AI &mdash; you review before it's in your collection.</p>
+        </div>
+
+        <!-- Smart Scaling -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #F8E4E4;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--red)"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <h3>Smart Scaling</h3>
+          <p>Adjust servings and every ingredient scales proportionally. Full fraction and unit conversion support.</p>
+        </div>
+
+        <!-- Meal Planning & Grocery Lists -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #EDE8E0;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--purple)"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>
+          </div>
+          <h3>Meal Planning &amp; Grocery Lists</h3>
+          <p>Plan your week, build a grocery list from your meals, and order delivery through Instacart.</p>
+        </div>
+
+        <!-- Cook Mode -->
+        <div class="feature-card reveal">
+          <div class="feature-icon" style="background: #F5E6DD;">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" stroke="var(--pink)"><path d="M12 12c-2-2.67-4-4-4-5.5a4 4 0 0 1 8 0c0 1.5-2 2.83-4 5.5z"/><path d="M8 14c-1.33 1.33-2 2.67-2 4a6 6 0 0 0 12 0c0-1.33-.67-2.67-2-4"/><path d="M12 22v-4"/></svg>
+          </div>
+          <h3>Cook Mode</h3>
+          <p>Step-by-step full-screen cooking view with built-in timers. Your screen stays on, your hands stay free.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== DIFFERENTIATOR ======== -->
+  <section class="diff">
+    <div class="container">
+      <div class="diff-inner reveal">
+        <p class="section-label">Why Orzo</p>
+        <h2>Not just another recipe app.</h2>
+        <p>Most recipe apps are glorified bookmarks. Orzo actually understands your recipes &mdash; structured ingredients, smart scaling, meal planning, and a grocery list that builds itself. Save a recipe from your favorite cookbook, digitize a handwritten family recipe, or grab that dish you saw on TikTok &mdash; then plan your week, tap a button, and have everything you need delivered to your door.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== SECOND CTA ======== -->
+  <section class="cta" id="signup">
+    <div class="container">
+      <h2 class="reveal">Get early access.</h2>
+      <p class="reveal">Orzo is launching on iOS soon. Drop your email and we'll let you know.</p>
+
+      <div class="email-form-wrap reveal">
+        <form class="email-form" id="cta-form" onsubmit="return handleSubmit(event, this)">
+          <input type="email" name="email" placeholder="you@email.com" required autocomplete="email" aria-label="Email address">
+          <button type="submit" class="btn-primary">Notify Me</button>
+        </form>
+        <p class="form-message" id="cta-msg"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======== FOOTER ======== -->
+  <footer>
+    <div class="container">
+      <div class="footer-brand">Orzo</div>
+      <div class="footer-links">
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <a href="mailto:hello@getorzo.com">Contact</a>
+      </div>
+      <p class="footer-copy">&copy; 2026 Orzo. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script>
+    // ---- Scroll reveal ----
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+
+    document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+
+    // ---- Email form ----
+    // TODO: Replace with your Klaviyo public API key and list ID
+    const KLAVIYO_COMPANY_ID = 'TU2v9j';
+    const KLAVIYO_LIST_ID = 'X2KYb2';
+
+    async function handleSubmit(e, form) {
+      e.preventDefault();
+      const msgEl = form.parentElement.querySelector('.form-message');
+      const btn = form.querySelector('button');
+      const email = form.querySelector('input[name="email"]').value.trim();
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        msgEl.textContent = 'Please enter a valid email address.';
+        msgEl.className = 'form-message error';
+        return false;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      msgEl.textContent = '';
+      msgEl.className = 'form-message';
+
+      try {
+        const res = await fetch(`https://a.klaviyo.com/client/subscriptions/?company_id=${KLAVIYO_COMPANY_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'revision': '2024-10-15' },
+          body: JSON.stringify({
+            data: {
+              type: 'subscription',
+              attributes: {
+                custom_source: 'Orzo Landing Page',
+                profile: { data: { type: 'profile', attributes: { email } } }
+              },
+              relationships: {
+                list: { data: { type: 'list', id: KLAVIYO_LIST_ID } }
+              }
+            }
+          })
+        });
+
+        if (res.ok || res.status === 202) {
+          msgEl.textContent = "You're on the list! We'll email you when Orzo launches.";
+          msgEl.className = 'form-message success';
+          form.querySelector('input[name="email"]').value = '';
+        } else {
+          throw new Error('Request failed');
+        }
+      } catch (err) {
+        msgEl.textContent = 'Something went wrong. Please try again.';
+        msgEl.className = 'form-message error';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Notify Me';
+      }
+
+      return false;
+    }
+  </script>
+
+</body>
+</html>

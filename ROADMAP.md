@@ -2,7 +2,7 @@
 
 ## Path to $20k MRR
 
-**Last updated:** 2026-04-08
+**Last updated:** 2026-04-10
 **Target:** First paying customer by Q3 2026. $20k MRR by Q1 2027.
 **Dev capacity:** Solo + AI agents (Cursor / Claude Code)
 **Pricing model:** Freemium subscription — Free tier (limited) + Pro ($4.99/mo or $39.99/yr) + Cookbook Bundle ($19.99 one-time add-on)
@@ -24,7 +24,79 @@ Estimates assume part-time alongside PayWhirl.
 
 ---
 
-## Current State Assessment (as of 2026-04-08)
+## Brand Identity & Color Scheme
+
+**Established:** 2026-04-10
+
+This is the canonical brand palette for Orzo. It applies to the mobile app, landing page (`getorzo.com`), emails, App Store listing, marketing materials, and any future web surfaces. Any agent or designer working on Orzo should reference this section and use these exact values.
+
+### Brand direction
+
+**Mood:** Warm, appetizing, kitchen-forward. Mediterranean/terracotta tones that evoke clay pots, warm bread, and home cooking. Distinct from the blue/green palettes used by most recipe apps.
+
+**Tagline:** "Your cookbook, upgraded."
+
+**Icon:** Stylized cream/off-white orzo pasta grains arranged in a circular ring forming an "O" on a terracotta background. Full-bleed square (iOS applies rounded corners automatically). Source files live at `Orzo icon.png` (repo root) and `mobile/ios/Orzo/Images.xcassets/AppIcon.appiconset/icon-*.png` (all 8 iOS sizes: 40, 58, 60, 80, 87, 120, 180, 1024).
+
+### Color tokens
+
+| Role | Name | Hex | Usage |
+|------|------|-----|-------|
+| **Primary** | Terracotta | `#C4633A` | Primary CTAs, buttons, brand accent, icon background |
+| **Primary Hover** | Deep Terracotta | `#A14E2A` | Hover/pressed states on primary elements |
+| **Primary Light** | Warm Cream | `#FFF8F0` | Page backgrounds, hero sections, surfaces |
+| **Primary 50** | Light Peach | `#FDEEE3` | Subtle backgrounds, feature card tints, selected states |
+| **Surface** | White | `#FFFFFF` | Cards, inputs, modals, sheets |
+| **Text Primary** | Espresso | `#2D1F14` | Headings, primary body text |
+| **Text Secondary** | Warm Gray | `#7A6E64` | Subtitles, helper text, secondary body |
+| **Text Tertiary** | Dark Warm Gray | `#4A3F36` | Tertiary labels, muted emphasis |
+| **Divider** | Sand | `#E8DFD5` | Borders, separators, dividers |
+| **Accent — Amber** | Golden Amber | `#D4952B` | Ratings, highlights, badges, warm accent |
+| **Accent — Green** | Sage Green | `#6B8F71` | Success states, verified indicators |
+| **Accent — Red** | Paprika | `#C43A3A` | Errors, destructive actions |
+| **Accent — Purple** | Warm Taupe | `#8B7355` | Tertiary accent (used sparingly) |
+| **Accent — Pink** | Dusty Terracotta | `#B86B4A` | Alternate warm accent |
+
+### Feature card tinted backgrounds (for icon wells)
+
+Used for soft colored circles behind feature icons on the landing page. Each is a desaturated, warm-tinted version of its accent color:
+
+| Accent | Background Tint |
+|--------|-----------------|
+| Primary (terracotta) | `#FDEEE3` |
+| Amber | `#FBF0DC` |
+| Green | `#E8F0E9` |
+| Red | `#F8E4E4` |
+| Purple | `#EDE8E0` |
+| Pink | `#F5E6DD` |
+
+### Typography
+
+**Font family:** Inter (Google Fonts) — weights 400, 500, 600, 700. Fallback stack: `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`. Inter is the closest web-safe font to San Francisco (iOS system font) and keeps the mobile app and web surfaces visually consistent.
+
+### Shadow recipe for warm surfaces
+
+`box-shadow: 0 8px 32px rgba(196, 99, 58, 0.2);` — a warm terracotta-tinted shadow instead of a neutral gray. Use sparingly on hero elements (app icon, primary CTA cards).
+
+### Theme color for browser chrome / status bars
+
+`#FFF8F0` (Warm Cream) — set in `<meta name="theme-color">` on web and as the status bar background on mobile.
+
+### Mobile app application (agent instructions)
+
+The mobile app (`mobile/src/**`) currently uses a blue-forward palette established during MVP development. Another agent should migrate it to the warm terracotta palette above. Key files that reference colors:
+
+- `mobile/src/screens/AuthScreen.tsx` — canonical color constants (`PRIMARY_BLUE = '#2563eb'` → migrate to `#C4633A`, `PRIMARY_TEXT = '#111827'` → migrate to `#2D1F14`, `SECONDARY_TEXT = '#6b7280'` → migrate to `#7A6E64`)
+- `mobile/src/screens/HomeScreen.tsx` — background `#eff6ff` → migrate to `#FFF8F0`
+- `mobile/src/screens/OnboardingScreen.tsx` — button and accent colors
+- `mobile/src/features/collections/collectionIconRules.ts` — 80+ keyword-based icon colors (these are category-specific and should be evaluated individually — some warm tones may stay, but blues should be replaced with warm equivalents)
+- Any other component with inline `#2563eb`, `#eff6ff`, `#dbeafe`, or similar blue-family hex values
+
+The goal is visual consistency across the app icon, mobile app UI, landing page, emails, and App Store listing. The terracotta palette is the source of truth going forward.
+
+---
+
+## Current State Assessment (as of 2026-04-10)
 
 This section was generated by cross-referencing the roadmap against the actual codebase (server schema, API routes, mobile screens, shared types, and CHANGELOG). It captures what exists today so the roadmap phases can be read against ground truth.
 

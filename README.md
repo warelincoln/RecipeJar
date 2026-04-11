@@ -194,7 +194,7 @@ Orzo converts cookbook page photos and recipe URLs into structured digital recip
 
 **What is NOT implemented:**
 
-- **Production deployment** — Fastify server runs on localhost for development; Dockerfile and deployment guide exist (`docs/PRODUCTION_DEPLOY.md`) but server is not yet deployed to a cloud host
+- **Mobile app color migration** — The mobile app UI still uses the original blue-forward palette from the MVP. The brand color scheme was updated to a warm terracotta palette on 2026-04-10 (see `ROADMAP.md` → "Brand Identity & Color Scheme"). The landing page and app icon are already migrated; the mobile app screens need to be updated to match.
 - Offline/local-first sync
 - Multi-collection assignment UI (schema supports many-to-many; UI currently assigns one collection at a time)
 - Recipe sharing or export
@@ -1126,6 +1126,15 @@ Orzo/
 │   ├── SECURITY_CHECKLIST.md             # manual security audit checklist (Supabase dashboard, Apple/Google dev accounts, key rotation, access)
 │   └── PRODUCTION_DEPLOY.md             # cloud deployment guide (Railway, Render, Fly.io) with env vars and mobile rebuild steps
 │
+├── Orzo icon.png                         # master app icon source (1024x1024, cream orzo grains on terracotta background)
+├── landing/                              # static "coming soon" landing page deployed to Cloudflare Pages (orzo-website.pages.dev)
+│   ├── index.html                        # main page: hero, 3-step how-it-works, 6 feature cards, differentiator, email signup, privacy/terms links. Inline CSS (Inter font, warm terracotta palette) + inline JS (Klaviyo waitlist, Google Analytics, IntersectionObserver reveals)
+│   ├── privacy.html                      # Privacy Policy (covers waitlist email collection + app data handling, Google Analytics disclosure)
+│   ├── terms.html                        # Terms of Service (Apple-compliant account deletion policy, acceptable use, IP)
+│   ├── icon-180.png                      # Apple touch icon (copied from mobile/ios/Orzo/Images.xcassets/AppIcon.appiconset/icon-180.png)
+│   ├── icon-1024.png                     # og:image for social sharing (copied from iOS assets)
+│   └── _headers                          # Cloudflare Pages security headers (X-Frame-Options, Referrer-Policy, cache-control per file type)
+│
 ├── shared/                               # shared TypeScript types (no runtime deps)
 │   ├── package.json
 │   ├── tsconfig.json
@@ -1662,6 +1671,7 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 
 Full changelog is in [`CHANGELOG.md`](CHANGELOG.md). Summary of recent changes:
 
+- **2026-04-10** — **Brand refresh & landing page launched.** New app icon: stylized cream orzo pasta grains forming an "O" on a terracotta background (replaces the blue amphora). New warm color palette (terracotta `#C4633A`, cream `#FFF8F0`, espresso `#2D1F14` — see `ROADMAP.md` → "Brand Identity & Color Scheme"). All 8 iOS icon sizes regenerated. Landing page built at `landing/` (vanilla HTML + inline CSS/JS, no build step): hero with email signup, 3-step "How it works", 6 feature cards (Snap & Digitize, Save from Any App, Verified Not Guessed, Smart Scaling, Meal Planning & Grocery Lists, Cook Mode), differentiator section, privacy policy, terms of service, Google Analytics (`G-9RJ2D98SZW`). Tagline: "Your cookbook, upgraded." Email waitlist wired to Klaviyo (company ID `TU2v9j`, list ID `X2KYb2`) via client-side API. Deployed to Cloudflare Pages at `orzo-website.pages.dev` (custom domain `getorzo.com` pending). Mobile app color migration is still pending — another agent should apply the new palette to `mobile/src/**`.
 - **2026-04-04** — **WS-6/7/8: Storage security, session management, abuse controls & testing (complete).** All 8 auth work streams finished. WS-6: private buckets, signed URLs, user-scoped paths, migration script. WS-7a: account deletion (Apple requirement), sign-out-all, email change, MFA enrollment/challenge. WS-7b: step-up auth, MFA recovery codes, provider linking, session tracking. WS-8: rate limiting (`@fastify/rate-limit`), auth header redaction, 12 integration tests, security checklist. Production Dockerfile and deployment guide. 2 new migrations (`0010`, `0011`), 13 new files, 14 modified files. Also: email change redirect fix (`emailRedirectTo` added to `updateUser` call). Details in changelog.
 - **2026-04-03** — **WS-4: Mobile authentication (complete).** Supabase client with Keychain, auth-gated navigation, Apple/Google/email sign-in, Bearer token injection, password reset deep link, onboarding, account screen. All three auth methods tested on physical iPhone. Details in changelog.
 - **2026-04-03** — **Authentication infrastructure, user ownership & Row Level Security.** Server-side auth, `profiles` table, `user_id` on 4 tables, Fastify JWT middleware, userId-scoped repositories, RLS on 11 tables with 41 policies. Migrations `0008` + `0009`. Details in changelog.
