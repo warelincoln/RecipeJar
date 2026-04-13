@@ -34,6 +34,29 @@ If you are a new developer or an AI agent, start here.
   - Metro: `8081`
 - Most day-to-day edits are **JS-only** and only require Fast Refresh / Reload, not a new native build.
 
+### Dev app vs production app (two apps on one phone)
+
+The Debug build installs as **"Orzo Dev"** (`app.orzo.ios.dev`) — a separate app that coexists with the production **"Orzo"** (`app.orzo.ios`) on the same phone.
+
+| | Orzo Dev (Debug) | Orzo (Release) |
+|---|---|---|
+| **Bundle ID** | `app.orzo.ios.dev` | `app.orzo.ios` |
+| **API target** | Local laptop (`http://<LAN_IP>:3000`) | Railway (`https://api.getorzo.com`) |
+| **Auth redirect scheme** | `app.orzo.ios.dev://auth/callback` | `app.orzo.ios://auth/callback` |
+| **Auth methods** | Email/password (Apple/Google require separate App ID registration) | Email, Apple, Google |
+| **How to build** | Xcode Debug (Cmd+R) | Xcode Release / Archive |
+
+**Dev workflow:**
+1. Make code changes locally
+2. Run `npm run dev:phone` (starts local API + Metro)
+3. Build Debug in Xcode → "Orzo Dev" installs on phone, hits local API
+4. Test changes on phone
+5. When satisfied, push to `master` → Railway auto-deploys → production "Orzo" app is updated
+
+**How it works:** `mobile/src/services/api.ts` uses `__DEV__` to switch between local and production API. `mobile/src/services/authRedirect.ts` uses `__DEV__` to select the correct URL scheme for auth callbacks. `Info.plist` uses `$(PRODUCT_BUNDLE_IDENTIFIER)` and `$(PRODUCT_NAME)` build variables so both the URL scheme and display name are derived from the Xcode build configuration. The Debug config in `project.pbxproj` sets `PRODUCT_BUNDLE_IDENTIFIER = app.orzo.ios.dev` and `PRODUCT_NAME = "Orzo Dev"`, while Release keeps `app.orzo.ios` and `Orzo`.
+
+**Keychain isolation:** Each app has its own keychain scope (derived from bundle ID), so sessions are fully isolated — signing in on one does not affect the other.
+
 ### Start here in the codebase
 
 - `mobile/src/screens/HomeScreen.tsx`
@@ -147,6 +170,7 @@ If you are a new developer or an AI agent, start here.
 
 - **Auth is fully wired end-to-end.** Every endpoint except `/health` requires a `Bearer` token. The mobile app sends tokens automatically via `authenticatedFetch()` in `api.ts`. If you're testing the API directly (curl, Postman), get a token via `supabase.auth.signInWithPassword()` or the Supabase dashboard.
 - **Production API is live at `https://api.getorzo.com`.** The Fastify server is deployed on Railway (auto-deploys on push to `master`). The mobile app uses the LAN IP in debug builds and `https://api.getorzo.com` in release builds (see `mobile/src/services/api.ts`). Environment variables (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`) are configured in the Railway dashboard. DNS is managed via Cloudflare (`api` CNAME → Railway, DNS-only mode).
+- **Debug and Release builds are separate apps.** Debug installs as "Orzo Dev" (`app.orzo.ios.dev`), Release installs as "Orzo" (`app.orzo.ios`). Both coexist on the same phone. Auth redirect URLs use the bundle ID as the scheme — see `mobile/src/services/authRedirect.ts`. Apple/Google Sign-In are **not configured** for the dev bundle ID; use email/password auth during development.
 - **Apple client secret expires ~6 months** from generation (April 2026). The `.p8` key is used to generate a JWT. When it expires, regenerate using the script pattern in the conversation history or via `docs/AUTH_RLS_SECURITY_PLAN.md`.
 - **New API routes (e.g. `PATCH /collections/:id`):** If folder **rename** fails with a generic error or Fastify **`Route PATCH:… not found`**, the Node process on port **3000** is almost certainly **stale**. Kill listeners on **3000**/**8081** and run **`npm run dev:phone`** again from the repo root. Release builds talk to **`api.getorzo.com`** (Railway), which auto-deploys from `master` — push to trigger a rebuild.
 - If you change only `mobile/src/**`, reload the app. Do **not** rebuild natively.

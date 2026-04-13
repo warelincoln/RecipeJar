@@ -208,6 +208,7 @@ The roadmap describes "Supabase Auth integration" and "Supabase Row Level Securi
 - **Mobile auth (COMPLETE):** Supabase client installed on mobile with Keychain session storage. Auth-gated navigation (onboarding → auth screens → MFA challenge → main app). Apple Sign-In (SHA-256 nonce), Google Sign-In (with `iosClientId`), and email/password with verification all functional. `api.ts` sends Bearer tokens on all requests with single-flight refresh. Account screen with sign-out, sign-out-all, email change, MFA enrollment/unenrollment, provider linking, and account deletion. Password reset via deep link. MFA challenge screen intercepts sign-in when TOTP is enrolled. Tested end-to-end on physical iPhone.
 - **Security hardening (COMPLETE):** `@fastify/rate-limit` on all API routes. Step-up auth for sensitive actions. MFA recovery codes. Session tracking. Auth header redacted from logs. Integration tests for auth middleware and IDOR prevention. Manual security checklist. See `docs/AUTH_RLS_SECURITY_PLAN.md`, `docs/SECURITY_CHECKLIST.md`.
 - **Production deployment (COMPLETE):** Fastify server deployed on Railway at `https://api.getorzo.com`. Dockerfile fixed for production (skip root postinstall, install `@img/sharp-linux-x64`). DNS via Cloudflare CNAME (DNS-only mode). Environment variables set in Railway dashboard. Release builds tested and verified on physical iPhone.
+- **Dev/prod app isolation (COMPLETE):** Debug builds install as "Orzo Dev" (`app.orzo.ios.dev`) alongside production "Orzo" (`app.orzo.ios`). Both apps coexist on the same phone. Dev app hits local API server; production app hits Railway. Auth redirect URLs, display name, and URL scheme are all derived from build configuration via `__DEV__` flag and Xcode build variables. See `mobile/src/services/authRedirect.ts`.
 - **Remaining work:** Customize Supabase email templates. These are pre-TestFlight dashboard tasks, not code changes.
 
 ### Built Features Not Mentioned in Roadmap
@@ -337,74 +338,42 @@ The following shipped features are not called out as roadmap items (they're part
 | **Effort** | S (1–2 days) |
 | **Revenue impact** | None directly — prevents production incidents that would destroy user trust |
 | **Depends on** | 0.1 (Auth — complete), production deployment (complete) |
-| **Status** | Not started |
+| **Status** | **Pillar 4 complete** — separate "Orzo Dev" app on phone. Pillars 1–3 deferred (not needed for solo dev). |
 
 **Why this exists:** `master` now auto-deploys to Railway. A bad push breaks the live app for real users. Before building anything new, set up an isolated dev environment so all feature work, testing, and experimentation happens safely away from production.
 
-**What to build — 4 pillars:**
+**What was implemented (Pillar 4 — Xcode dev build):**
 
-**Pillar 1 — Git branching:**
+- [x] Debug builds install as **"Orzo Dev"** (`app.orzo.ios.dev`) — a separate app alongside production "Orzo" (`app.orzo.ios`)
+- [x] `project.pbxproj` Debug config: `PRODUCT_BUNDLE_IDENTIFIER = app.orzo.ios.dev`, `PRODUCT_NAME = "Orzo Dev"`
+- [x] `Info.plist` uses `$(PRODUCT_BUNDLE_IDENTIFIER)` for URL scheme and `$(PRODUCT_NAME)` for display name — dynamic per build config
+- [x] `mobile/src/services/authRedirect.ts` uses `__DEV__` to select the correct auth callback scheme
+- [x] Four screen files updated to use `AUTH_REDIRECT_URL` instead of hardcoded redirect strings
+- [x] Separate `OrzoDev.entitlements` for the Debug config (allows independent Apple Sign-In App ID registration)
+- [x] Auth via email/password works on dev build; Apple/Google Sign-In require separate App ID registration (not yet done — not needed for dev)
 
-- [ ] Create a `dev` branch off `master`
-- [ ] Railway prod remains wired to `master` (already done)
-- [ ] All daily dev work happens on `dev` or feature branches off `dev`
-- [ ] When a feature is tested and stable, merge `dev` → `master` to deploy to production
-- [ ] **Rule: never push untested code directly to `master`**
+**Dev workflow:** Make changes locally → `npm run dev:phone` → build Debug in Xcode → test on "Orzo Dev" (hits local API) → push to `master` → Railway auto-deploys → production "Orzo" is updated.
 
-**Pillar 2 — Supabase dev project (`orzo-dev`):**
+**Both apps share the same Supabase project and database.** No separate dev database needed for solo development. The local API server and Railway both connect to the same Supabase Postgres.
 
-- [ ] Create a second Supabase project (free tier) — e.g. `orzo-dev`
-- [ ] Gives you a separate database, auth system, and storage buckets — no risk of polluting prod users or recipes
-- [ ] Run all 12 migrations (0000–0011) against the new project's database
-- [ ] Configure auth providers (Apple, Google, email) with the dev bundle ID `app.orzo.dev`
-- [ ] Set Site URL to `app.orzo.dev://auth/callback`
-- [ ] Add `app.orzo.dev://auth/callback` to the Redirect URLs allowlist
-- [ ] The local dev server `.env` should point to this project (it may already — this step formalizes it)
-- [ ] Document two sets of credentials (never mix them):
-  - **Prod:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` → production Supabase project
-  - **Dev:** same keys → `orzo-dev` Supabase project
+**Files modified:**
 
-**Pillar 3 — Railway dev service:**
-
-- [ ] Create a second Railway service (same Railway project is fine)
-- [ ] Deploy from the `dev` branch
-- [ ] Set environment variables to point at the dev Supabase project
-- [ ] Use Railway's auto-generated URL for the dev API (no custom domain needed — `api-dev.getorzo.com` is optional)
-- [ ] Verify: `curl <dev-railway-url>/health` → `{"status":"ok"}`
-
-**Pillar 4 — Xcode dev build (`app.orzo.dev` bundle ID):**
-
-- [ ] Add a second Xcode scheme ("Orzo Dev") with a separate bundle ID `app.orzo.dev`
-- [ ] Dev builds install as a **separate app** on the phone — both prod and dev can coexist
-- [ ] Use an `xcconfig` file or build configuration to swap these values per scheme:
-  - `PRODUCT_BUNDLE_IDENTIFIER` → `app.orzo.dev`
-  - API base URL for release builds → dev Railway URL (instead of `https://api.getorzo.com`)
-  - Supabase URL + anon key → dev Supabase project (instead of prod values hardcoded in `mobile/src/services/supabase.ts`)
-  - `CFBundleURLSchemes` in Info.plist → `app.orzo.dev` (for auth callbacks)
-  - `GIDClientID` → dev Google OAuth client ID (if using a separate one)
-- [ ] Distinguish the dev app visually: different icon tint, "DEV" label, or orange accent — so you never confuse which app you're using
-- [ ] The existing "Orzo" scheme remains untouched and always points at production
-
-**Files that need conditional dev/prod values (when implementing Pillar 4):**
-
-| File | What changes |
+| File | What changed |
 |---|---|
-| `mobile/src/services/api.ts` | `BASE_URL` for release builds (currently hardcoded to `https://api.getorzo.com`) |
-| `mobile/src/services/supabase.ts` | `SUPABASE_URL` and `SUPABASE_ANON_KEY` (currently hardcoded to prod) |
-| `mobile/ios/Orzo/Info.plist` | `CFBundleURLSchemes` (auth callback scheme), `GIDClientID` |
-| `mobile/ios/Orzo.xcodeproj/project.pbxproj` | `PRODUCT_BUNDLE_IDENTIFIER` per build configuration |
+| `mobile/ios/Orzo.xcodeproj/project.pbxproj` | Debug config: bundle ID, product name, entitlements path |
+| `mobile/ios/Orzo/Info.plist` | `CFBundleDisplayName` → `$(PRODUCT_NAME)`, URL scheme → `$(PRODUCT_BUNDLE_IDENTIFIER)` |
+| `mobile/ios/Orzo/OrzoDev.entitlements` | New file — copy of `Orzo.entitlements` for Debug config |
+| `mobile/src/services/authRedirect.ts` | New file — `AUTH_REDIRECT_URL` derived from `__DEV__` |
+| `mobile/src/screens/ForgotPasswordScreen.tsx` | Replaced hardcoded redirect with `AUTH_REDIRECT_URL` |
+| `mobile/src/screens/EmailConfirmationScreen.tsx` | Replaced hardcoded redirect with `AUTH_REDIRECT_URL` |
+| `mobile/src/screens/SignUpScreen.tsx` | Replaced hardcoded redirect with `AUTH_REDIRECT_URL` |
+| `mobile/src/screens/AccountScreen.tsx` | Replaced hardcoded redirect with `AUTH_REDIRECT_URL` |
 
-**One-time setup vs ongoing workflow:**
+**Deferred (Pillars 1–3) — revisit if/when multi-developer or staging is needed:**
 
-| Type | Item |
-|---|---|
-| One-time | Create `dev` branch, Supabase project, Railway service, Xcode scheme |
-| One-time | Run migrations on dev Supabase, configure auth providers |
-| One-time | Register `app.orzo.dev` App ID in Apple Developer Portal |
-| Ongoing | All feature work on `dev` branch, merge to `master` only when tested |
-| Ongoing | Keep dev Supabase migrations in sync (run new migrations on both projects) |
-
-**Why two apps on the phone (not just `__DEV__`):** React Native's `__DEV__` flag already routes Debug builds to the local API. But you can't test a Release build against dev infrastructure with `__DEV__` alone — it's always `false` in Release. A separate Xcode scheme with its own bundle ID lets you build a Release-mode app that talks to the dev API and dev Supabase, while the prod app sits untouched next to it on the home screen.
+- Pillar 1 (Git branching): `dev` branch + merge-to-deploy workflow
+- Pillar 2 (Supabase dev project): Separate database, auth, and storage for dev
+- Pillar 3 (Railway dev service): Separate deployed API for dev/staging
 
 ---
 

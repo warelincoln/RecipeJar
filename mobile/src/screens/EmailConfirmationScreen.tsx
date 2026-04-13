@@ -10,8 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Mail } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { supabase } from "../services/supabase";
-
-const REDIRECT = "app.orzo.ios://auth/callback";
+import { AUTH_REDIRECT_URL } from "../services/authRedirect";
 
 type Props = NativeStackScreenProps<any, "EmailConfirmation">;
 
@@ -33,7 +32,7 @@ export function EmailConfirmationScreen({ navigation, route }: Props) {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: trimmed,
-        options: { emailRedirectTo: REDIRECT },
+        options: { emailRedirectTo: AUTH_REDIRECT_URL },
       });
       if (error) throw error;
     } catch (e) {

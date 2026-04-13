@@ -26,6 +26,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useAuthStore } from "../stores/auth.store";
 import { supabase } from "../services/supabase";
 import { api } from "../services/api";
+import { AUTH_REDIRECT_URL } from "../services/authRedirect";
 
 type Props = NativeStackScreenProps<any, "Account">;
 
@@ -477,7 +478,7 @@ function LinkedRow({
         provider: provider as "apple" | "google",
         options: {
           skipBrowserRedirect: true,
-          redirectTo: "app.orzo.ios://auth/callback",
+          redirectTo: AUTH_REDIRECT_URL,
         },
       });
       if (error) {

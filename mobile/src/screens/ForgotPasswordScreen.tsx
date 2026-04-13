@@ -14,8 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { supabase } from "../services/supabase";
-
-const REDIRECT = "app.orzo.ios://auth/callback";
+import { AUTH_REDIRECT_URL } from "../services/authRedirect";
 
 type Props = NativeStackScreenProps<any, "ForgotPassword">;
 
@@ -37,7 +36,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         trimmed,
-        { redirectTo: REDIRECT },
+        { redirectTo: AUTH_REDIRECT_URL },
       );
       if (resetError) {
         setError(resetError.message);

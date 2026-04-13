@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, Eye, EyeOff } from "lucide-react-native";
 import { supabase } from "../services/supabase";
+import { AUTH_REDIRECT_URL } from "../services/authRedirect";
 
 type Props = NativeStackScreenProps<any, "SignUp">;
 
@@ -36,7 +37,7 @@ export function SignUpScreen({ navigation }: Props) {
         password,
         options: {
           data: trimmedName ? { display_name: trimmedName } : undefined,
-          emailRedirectTo: "app.orzo.ios://auth/callback",
+          emailRedirectTo: AUTH_REDIRECT_URL,
         },
       });
       if (signUpError) {

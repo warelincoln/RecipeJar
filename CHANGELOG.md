@@ -1,5 +1,21 @@
 # Orzo Changelog
 
+### 2026-04-13 — Dev/prod app isolation: "Orzo Dev" debug build
+
+Debug builds now install as **"Orzo Dev"** (`app.orzo.ios.dev`) — a separate app that coexists alongside the production **"Orzo"** (`app.orzo.ios`) on the same phone. This enables a local dev workflow where code changes can be tested on a physical iPhone before pushing to the repo.
+
+- **Xcode build config:** Debug configuration in `project.pbxproj` updated with `PRODUCT_BUNDLE_IDENTIFIER = app.orzo.ios.dev`, `PRODUCT_NAME = "Orzo Dev"`, and a separate `OrzoDev.entitlements` file.
+- **Dynamic Info.plist:** `CFBundleDisplayName` now uses `$(PRODUCT_NAME)` and the auth callback URL scheme uses `$(PRODUCT_BUNDLE_IDENTIFIER)`, so both resolve per build configuration (Debug → "Orzo Dev" / `app.orzo.ios.dev`, Release → "Orzo" / `app.orzo.ios`).
+- **Auth redirect centralized:** Created `mobile/src/services/authRedirect.ts` — exports `AUTH_REDIRECT_URL` using `__DEV__` to select the correct scheme. Replaced hardcoded `"app.orzo.ios://auth/callback"` strings in `ForgotPasswordScreen`, `EmailConfirmationScreen`, `SignUpScreen`, and `AccountScreen`.
+- **Auth on dev build:** Email/password works immediately. Apple/Google Sign-In require separate App ID registration (not yet done — not needed for development).
+- **Same Supabase backend:** Both apps share the same Supabase project and database. No separate dev database needed.
+- **Dev workflow:** Edit code locally → `npm run dev:phone` → build Debug in Xcode → test on "Orzo Dev" (hits local API at `LAN_IP:3000`) → push to `master` → Railway auto-deploys → production "Orzo" is updated.
+
+**Files modified:** `project.pbxproj`, `Info.plist`, `ForgotPasswordScreen.tsx`, `EmailConfirmationScreen.tsx`, `SignUpScreen.tsx`, `AccountScreen.tsx`  
+**Files created:** `OrzoDev.entitlements`, `authRedirect.ts`
+
+---
+
 ### 2026-04-08 — Production deployment, external service configuration, Release build
 
 The Fastify API server is now deployed in production on Railway at `https://api.getorzo.com`. All external services (Apple, Google, Supabase) are configured for the `app.orzo.ios` bundle identifier. A Release build has been tested end-to-end on a physical iPhone — sign-in, recipe import (URL + camera), and recipe viewing all work against the production API.
