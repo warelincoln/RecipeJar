@@ -51,7 +51,39 @@ The Debug build installs as **"Orzo Dev"** (`app.orzo.ios.dev`) — a separate a
 2. Run `npm run dev:phone` (starts local API + Metro)
 3. Build Debug in Xcode → "Orzo Dev" installs on phone, hits local API
 4. Test changes on phone
-5. When satisfied, push to `master` → Railway auto-deploys → production "Orzo" app is updated
+5. When satisfied, push to `master`.
+
+> ⚠️ **Important:** Pushing to `master` auto-deploys the **Fastify server** to Railway. It does **NOT** update the mobile app on your phone. The iOS app is a compiled binary — whatever JS/UI code was bundled into it at Xcode build time is what runs. Mobile UI or JS changes only land on the phone after you rebuild the app in Xcode (see below).
+
+#### Updating the production "Orzo" app on your phone
+
+Pushing mobile code to GitHub doesn't touch the Orzo app on your phone. To see JS/UI changes (e.g. new colors, new screens, new logic) in the production "Orzo" app, rebuild with Release config:
+
+1. **Plug in the iPhone** and select it as the destination in Xcode's top bar (next to the scheme name — it should show your phone's device name, not a simulator)
+2. **Product menu → Scheme → Edit Scheme...** (or press `⌘ <`)
+3. Left sidebar: click **Run**. On the right, change **Build Configuration** from **Debug** to **Release**. Close the dialog.
+4. **Press `⌘ R`** (Product → Run)
+
+Xcode builds a Release version, installs it on the phone as "**Orzo**" (replacing the previous production binary), and launches it. No Metro needed — Release builds bundle the JS into the `.ipa` at build time, so the app is standalone.
+
+**To switch back to the dev loop:** repeat step 2 and change Build Configuration back to **Debug**. Then `⌘ R` installs "Orzo Dev" again and Metro hot-reloads your edits without a rebuild.
+
+**Command-line alternative** (if you prefer not to use the Xcode UI):
+
+```bash
+xcodebuild -workspace mobile/ios/Orzo.xcworkspace \
+  -scheme Orzo -configuration Release \
+  -destination "id=<your-device-udid>" \
+  -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Orzo-device-release" \
+  -allowProvisioningUpdates build
+
+xcrun devicectl device install app --device <your-device-udid> \
+  "$HOME/Library/Developer/Xcode/DerivedData/Orzo-device-release/Build/Products/Release-iphoneos/Orzo.app"
+```
+
+Get your device UDID from Xcode → Window → Devices and Simulators, or `xcrun devicectl list devices`.
+
+**Why this matters:** Until TestFlight is wired up (Phase 0.2 of `ROADMAP.md`), you are the distribution mechanism for your own device — Apple has no channel to push new builds automatically. Once TestFlight is live, archiving and uploading to App Store Connect will push new builds to any TestFlight tester's device automatically. Until then, every UI/JS change to the production app requires a Release rebuild + install.
 
 **How it works:** `mobile/src/services/api.ts` uses `__DEV__` to switch between local and production API. `mobile/src/services/authRedirect.ts` uses `__DEV__` to select the correct URL scheme for auth callbacks. `Info.plist` uses `$(PRODUCT_BUNDLE_IDENTIFIER)` and `$(PRODUCT_NAME)` build variables so both the URL scheme and display name are derived from the Xcode build configuration. The Debug config in `project.pbxproj` sets `PRODUCT_BUNDLE_IDENTIFIER = app.orzo.ios.dev` and `PRODUCT_NAME = "Orzo Dev"`, while Release keeps `app.orzo.ios` and `Orzo`.
 
