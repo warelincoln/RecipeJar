@@ -13,14 +13,19 @@ import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { sha256 } from "js-sha256";
 import { jwtDecode } from "jwt-decode";
 import { supabase } from "../services/supabase";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  ERROR,
+  SURFACE,
+  BLACK,
+  WHITE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<any, "Auth">;
-
-const PRIMARY_BLUE = "#2563eb";
-const PRIMARY_TEXT = "#111827";
-const SECONDARY_TEXT = "#6b7280";
-const ERROR_RED = "#dc2626";
-const DIVIDER_LINE = "#d1d5db";
 
 export function AuthScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -153,7 +158,7 @@ export function AuthScreen({ navigation }: Props) {
 
         {loading ? (
           <ActivityIndicator
-            color={PRIMARY_BLUE}
+            color={PRIMARY}
             style={styles.loader}
           />
         ) : null}
@@ -191,7 +196,7 @@ export function AuthScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     paddingHorizontal: 24,
   },
   header: {
@@ -203,12 +208,12 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: "700",
     fontStyle: "italic",
-    color: PRIMARY_TEXT,
+    color: TEXT_PRIMARY,
   },
   subtitle: {
     marginTop: 8,
     fontSize: 16,
-    color: SECONDARY_TEXT,
+    color: TEXT_SECONDARY,
   },
   bottomBlock: {
     paddingBottom: 8,
@@ -217,18 +222,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000",
+    backgroundColor: BLACK,
     borderRadius: 12,
     paddingVertical: 16,
   },
   appleGlyph: {
     fontSize: 22,
-    color: "#fff",
+    color: WHITE,
     marginRight: 8,
     fontWeight: "600",
   },
   appleLabel: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -236,20 +241,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#374151",
+    borderColor: TEXT_TERTIARY,
     borderRadius: 12,
     paddingVertical: 16,
   },
   googleG: {
     fontSize: 18,
     fontWeight: "700",
-    color: PRIMARY_TEXT,
+    color: TEXT_PRIMARY,
     marginRight: 8,
   },
   googleLabel: {
-    color: PRIMARY_TEXT,
+    color: TEXT_PRIMARY,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -264,7 +269,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     marginTop: 12,
-    color: ERROR_RED,
+    color: ERROR,
     fontSize: 14,
     textAlign: "center",
   },
@@ -276,17 +281,17 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: DIVIDER_LINE,
+    backgroundColor: DIVIDER,
   },
   dividerOr: {
     marginHorizontal: 12,
     fontSize: 14,
-    color: SECONDARY_TEXT,
+    color: TEXT_SECONDARY,
   },
   linkText: {
     fontSize: 14,
     fontWeight: "600",
-    color: PRIMARY_BLUE,
+    color: PRIMARY,
     textAlign: "center",
   },
 });

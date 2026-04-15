@@ -34,6 +34,15 @@ import {
   resolveOmnibarInput,
   stripUrlCredentials,
 } from "../features/import/webImportUrl";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  SURFACE,
+  WHITE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "WebRecipeImport">;
 type CaptureFailureReason =
@@ -410,14 +419,14 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Close browser"
           >
-            <X size={LUCIDE.xl} color="#374151" />
+            <X size={LUCIDE.xl} color={TEXT_TERTIARY} />
           </TouchableOpacity>
           <TextInput
             style={styles.omnibar}
             value={omnibarText}
             onChangeText={setOmnibarText}
             placeholder="Search or enter website"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={TEXT_SECONDARY}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="default"
@@ -433,7 +442,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Refresh page"
           >
-            <RotateCw size={LUCIDE.row} color="#374151" />
+            <RotateCw size={LUCIDE.row} color={TEXT_TERTIARY} />
           </TouchableOpacity>
         </View>
 
@@ -448,7 +457,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             >
               <Search
                 size={LUCIDE.landing}
-                color="#7c3aed"
+                color={PRIMARY}
                 style={styles.landingIcon}
               />
               <Text style={styles.landingTitle}>Find a recipe</Text>
@@ -461,7 +470,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
                 value={omnibarText}
                 onChangeText={setOmnibarText}
                 placeholder="Search or enter website"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={TEXT_SECONDARY}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="go"
@@ -497,7 +506,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
               onScroll={() => Keyboard.dismiss()}
               renderLoading={() => (
                 <View style={styles.webLoading}>
-                  <ActivityIndicator color="#7c3aed" />
+                  <ActivityIndicator color={PRIMARY} />
                 </View>
               )}
             />
@@ -530,7 +539,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             >
               <ChevronLeft
                 size={LUCIDE.fab}
-                color={navState.canGoBack ? "#374151" : "#d1d5db"}
+                color={navState.canGoBack ? TEXT_TERTIARY : DIVIDER}
               />
             </TouchableOpacity>
             <TouchableOpacity
@@ -543,7 +552,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
             >
               <ChevronRight
                 size={LUCIDE.fab}
-                color={navState.canGoForward ? "#374151" : "#d1d5db"}
+                color={navState.canGoForward ? TEXT_TERTIARY : DIVIDER}
               />
             </TouchableOpacity>
           </View>
@@ -554,7 +563,7 @@ export function WebRecipeImportScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#fff" },
+  root: { flex: 1, backgroundColor: WHITE },
   kavFill: { flex: 1, minHeight: 0 },
   chromeRow: {
     flexDirection: "row",
@@ -565,27 +574,27 @@ const styles = StyleSheet.create({
   },
   omnibar: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === "ios" ? 10 : 8,
     fontSize: 15,
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     marginHorizontal: 12,
   },
   body: { flex: 1, minHeight: 0 },
-  webview: { flex: 1, backgroundColor: "#fff" },
+  webview: { flex: 1, backgroundColor: WHITE },
   webLoading: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   landingScroll: {
     flexGrow: 1,
@@ -603,45 +612,45 @@ const styles = StyleSheet.create({
   },
   landingSubtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 24,
   },
   landingInput: {
     width: "100%",
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 16,
   },
   primaryBtn: {
-    backgroundColor: "#7c3aed",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 32,
     minWidth: 200,
     alignItems: "center",
   },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  primaryBtnText: { color: WHITE, fontSize: 16, fontWeight: "600" },
   bottomBar: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: DIVIDER,
     paddingTop: 12,
     paddingHorizontal: 16,
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   navRow: { flexDirection: "row", gap: 24 },
   navIconBtn: { padding: 10 },
   saveBtn: {
-    backgroundColor: "#7c3aed",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 24,
@@ -649,5 +658,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  saveBtnText: { color: WHITE, fontSize: 16, fontWeight: "600" },
 });

@@ -11,6 +11,13 @@ import { Mail } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { supabase } from "../services/supabase";
 import { AUTH_REDIRECT_URL } from "../services/authRedirect";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<any, "EmailConfirmation">;
 
@@ -54,7 +61,7 @@ export function EmailConfirmationScreen({ navigation, route }: Props) {
       ]}
     >
       <View style={styles.center}>
-        <Mail size={64} color="#2563eb" style={styles.icon} />
+        <Mail size={64} color={PRIMARY} style={styles.icon} />
         <Text style={styles.title}>Check your inbox</Text>
         <Text style={styles.subtitle}>
           We sent a confirmation link to{" "}
@@ -71,7 +78,7 @@ export function EmailConfirmationScreen({ navigation, route }: Props) {
           accessibilityLabel="Resend email"
         >
           {resendLoading ? (
-            <ActivityIndicator color="#2563eb" />
+            <ActivityIndicator color={PRIMARY} />
           ) : (
             <Text style={styles.outlineBtnText}>Resend email</Text>
           )}
@@ -93,7 +100,7 @@ export function EmailConfirmationScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     justifyContent: "center",
   },
   center: {
@@ -106,13 +113,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     textAlign: "center",
     marginBottom: 12,
   },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 28,
@@ -120,10 +127,10 @@ const styles = StyleSheet.create({
   },
   emailBold: {
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   error: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 14,
     textAlign: "center",
     marginBottom: 16,
@@ -131,9 +138,9 @@ const styles = StyleSheet.create({
   },
   outlineBtn: {
     width: "100%",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#2563eb",
+    borderColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
@@ -143,7 +150,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   outlineBtnText: {
-    color: "#2563eb",
+    color: PRIMARY,
     fontWeight: "600",
     fontSize: 16,
   },
@@ -152,7 +159,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   secondaryText: {
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontWeight: "600",
     fontSize: 15,
   },

@@ -53,6 +53,22 @@ import {
 import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
 import { LUCIDE } from "../theme/lucideSizes";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  ERROR,
+  SURFACE,
+  PRIMARY_LIGHT,
+  WHITE,
+  BLACK,
+  GOLDEN_AMBER,
+  SAGE_GREEN,
+  MUTED_PLUM,
+  DUSTY_ROSE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
@@ -112,7 +128,7 @@ function ProfileAvatar() {
         </View>
       ) : (
         <View style={[avatarStyles.circle, { backgroundColor: "#fdba74" }]}>
-          <User size={18} color="#6b7280" />
+          <User size={18} color={TEXT_SECONDARY} />
         </View>
       )}
     </TouchableOpacity>
@@ -138,7 +154,7 @@ const avatarStyles = StyleSheet.create({
     justifyContent: "center",
   },
   initial: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -357,7 +373,7 @@ export function HomeScreen({ navigation, route }: Props) {
       actions.push({
         key: "add-collection",
         label: "Add to collection",
-        icon: <FolderOpen size={LUCIDE.row} color="#2563eb" />,
+        icon: <FolderOpen size={LUCIDE.row} color={PRIMARY} />,
         onPress: () => {
           setRecipeQuickActions(null);
           setCollectionPickerTarget(item);
@@ -369,7 +385,7 @@ export function HomeScreen({ navigation, route }: Props) {
       key: "delete",
       label: "Delete recipe",
       destructive: true,
-      icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+      icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
       onPress: () => {
         setRecipeQuickActions(null);
         setDeleteConfirmTarget(item);
@@ -434,7 +450,7 @@ export function HomeScreen({ navigation, route }: Props) {
         <TextInput
           style={styles.searchInput}
           placeholder="Search recipes..."
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={TEXT_SECONDARY}
           value={searchQuery}
           onChangeText={setSearchQuery}
           returnKeyType="search"
@@ -446,7 +462,7 @@ export function HomeScreen({ navigation, route }: Props) {
             onPress={() => setSearchQuery("")}
             testID="home-search-clear"
           >
-            <X size={LUCIDE.md} color="#6b7280" />
+            <X size={LUCIDE.md} color={TEXT_SECONDARY} />
           </TouchableOpacity>
         )}
       </View>
@@ -483,7 +499,7 @@ export function HomeScreen({ navigation, route }: Props) {
             }
           >
             {(item as CollectionItem).isVirtual ? (
-              <BookOpen size={LUCIDE.collectionCardHome} color="#2563eb" />
+              <BookOpen size={LUCIDE.collectionCardHome} color={PRIMARY} />
             ) : (
               (() => {
                 const { Icon, color } = getCollectionIcon(item.name);
@@ -503,7 +519,7 @@ export function HomeScreen({ navigation, route }: Props) {
         <ActivityIndicator
           style={styles.loader}
           size="large"
-          color="#2563eb"
+          color={PRIMARY}
           testID="home-loader"
         />
       )}
@@ -549,7 +565,7 @@ export function HomeScreen({ navigation, route }: Props) {
 
       {[
         {
-          icon: <Camera size={LUCIDE.jarFanAction} color="#0ea5e9" />,
+          icon: <Camera size={LUCIDE.jarFanAction} color={GOLDEN_AMBER} />,
           label: "Camera",
           testID: "jar-fan-camera",
           onPress: () => {
@@ -562,7 +578,7 @@ export function HomeScreen({ navigation, route }: Props) {
           },
         },
         {
-          icon: <ImageIcon size={LUCIDE.jarFanAction} color="#ec4899" />,
+          icon: <ImageIcon size={LUCIDE.jarFanAction} color={DUSTY_ROSE} />,
           label: "Photos",
           testID: "jar-fan-photos",
           onPress: () => {
@@ -575,7 +591,7 @@ export function HomeScreen({ navigation, route }: Props) {
           },
         },
         {
-          icon: <Link size={LUCIDE.jarFanAction} color="#22c55e" />,
+          icon: <Link size={LUCIDE.jarFanAction} color={SAGE_GREEN} />,
           label: "URL",
           testID: "jar-fan-url",
           onPress: () => {
@@ -584,7 +600,7 @@ export function HomeScreen({ navigation, route }: Props) {
           },
         },
         {
-          icon: <FolderOpen size={LUCIDE.jarFanAction} color="#a855f7" />,
+          icon: <FolderOpen size={LUCIDE.jarFanAction} color={MUTED_PLUM} />,
           label: "Add Folder",
           testID: "jar-fan-collection",
           onPress: () => {
@@ -655,9 +671,9 @@ export function HomeScreen({ navigation, route }: Props) {
         onPress={toggleJar}
       >
         {jarOpen ? (
-          <Minus size={LUCIDE.fab} color="#fff" />
+          <Minus size={LUCIDE.fab} color={WHITE} />
         ) : (
-          <Plus size={LUCIDE.fab} color="#fff" />
+          <Plus size={LUCIDE.fab} color={WHITE} />
         )}
       </TouchableOpacity>
 
@@ -702,7 +718,7 @@ export function HomeScreen({ navigation, route }: Props) {
           {
             key: "rename-folder",
             label: "Rename folder",
-            icon: <Pencil size={LUCIDE.row} color="#2563eb" />,
+            icon: <Pencil size={LUCIDE.row} color={PRIMARY} />,
             onPress: () => {
               const t = folderQuickActions;
               setFolderQuickActions(null);
@@ -714,7 +730,7 @@ export function HomeScreen({ navigation, route }: Props) {
             key: "delete-folder",
             label: "Delete folder",
             destructive: true,
-            icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+            icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
             onPress: () => {
               const t = folderQuickActions;
               setFolderQuickActions(null);
@@ -899,28 +915,28 @@ export function HomeScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#eff6ff" },
+  container: { flex: 1, backgroundColor: PRIMARY_LIGHT },
   header: {
     paddingHorizontal: HORIZONTAL_PADDING,
     paddingBottom: 12,
     alignItems: "center",
   },
   title: { fontSize: 30, fontWeight: "800", fontStyle: "italic" },
-  subtitle: { fontSize: 14, marginTop: 2, color: "#888" },
+  subtitle: { fontSize: 14, marginTop: 2, color: TEXT_SECONDARY },
   searchContainer: {
     paddingHorizontal: HORIZONTAL_PADDING,
     marginBottom: 12,
     position: "relative",
   },
   searchInput: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
     letterSpacing: 0,
-    color: "#111827",
-    shadowColor: "#000",
+    color: TEXT_PRIMARY,
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -940,14 +956,14 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   collectionCard: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     borderRadius: 14,
     width: 100,
     height: 116,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
@@ -961,7 +977,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loader: { marginTop: 40 },
-  error: { color: "#dc2626", textAlign: "center", marginTop: 20 },
+  error: { color: ERROR, textAlign: "center", marginTop: 20 },
   empty: {
     alignItems: "center",
     marginTop: 60,
@@ -970,7 +986,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
   emptySubtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
   },
@@ -989,10 +1005,10 @@ const styles = StyleSheet.create({
     width: JAR_FAB_SIZE,
     height: JAR_FAB_SIZE,
     borderRadius: JAR_FAB_SIZE / 2,
-    backgroundColor: "#fb923c",
+    backgroundColor: PRIMARY,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
@@ -1011,12 +1027,12 @@ const styles = StyleSheet.create({
     width: JAR_FAN_BUTTON_SIZE,
     height: JAR_FAN_BUTTON_SIZE,
     borderRadius: JAR_FAN_BUTTON_SIZE / 2,
-    backgroundColor: "#e8eaef",
+    backgroundColor: DIVIDER,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 5,
@@ -1025,13 +1041,13 @@ const styles = StyleSheet.create({
   fanLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#374151",
+    color: TEXT_TERTIARY,
     marginTop: 6,
     textAlign: "center",
   },
   photoPreviewOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
+    backgroundColor: BLACK,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1047,25 +1063,25 @@ const styles = StyleSheet.create({
   },
   photoPreviewCancel: {
     flex: 1,
-    backgroundColor: "#374151",
+    backgroundColor: TEXT_TERTIARY,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
   },
   photoPreviewCancelText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 17,
     fontWeight: "600",
   },
   photoPreviewImport: {
     flex: 1,
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
   },
   photoPreviewImportText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 17,
     fontWeight: "600",
   },

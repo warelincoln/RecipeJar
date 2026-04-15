@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, useCameraDevice } from "react-native-vision-camera";
+import { PRIMARY, WHITE, BLACK } from "../../theme/colors";
 
 interface CaptureViewProps {
   pages: { imageUri: string; orderIndex: number }[];
@@ -83,24 +84,24 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
+  container: { flex: 1, backgroundColor: BLACK },
   camera: { flex: 1 },
   cancelButton: { position: "absolute", left: 16, zIndex: 10, padding: 8 },
-  cancelText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  cancelText: { color: WHITE, fontSize: 16, fontWeight: "600" },
   controls: { position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 50 },
   thumbnailList: { paddingHorizontal: 16, marginBottom: 16 },
-  thumbnail: { width: 48, height: 64, borderRadius: 6, marginRight: 8, borderWidth: 1, borderColor: "#fff" },
+  thumbnail: { width: 48, height: 64, borderRadius: 6, marginRight: 8, borderWidth: 1, borderColor: WHITE },
   buttonRow: { alignItems: "center", marginBottom: 16 },
   captureButton: {
     width: 72, height: 72, borderRadius: 36,
-    borderWidth: 4, borderColor: "#fff",
+    borderWidth: 4, borderColor: WHITE,
     alignItems: "center", justifyContent: "center",
   },
-  captureInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff" },
+  captureInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: WHITE },
   doneButton: {
-    alignSelf: "center", backgroundColor: "#2563eb",
+    alignSelf: "center", backgroundColor: PRIMARY,
     paddingHorizontal: 32, paddingVertical: 12, borderRadius: 24,
   },
-  doneText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  errorText: { color: "#fff", fontSize: 16, textAlign: "center", marginTop: 100 },
+  doneText: { color: WHITE, fontSize: 16, fontWeight: "600" },
+  errorText: { color: WHITE, fontSize: 16, textAlign: "center", marginTop: 100 },
 });

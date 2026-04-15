@@ -16,6 +16,7 @@ import FastImage from "react-native-fast-image";
 import { X } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
 import { RecipeImagePlaceholder } from "./RecipeImagePlaceholder";
+import { WHITE, BLACK } from "../theme/colors";
 
 interface FullScreenImageViewerProps {
   visible: boolean;
@@ -99,7 +100,7 @@ export function FullScreenImageViewer({
           accessibilityRole="button"
           accessibilityLabel="Close full screen image"
         >
-          <X size={LUCIDE.nav} color="#fff" />
+          <X size={LUCIDE.nav} color={WHITE} />
         </TouchableOpacity>
         <GestureDetector gesture={composed}>
           <Animated.View style={styles.gestureArea}>
@@ -124,7 +125,7 @@ export function FullScreenImageViewer({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: BLACK,
   },
   closeButton: {
     position: "absolute",

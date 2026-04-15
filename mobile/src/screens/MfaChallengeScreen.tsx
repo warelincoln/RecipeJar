@@ -13,6 +13,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Shield } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { useAuthStore } from "../stores/auth.store";
+import {
+  PRIMARY,
+  PRIMARY_LIGHT,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 
 export function MfaChallengeScreen() {
   const insets = useSafeAreaInsets();
@@ -70,7 +79,7 @@ export function MfaChallengeScreen() {
     >
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <Shield size={48} color="#2563eb" />
+          <Shield size={48} color={PRIMARY} />
         </View>
 
         <Text style={styles.title}>Two-Factor Authentication</Text>
@@ -83,7 +92,7 @@ export function MfaChallengeScreen() {
           value={code}
           onChangeText={(text) => setCode(text.replace(/\D/g, "").slice(0, 6))}
           placeholder="000000"
-          placeholderTextColor="#d1d5db"
+          placeholderTextColor={DIVIDER}
           keyboardType="number-pad"
           maxLength={6}
           autoFocus
@@ -98,7 +107,7 @@ export function MfaChallengeScreen() {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={WHITE} />
           ) : (
             <Text style={styles.verifyBtnText}>Verify</Text>
           )}
@@ -115,7 +124,7 @@ export function MfaChallengeScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   content: {
     flex: 1,
@@ -127,7 +136,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 24,
@@ -135,33 +144,33 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     marginBottom: 32,
   },
   codeInput: {
     width: "100%",
     borderWidth: 2,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 12,
     paddingVertical: 16,
     fontSize: 32,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     letterSpacing: 12,
   },
   error: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 13,
     marginTop: 12,
   },
   verifyBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 16,
     width: "100%",
@@ -172,7 +181,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   verifyBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontWeight: "600",
     fontSize: 16,
   },
@@ -181,7 +190,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   cancelText: {
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontSize: 14,
     fontWeight: "600",
   },

@@ -2,8 +2,9 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Star } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
+import { GOLDEN_AMBER, DEEP_TERRACOTTA } from "../theme/colors";
 
-const GOLD = "#eab308";
+const GOLD = GOLDEN_AMBER;
 
 interface CompactRecipeRatingProps {
   rating: number | null;
@@ -32,7 +33,7 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#92400e",
+    color: DEEP_TERRACOTTA,
     paddingTop: 2,
   },
 });

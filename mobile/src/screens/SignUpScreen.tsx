@@ -15,6 +15,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, Eye, EyeOff } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { AUTH_REDIRECT_URL } from "../services/authRedirect";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<any, "SignUp">;
 
@@ -69,7 +77,7 @@ export function SignUpScreen({ navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <ChevronLeft size={28} color="#111827" />
+          <ChevronLeft size={28} color={TEXT_PRIMARY} />
         </TouchableOpacity>
 
         <Text style={styles.title}>Create account</Text>
@@ -77,7 +85,7 @@ export function SignUpScreen({ navigation }: Props) {
         <TextInput
           style={styles.input}
           placeholder="Display name (optional)"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={TEXT_SECONDARY}
           value={displayName}
           onChangeText={setDisplayName}
           autoCorrect={false}
@@ -89,7 +97,7 @@ export function SignUpScreen({ navigation }: Props) {
         <TextInput
           style={styles.input}
           placeholder="Email"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={TEXT_SECONDARY}
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
@@ -104,7 +112,7 @@ export function SignUpScreen({ navigation }: Props) {
           <TextInput
             style={styles.passwordInput}
             placeholder="Password"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={TEXT_SECONDARY}
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!passwordVisible}
@@ -120,9 +128,9 @@ export function SignUpScreen({ navigation }: Props) {
             accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
           >
             {passwordVisible ? (
-              <EyeOff size={22} color="#6b7280" />
+              <EyeOff size={22} color={TEXT_SECONDARY} />
             ) : (
-              <Eye size={22} color="#6b7280" />
+              <Eye size={22} color={TEXT_SECONDARY} />
             )}
           </TouchableOpacity>
         </View>
@@ -138,7 +146,7 @@ export function SignUpScreen({ navigation }: Props) {
           activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={WHITE} />
           ) : (
             <Text style={styles.primaryBtnText}>Create Account</Text>
           )}
@@ -153,7 +161,7 @@ export function SignUpScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -166,19 +174,19 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: "700",
     fontSize: 28,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginTop: 8,
     marginBottom: 16,
   },
   input: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   gap: {
     height: 16,
@@ -186,9 +194,9 @@ const styles = StyleSheet.create({
   passwordOuter: {
     position: "relative",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 10,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -198,7 +206,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingRight: 44,
     fontSize: 15,
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   eyeBtn: {
     position: "absolute",
@@ -210,12 +218,12 @@ const styles = StyleSheet.create({
     width: 36,
   },
   hint: {
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontSize: 12,
     marginTop: 8,
   },
   primaryBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
@@ -226,12 +234,12 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontWeight: "600",
     fontSize: 16,
   },
   errorText: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 13,
     marginTop: 16,
   },

@@ -23,6 +23,15 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";
 import { ShimmerPlaceholder } from "../components/ShimmerPlaceholder";
+import {
+  PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  SURFACE,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 import { RecipeImagePlaceholder } from "../components/RecipeImagePlaceholder";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeEdit">;
@@ -229,7 +238,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={PRIMARY} />
       </View>
     );
   }
@@ -361,14 +370,14 @@ export function RecipeEditScreen({ route, navigation }: Props) {
               disabled={i === 0}
               testID={`edit-ingredient-up-${i}`}
             >
-              <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+              <ChevronUp size={LUCIDE.md} color={i === 0 ? DIVIDER : TEXT_SECONDARY} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => moveIngredient(i, 1)}
               disabled={i === ingredients.length - 1}
               testID={`edit-ingredient-down-${i}`}
             >
-              <ChevronDown size={LUCIDE.md} color={i === ingredients.length - 1 ? "#d1d5db" : "#9ca3af"} />
+              <ChevronDown size={LUCIDE.md} color={i === ingredients.length - 1 ? DIVIDER : TEXT_SECONDARY} />
             </TouchableOpacity>
           </View>
           <TextInput
@@ -382,7 +391,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
             testID={`edit-ingredient-remove-${i}`}
             accessibilityRole="button"
           >
-            <X size={LUCIDE.md} color="#ef4444" />
+            <X size={LUCIDE.md} color={ERROR} />
           </TouchableOpacity>
         </View>
       ))}
@@ -394,7 +403,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         accessibilityLabel="edit-add-ingredient"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={LUCIDE.sm} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color={PRIMARY} />
           <Text style={styles.addButtonText}>Add Ingredient</Text>
         </View>
       </TouchableOpacity>
@@ -405,25 +414,25 @@ export function RecipeEditScreen({ route, navigation }: Props) {
           <View key={i} style={styles.listItemRow}>
             <View style={styles.reorderButtons}>
               <TouchableOpacity onPress={() => moveStep(i, -1)} disabled={i === 0} testID={`edit-step-up-${i}`}>
-                <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronUp size={LUCIDE.md} color={i === 0 ? DIVIDER : TEXT_SECONDARY} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => moveStep(i, 1)} disabled={i === steps.length - 1} testID={`edit-step-down-${i}`}>
-                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? DIVIDER : TEXT_SECONDARY} />
               </TouchableOpacity>
             </View>
             <Text style={styles.stepHeaderText}>{step.text}</Text>
             <TouchableOpacity onPress={() => removeStep(i)} testID={`edit-step-remove-${i}`} accessibilityRole="button">
-              <X size={LUCIDE.md} color="#ef4444" />
+              <X size={LUCIDE.md} color={ERROR} />
             </TouchableOpacity>
           </View>
         ) : (
           <View key={i} style={styles.listItemRow}>
             <View style={styles.reorderButtons}>
               <TouchableOpacity onPress={() => moveStep(i, -1)} disabled={i === 0} testID={`edit-step-up-${i}`}>
-                <ChevronUp size={LUCIDE.md} color={i === 0 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronUp size={LUCIDE.md} color={i === 0 ? DIVIDER : TEXT_SECONDARY} />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => moveStep(i, 1)} disabled={i === steps.length - 1} testID={`edit-step-down-${i}`}>
-                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? "#d1d5db" : "#9ca3af"} />
+                <ChevronDown size={LUCIDE.md} color={i === steps.length - 1 ? DIVIDER : TEXT_SECONDARY} />
               </TouchableOpacity>
             </View>
             <TextInput
@@ -434,7 +443,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
               testID={`edit-step-${i}`}
             />
             <TouchableOpacity onPress={() => removeStep(i)} testID={`edit-step-remove-${i}`} accessibilityRole="button">
-              <X size={LUCIDE.md} color="#ef4444" />
+              <X size={LUCIDE.md} color={ERROR} />
             </TouchableOpacity>
           </View>
         ),
@@ -447,7 +456,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         accessibilityLabel="edit-add-step"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={LUCIDE.sm} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color={PRIMARY} />
           <Text style={styles.addButtonText}>Add Step</Text>
         </View>
       </TouchableOpacity>
@@ -456,7 +465,7 @@ export function RecipeEditScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: WHITE },
   content: { paddingHorizontal: 24 },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
   topBar: {
@@ -465,15 +474,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 12,
   },
-  cancelText: { fontSize: 16, color: "#6b7280" },
-  saveText: { fontSize: 16, fontWeight: "700", color: "#2563eb" },
-  saveTextDisabled: { color: "#9ca3af" },
+  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
+  saveText: { fontSize: 16, fontWeight: "700", color: PRIMARY },
+  saveTextDisabled: { color: TEXT_SECONDARY },
   heroWrap: {
     width: "100%",
     aspectRatio: 16 / 9,
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     marginBottom: 8,
   },
   heroImage: {
@@ -490,7 +499,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   heroHintText: {
-    color: "#fff",
+    color: WHITE,
     backgroundColor: "rgba(0,0,0,0.5)",
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -506,7 +515,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -517,15 +526,15 @@ const styles = StyleSheet.create({
   multilineInput: { minHeight: 60, textAlignVertical: "top" },
   collectionPicker: { flexGrow: 0, marginBottom: 8 },
   collectionChip: {
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 8,
   },
-  collectionChipActive: { backgroundColor: "#2563eb" },
-  collectionChipText: { fontSize: 14, fontWeight: "500", color: "#374151" },
-  collectionChipTextActive: { color: "#fff" },
+  collectionChipActive: { backgroundColor: PRIMARY },
+  collectionChipText: { fontSize: 14, fontWeight: "500", color: TEXT_TERTIARY },
+  collectionChipTextActive: { color: WHITE },
   listItemRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -536,17 +545,17 @@ const styles = StyleSheet.create({
   listItemInput: { flex: 1, marginBottom: 0 },
   stepHeaderText: {
     flex: 1, fontSize: 15, fontWeight: "600", fontStyle: "italic",
-    color: "#374151", paddingVertical: 10,
+    color: TEXT_TERTIARY, paddingVertical: 10,
   },
   addButton: {
     paddingVertical: 10,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 8,
     borderStyle: "dashed",
     marginTop: 4,
   },
   addButtonContent: { flexDirection: "row", alignItems: "center", gap: 6 },
-  addButtonText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
+  addButtonText: { fontSize: 14, color: PRIMARY, fontWeight: "600" },
 });

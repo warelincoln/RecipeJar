@@ -17,6 +17,7 @@ import { useRecipesStore } from "../stores/recipes.store";
 import type { EditedRecipeCandidate } from "@orzo/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import { WHITE } from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ImportFlow">;
 
@@ -494,7 +495,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
         !isFullBleed && {
           paddingTop: insets.top,
           paddingBottom: insets.bottom,
-          backgroundColor: "#fff",
+          backgroundColor: WHITE,
         },
       ]}
     >

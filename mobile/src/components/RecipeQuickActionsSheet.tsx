@@ -11,6 +11,19 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
+import {
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  SURFACE,
+  PRIMARY_LIGHT,
+  TINT_RED,
+  ERROR,
+  WHITE,
+  BLACK,
+  DEEP_TERRACOTTA,
+} from "../theme/colors";
 
 export type RecipeQuickAction = {
   key: string;
@@ -78,7 +91,7 @@ export function RecipeQuickActionsSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={LUCIDE.lg} color="#6b7280" />
+            <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <Text style={styles.sheetTitle}>{title}</Text>
           {accentLine.length > 0 ? (
@@ -211,7 +224,7 @@ export function RecipeDeleteConfirmSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={LUCIDE.lg} color="#6b7280" />
+            <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <Text style={styles.sheetTitle}>Delete recipe?</Text>
           <Text style={styles.confirmLead} numberOfLines={3}>
@@ -237,7 +250,7 @@ export function RecipeDeleteConfirmSheet({
             accessibilityRole="button"
           >
             {busy ? (
-              <ActivityIndicator color="#dc2626" />
+              <ActivityIndicator color={ERROR} />
             ) : (
               <Text style={styles.deleteBtnText}>Delete recipe</Text>
             )}
@@ -258,7 +271,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   sheet: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 36,
@@ -273,7 +286,7 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 8,
     textAlign: "center",
     paddingHorizontal: 40,
@@ -281,7 +294,7 @@ const styles = StyleSheet.create({
   recipeName: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#1e40af",
+    color: DEEP_TERRACOTTA,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 6,
@@ -289,7 +302,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 16,
@@ -298,7 +311,7 @@ const styles = StyleSheet.create({
   confirmLead: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: TEXT_TERTIARY,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 8,
@@ -306,7 +319,7 @@ const styles = StyleSheet.create({
   },
   confirmHint: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 22,
@@ -321,12 +334,12 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 3,
@@ -336,7 +349,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 14,
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -344,7 +357,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     paddingTop: 2,
   },
   dangerBlock: {
@@ -356,19 +369,19 @@ const styles = StyleSheet.create({
   dangerRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fef2f2",
+    backgroundColor: TINT_RED,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
     gap: 12,
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: TINT_RED,
   },
   dangerIconWrap: {
     width: 56,
     height: 56,
     borderRadius: 14,
-    backgroundColor: "#fee2e2",
+    backgroundColor: TINT_RED,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -376,18 +389,18 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#dc2626",
+    color: ERROR,
     paddingTop: 2,
   },
   cancelBtn: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: DIVIDER,
     marginBottom: 10,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 2,
@@ -396,22 +409,22 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: TEXT_TERTIARY,
   },
   deleteBtn: {
-    backgroundColor: "#fef2f2",
+    backgroundColor: TINT_RED,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: TINT_RED,
     minHeight: 50,
     justifyContent: "center",
   },
   deleteBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#dc2626",
+    color: ERROR,
   },
   btnDisabled: {
     opacity: 0.55,
@@ -493,7 +506,7 @@ export function DeleteCollectionConfirmSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={LUCIDE.lg} color="#6b7280" />
+            <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <Text style={styles.sheetTitle}>Delete folder?</Text>
           <Text style={styles.confirmLead} numberOfLines={3}>
@@ -522,7 +535,7 @@ export function DeleteCollectionConfirmSheet({
             accessibilityRole="button"
           >
             {busy ? (
-              <ActivityIndicator color="#dc2626" />
+              <ActivityIndicator color={ERROR} />
             ) : (
               <Text style={styles.deleteBtnText}>Delete folder</Text>
             )}

@@ -27,6 +27,17 @@ import { useAuthStore } from "../stores/auth.store";
 import { supabase } from "../services/supabase";
 import { api } from "../services/api";
 import { AUTH_REDIRECT_URL } from "../services/authRedirect";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  SUCCESS,
+  WHITE,
+  BLACK,
+  TINT_RED,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<any, "Account">;
 
@@ -245,7 +256,7 @@ export function AccountScreen({ navigation }: Props) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
-          <ChevronLeft size={28} color="#111827" />
+          <ChevronLeft size={28} color={TEXT_PRIMARY} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Account</Text>
         <View style={{ width: 28 }} />
@@ -262,13 +273,13 @@ export function AccountScreen({ navigation }: Props) {
             <View
               style={[
                 styles.avatarCircleLarge,
-                { backgroundColor: initial ? "#2563eb" : "#e5e7eb" },
+                { backgroundColor: initial ? PRIMARY : DIVIDER },
               ]}
             >
               {initial ? (
                 <Text style={styles.avatarInitialLarge}>{initial}</Text>
               ) : (
-                <User size={28} color="#6b7280" />
+                <User size={28} color={TEXT_SECONDARY} />
               )}
             </View>
           )}
@@ -307,7 +318,7 @@ export function AccountScreen({ navigation }: Props) {
         <View style={styles.mfaCard}>
           {hasVerifiedTotp ? (
             <View style={styles.mfaRow}>
-              <Shield size={20} color="#16a34a" />
+              <Shield size={20} color={SUCCESS} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.mfaStatusText}>Two-factor authentication is enabled</Text>
               </View>
@@ -316,9 +327,9 @@ export function AccountScreen({ navigation }: Props) {
                 disabled={mfaUnenrolling}
               >
                 {mfaUnenrolling ? (
-                  <ActivityIndicator color="#dc2626" size="small" />
+                  <ActivityIndicator color={ERROR} size="small" />
                 ) : (
-                  <ShieldOff size={20} color="#dc2626" />
+                  <ShieldOff size={20} color={ERROR} />
                 )}
               </TouchableOpacity>
             </View>
@@ -338,7 +349,7 @@ export function AccountScreen({ navigation }: Props) {
                   });
                 }}
               >
-                <Shield size={20} color="#fff" />
+                <Shield size={20} color={WHITE} />
                 <Text style={styles.mfaOpenAuthText}>Open in Authenticator App</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -355,7 +366,7 @@ export function AccountScreen({ navigation }: Props) {
               <TextInput
                 style={styles.mfaCodeInput}
                 placeholder="000000"
-                placeholderTextColor="#d1d5db"
+                placeholderTextColor={DIVIDER}
                 value={mfaCode}
                 onChangeText={(t) => setMfaCode(t.replace(/\D/g, "").slice(0, 6))}
                 keyboardType="number-pad"
@@ -381,7 +392,7 @@ export function AccountScreen({ navigation }: Props) {
                   disabled={mfaVerifying}
                 >
                   {mfaVerifying ? (
-                    <ActivityIndicator color="#fff" size="small" />
+                    <ActivityIndicator color={WHITE} size="small" />
                   ) : (
                     <Text style={styles.mfaVerifyText}>Verify & Enable</Text>
                   )}
@@ -394,9 +405,9 @@ export function AccountScreen({ navigation }: Props) {
               onPress={handleMfaEnroll}
               disabled={mfaEnrolling}
             >
-              <Shield size={20} color="#2563eb" />
+              <Shield size={20} color={PRIMARY} />
               <Text style={styles.mfaEnableText}>Enable Two-Factor Authentication</Text>
-              {mfaEnrolling && <ActivityIndicator color="#2563eb" size="small" />}
+              {mfaEnrolling && <ActivityIndicator color={PRIMARY} size="small" />}
             </TouchableOpacity>
           )}
         </View>
@@ -408,10 +419,10 @@ export function AccountScreen({ navigation }: Props) {
           activeOpacity={0.7}
         >
           {signingOut ? (
-            <ActivityIndicator color="#dc2626" />
+            <ActivityIndicator color={ERROR} />
           ) : (
             <>
-              <LogOut size={18} color="#dc2626" />
+              <LogOut size={18} color={ERROR} />
               <Text style={styles.signOutText}>Sign Out</Text>
             </>
           )}
@@ -424,10 +435,10 @@ export function AccountScreen({ navigation }: Props) {
           activeOpacity={0.7}
         >
           {signingOutAll ? (
-            <ActivityIndicator color="#6b7280" />
+            <ActivityIndicator color={TEXT_SECONDARY} />
           ) : (
             <>
-              <LogOut size={18} color="#6b7280" />
+              <LogOut size={18} color={TEXT_SECONDARY} />
               <Text style={styles.signOutAllText}>Sign Out All Devices</Text>
             </>
           )}
@@ -440,10 +451,10 @@ export function AccountScreen({ navigation }: Props) {
           activeOpacity={0.7}
         >
           {deleting ? (
-            <ActivityIndicator color="#991b1b" />
+            <ActivityIndicator color={ERROR} />
           ) : (
             <>
-              <Trash2 size={18} color="#991b1b" />
+              <Trash2 size={18} color={ERROR} />
               <Text style={styles.deleteText}>Delete Account</Text>
             </>
           )}
@@ -529,7 +540,7 @@ function LinkedRow({
     <View style={styles.linkedRow}>
       <View style={styles.linkedIcon}>
         {label === "Email" ? (
-          <Mail size={18} color="#111827" />
+          <Mail size={18} color={TEXT_PRIMARY} />
         ) : (
           <Text style={{ fontSize: 16, fontWeight: "600" }}>
             {label === "Apple" ? "\uF8FF" : "G"}
@@ -538,14 +549,14 @@ function LinkedRow({
       </View>
       <Text style={styles.linkedLabel}>{label}</Text>
       {loading ? (
-        <ActivityIndicator size="small" color="#6b7280" />
+        <ActivityIndicator size="small" color={TEXT_SECONDARY} />
       ) : connected ? (
         <TouchableOpacity onPress={handleUnlink} hitSlop={8}>
-          <Check size={18} color="#16a34a" />
+          <Check size={18} color={SUCCESS} />
         </TouchableOpacity>
       ) : provider !== "email" ? (
         <TouchableOpacity onPress={handleLink} hitSlop={8}>
-          <Text style={{ fontSize: 13, color: "#2563eb", fontWeight: "600" }}>Link</Text>
+          <Text style={{ fontSize: 13, color: PRIMARY, fontWeight: "600" }}>Link</Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -555,7 +566,7 @@ function LinkedRow({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   headerRow: {
     flexDirection: "row",
@@ -567,19 +578,19 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   content: {
     paddingHorizontal: 24,
     paddingBottom: 48,
   },
   profileCard: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 12,
     padding: 24,
     alignItems: "center",
     marginTop: 8,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
@@ -598,34 +609,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarInitialLarge: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 24,
     fontWeight: "700",
   },
   displayName: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginTop: 12,
   },
   email: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     marginTop: 4,
   },
   sectionLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginTop: 28,
     marginBottom: 8,
   },
   linkedCard: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
@@ -644,19 +655,19 @@ const styles = StyleSheet.create({
   linkedLabel: {
     flex: 1,
     fontSize: 15,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginLeft: 10,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     marginLeft: 54,
   },
   mfaCard: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 12,
     padding: 16,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 4,
@@ -668,7 +679,7 @@ const styles = StyleSheet.create({
   },
   mfaStatusText: {
     fontSize: 15,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     fontWeight: "500",
   },
   mfaEnableRow: {
@@ -679,26 +690,26 @@ const styles = StyleSheet.create({
   mfaEnableText: {
     flex: 1,
     fontSize: 15,
-    color: "#2563eb",
+    color: PRIMARY,
     fontWeight: "600",
   },
   mfaInstructionText: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     marginBottom: 12,
   },
   mfaOpenAuthBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 10,
     paddingVertical: 14,
     gap: 10,
     marginBottom: 12,
   },
   mfaOpenAuthText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 15,
     fontWeight: "700",
   },
@@ -708,21 +719,21 @@ const styles = StyleSheet.create({
   },
   mfaCopyFallbackText: {
     fontSize: 13,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textDecorationLine: "underline",
   },
   mfaCodeInput: {
     borderWidth: 2,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 8,
     paddingVertical: 12,
     fontSize: 24,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     letterSpacing: 8,
   },
   mfaErrorText: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 13,
     marginTop: 8,
   },
@@ -734,17 +745,17 @@ const styles = StyleSheet.create({
   },
   mfaCancelText: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontWeight: "600",
   },
   mfaVerifyBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   mfaVerifyText: {
-    color: "#fff",
+    color: WHITE,
     fontWeight: "600",
     fontSize: 14,
   },
@@ -753,7 +764,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#dc2626",
+    borderColor: ERROR,
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 32,
@@ -762,14 +773,14 @@ const styles = StyleSheet.create({
   signOutText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#dc2626",
+    color: ERROR,
   },
   signOutAllButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 12,
@@ -778,13 +789,13 @@ const styles = StyleSheet.create({
   signOutAllText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
   },
   deleteButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fef2f2",
+    backgroundColor: TINT_RED,
     borderRadius: 12,
     paddingVertical: 14,
     marginTop: 12,
@@ -793,11 +804,11 @@ const styles = StyleSheet.create({
   deleteText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#991b1b",
+    color: ERROR,
   },
   version: {
     fontSize: 12,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     marginTop: 24,
   },

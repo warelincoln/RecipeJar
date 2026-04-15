@@ -7,6 +7,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import { DIVIDER } from "../theme/colors";
 
 interface ShimmerPlaceholderProps {
   style?: StyleProp<ViewStyle>;
@@ -41,7 +42,7 @@ export function ShimmerPlaceholder({
 const styles = StyleSheet.create({
   container: {
     overflow: "hidden",
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
   },
   band: {
     width: 120,

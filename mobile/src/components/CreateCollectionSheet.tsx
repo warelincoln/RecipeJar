@@ -16,6 +16,16 @@ import { X } from "lucide-react-native";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
 import { LUCIDE } from "../theme/lucideSizes";
 import { ApiError } from "../services/api";
+import {
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  SUCCESS,
+  SURFACE,
+  PRIMARY_LIGHT,
+  WHITE,
+  BLACK,
+} from "../theme/colors";
 
 export type CollectionSheetMode = "create" | "rename";
 
@@ -131,7 +141,7 @@ export function CreateCollectionSheet({
               accessibilityRole="button"
               accessibilityLabel="Dismiss"
             >
-              <X size={LUCIDE.lg} color="#6b7280" />
+              <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
             </TouchableOpacity>
 
             <Text style={styles.title}>{title}</Text>
@@ -144,7 +154,7 @@ export function CreateCollectionSheet({
                   ? "Folder name"
                   : "e.g. Thai nights, Baking, Mom's classics…"
               }
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={TEXT_SECONDARY}
               value={name}
               onChangeText={setName}
               autoCapitalize="sentences"
@@ -179,7 +189,7 @@ export function CreateCollectionSheet({
               accessibilityLabel={submitLabel}
             >
               {submitting ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={WHITE} />
               ) : (
                 <Text style={styles.primaryBtnText}>{submitLabel}</Text>
               )}
@@ -205,7 +215,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   sheet: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 36,
@@ -219,28 +229,28 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 10,
     textAlign: "center",
     paddingHorizontal: 36,
   },
   subtitle: {
     fontSize: 15,
-    color: "#4b5563",
+    color: TEXT_TERTIARY,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 20,
     paddingHorizontal: 4,
   },
   input: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 3,
@@ -250,12 +260,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 16,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -265,7 +275,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 14,
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -273,11 +283,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     paddingTop: 2,
   },
   primaryBtn: {
-    backgroundColor: "#16a34a",
+    backgroundColor: SUCCESS,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: "center",
@@ -288,7 +298,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 17,
     fontWeight: "600",
   },

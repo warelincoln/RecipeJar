@@ -14,6 +14,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, FolderOpen, ChefHat } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  WHITE,
+} from "../theme/colors";
 
 const ONBOARDING_STORAGE_KEY = "@orzo/onboarding-complete";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -72,7 +79,7 @@ export function OnboardingScreen({ navigation }: Props) {
     const Icon = item.Icon;
     return (
       <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-        <Icon size={64} color="#2563eb" strokeWidth={1.75} />
+        <Icon size={64} color={PRIMARY} strokeWidth={1.75} />
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.subtitle}>{item.subtitle}</Text>
       </View>
@@ -145,7 +152,7 @@ export function OnboardingScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   upper: {
     flex: 1,
@@ -159,7 +166,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   skipText: {
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontSize: 15,
     fontWeight: "400",
   },
@@ -176,14 +183,14 @@ const styles = StyleSheet.create({
     marginTop: 28,
     fontSize: 29,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     textAlign: "center",
   },
   subtitle: {
     marginTop: 14,
     fontSize: 16,
     fontWeight: "400",
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 24,
     maxWidth: 320,
@@ -205,20 +212,20 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   dotActive: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
   },
   dotInactive: {
-    backgroundColor: "#d1d5db",
+    backgroundColor: DIVIDER,
   },
   cta: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
     width: "100%",
   },
   ctaText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 16,
     fontWeight: "600",
   },

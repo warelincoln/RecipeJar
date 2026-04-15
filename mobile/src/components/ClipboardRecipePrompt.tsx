@@ -13,6 +13,13 @@ import { X } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
 import Clipboard from "@react-native-clipboard/clipboard";
 import { parseClipboardForHttpsUrl } from "../features/import/webImportUrl";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  PRIMARY_LIGHT,
+  WHITE,
+} from "../theme/colors";
 
 type Props = {
   visible: boolean;
@@ -73,7 +80,7 @@ export function ClipboardRecipePrompt({
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
         >
-          <X size={LUCIDE.lg} color="#6b7280" />
+          <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
         </TouchableOpacity>
         <Text style={styles.title}>Save your recipe</Text>
         <Text style={styles.subtitle}>
@@ -110,7 +117,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   sheet: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 36,
@@ -126,31 +133,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 8,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 20,
     paddingHorizontal: 8,
   },
   pasteBtn: {
-    backgroundColor: "#7c3aed",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 48,
     minWidth: 200,
     alignItems: "center",
   },
-  pasteBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  pasteBtnText: { color: WHITE, fontSize: 16, fontWeight: "600" },
   hint: {
     marginTop: 14,
     fontSize: 12,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     paddingHorizontal: 16,
   },

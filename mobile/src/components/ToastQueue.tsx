@@ -8,6 +8,13 @@ import React, {
 } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  WARNING,
+  WHITE,
+  BLACK,
+} from "../theme/colors";
 
 interface ToastItem {
   id: string;
@@ -99,12 +106,12 @@ const styles = StyleSheet.create({
   toast: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1f2937",
+    backgroundColor: TEXT_PRIMARY,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -112,16 +119,16 @@ const styles = StyleSheet.create({
   },
   message: {
     flex: 1,
-    color: "#fff",
+    color: WHITE,
     fontSize: 14,
     fontWeight: "500",
   },
   undoText: {
-    color: "#60a5fa",
+    color: WARNING,
     fontSize: 14,
     fontWeight: "700",
   },
   undoDisabled: {
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
   },
 });

@@ -24,6 +24,20 @@ import { useRecipeParseReveal } from "./useRecipeParseReveal";
 import { displayMessageForIssue } from "./issueDisplayMessage";
 import { ShimmerPlaceholder } from "../../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../../components/RecipeImagePlaceholder";
+import {
+  PRIMARY,
+  PRIMARY_LIGHT,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  WARNING,
+  ERROR,
+  SUCCESS,
+  WHITE,
+  DEEP_TERRACOTTA,
+  LIGHT_PEACH,
+} from "../../theme/colors";
 
 /** No badge for FLAG. BLOCK/RETAKE use softer labels than raw severity codes. */
 function issueSummaryBadgeLabel(
@@ -41,10 +55,10 @@ function issueSummaryBadgeColor(
   issue: ValidationIssue,
   isDismissed: boolean,
 ): string {
-  if (isDismissed) return "#9ca3af";
-  if (issue.severity === "BLOCK") return "#b45309";
-  if (issue.severity === "RETAKE") return "#0369a1";
-  return "#6b7280";
+  if (isDismissed) return TEXT_SECONDARY;
+  if (issue.severity === "BLOCK") return ERROR;
+  if (issue.severity === "RETAKE") return WARNING;
+  return TEXT_SECONDARY;
 }
 
 interface PreviewEditViewProps {
@@ -339,7 +353,7 @@ export function PreviewEditView({
         accessibilityLabel="preview-add-ingredient"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={LUCIDE.sm} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color={PRIMARY} />
           <Text style={styles.addButtonText}>Add Ingredient</Text>
         </View>
       </TouchableOpacity>
@@ -404,7 +418,7 @@ export function PreviewEditView({
         accessibilityLabel="preview-add-step"
       >
         <View style={styles.addButtonContent}>
-          <Plus size={LUCIDE.sm} color="#2563eb" />
+          <Plus size={LUCIDE.sm} color={PRIMARY} />
           <Text style={styles.addButtonText}>Add Step</Text>
         </View>
       </TouchableOpacity>
@@ -494,8 +508,8 @@ export function PreviewEditView({
 }
 
 const styles = StyleSheet.create({
-  outer: { flex: 1, backgroundColor: "#fff" },
-  scroll: { flex: 1, backgroundColor: "#fff" },
+  outer: { flex: 1, backgroundColor: WHITE },
+  scroll: { flex: 1, backgroundColor: WHITE },
   content: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
   heroWrap: {
     width: "100%",
@@ -503,7 +517,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     marginBottom: 10,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
   },
   heroImage: {
     ...StyleSheet.absoluteFillObject,
@@ -512,7 +526,7 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   otherReadyBar: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -522,36 +536,36 @@ const styles = StyleSheet.create({
   otherReadyText: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#2563eb",
+    color: PRIMARY,
   },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
-  cancelText: { fontSize: 16, color: "#6b7280" },
+  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
   input: {
-    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
+    borderWidth: 1, borderColor: DIVIDER, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4,
   },
   servingsInput: {
     width: 100,
   },
   inputLikeText: {
-    color: "#111827",
+    color: TEXT_PRIMARY,
     minHeight: 44,
   },
-  inputError: { borderColor: "#f59e0b" },
-  issueText: { color: "#9a3412", fontSize: 13, marginBottom: 4, marginLeft: 4, lineHeight: 18 },
+  inputError: { borderColor: WARNING },
+  issueText: { color: DEEP_TERRACOTTA, fontSize: 13, marginBottom: 4, marginLeft: 4, lineHeight: 18 },
   ingredientHeader: {
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
-    color: "#374151", paddingVertical: 6,
+    color: TEXT_TERTIARY, paddingVertical: 6,
   },
   stepHeader: {
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
-    color: "#374151", paddingVertical: 6,
+    color: TEXT_TERTIARY, paddingVertical: 6,
   },
   stepRow: { flexDirection: "row", alignItems: "flex-start" },
   stepNumber: { fontSize: 15, fontWeight: "600", marginRight: 8, marginTop: 10 },
   stepInput: {
-    flex: 1, borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
+    flex: 1, borderWidth: 1, borderColor: DIVIDER, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15,
     marginBottom: 4, minHeight: 60, textAlignVertical: "top",
   },
@@ -559,7 +573,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 8,
     borderStyle: "dashed",
     marginTop: 4,
@@ -567,14 +581,14 @@ const styles = StyleSheet.create({
   },
   addButtonDisabled: { opacity: 0.45 },
   addButtonContent: { flexDirection: "row", alignItems: "center", gap: 6 },
-  addButtonText: { fontSize: 14, color: "#2563eb", fontWeight: "600" },
+  addButtonText: { fontSize: 14, color: PRIMARY, fontWeight: "600" },
   issuesSummary: {
     marginTop: 24,
     padding: 16,
-    backgroundColor: "#fffbeb",
+    backgroundColor: LIGHT_PEACH,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#fde68a",
+    borderColor: WARNING,
   },
   issuesSummaryTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
   issueBadge: {
@@ -586,23 +600,23 @@ const styles = StyleSheet.create({
   issueDismissed: { opacity: 0.7 },
   issueContent: { flex: 1 },
   issueBadgeLabel: { fontSize: 11, fontWeight: "700", marginBottom: 4, letterSpacing: 0.2 },
-  issueMessage: { fontSize: 13, color: "#374151", lineHeight: 19 },
-  issueMessageDismissed: { textDecorationLine: "line-through", color: "#9ca3af" },
+  issueMessage: { fontSize: 13, color: TEXT_TERTIARY, lineHeight: 19 },
+  issueMessageDismissed: { textDecorationLine: "line-through", color: TEXT_SECONDARY },
   dismissButton: {
-    backgroundColor: "#f59e0b", paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: WARNING, paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 6, marginLeft: 8,
   },
-  undismissButton: { backgroundColor: "#e5e7eb" },
-  dismissText: { fontSize: 12, fontWeight: "600", color: "#fff" },
-  undismissText: { color: "#6b7280" },
+  undismissButton: { backgroundColor: DIVIDER },
+  dismissText: { fontSize: 12, fontWeight: "600", color: WHITE },
+  undismissText: { color: TEXT_SECONDARY },
   buttonRow: {
     flexDirection: "row", justifyContent: "center",
     gap: 12, marginTop: 24,
   },
   saveButton: {
-    flex: 1, backgroundColor: "#16a34a",
+    flex: 1, backgroundColor: SUCCESS,
     paddingVertical: 14, borderRadius: 12, alignItems: "center",
   },
-  saveButtonDisabled: { backgroundColor: "#9ca3af" },
-  saveText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  saveButtonDisabled: { backgroundColor: TEXT_SECONDARY },
+  saveText: { color: WHITE, fontSize: 16, fontWeight: "600" },
 });

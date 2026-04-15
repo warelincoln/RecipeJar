@@ -36,6 +36,15 @@ import type { Recipe } from "@orzo/shared";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { LUCIDE } from "../theme/lucideSizes";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  ERROR,
+  SURFACE,
+  WHITE,
+  BLACK,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Collection">;
 
@@ -114,7 +123,7 @@ export function CollectionScreen({ route, navigation }: Props) {
         {
           key: "remove-from-collection",
           label: `Remove from ${collectionName}`,
-          icon: <FolderMinus size={LUCIDE.row} color="#6b7280" />,
+          icon: <FolderMinus size={LUCIDE.row} color={TEXT_SECONDARY} />,
           onPress: async () => {
             setRecipeQuickActions(null);
             try {
@@ -133,7 +142,7 @@ export function CollectionScreen({ route, navigation }: Props) {
           key: "delete",
           label: "Delete recipe",
           destructive: true,
-          icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+          icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
           onPress: () => {
             setRecipeQuickActions(null);
             setDeleteConfirmTarget(item);
@@ -150,7 +159,7 @@ export function CollectionScreen({ route, navigation }: Props) {
       actions.push({
         key: "add-collection",
         label: "Add to collection",
-        icon: <FolderOpen size={LUCIDE.row} color="#2563eb" />,
+        icon: <FolderOpen size={LUCIDE.row} color={PRIMARY} />,
         onPress: () => {
           setRecipeQuickActions(null);
           setCollectionPickerTarget(item);
@@ -162,7 +171,7 @@ export function CollectionScreen({ route, navigation }: Props) {
       key: "delete",
       label: "Delete recipe",
       destructive: true,
-      icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+      icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
       onPress: () => {
         setRecipeQuickActions(null);
         setDeleteConfirmTarget(item);
@@ -221,7 +230,7 @@ export function CollectionScreen({ route, navigation }: Props) {
             accessibilityLabel="collection-back"
           >
             <View style={styles.backRow}>
-              <ChevronLeft size={LUCIDE.nav} color="#2563eb" />
+              <ChevronLeft size={LUCIDE.nav} color={PRIMARY} />
               <Text style={styles.backText}>Back</Text>
             </View>
           </TouchableOpacity>
@@ -233,7 +242,7 @@ export function CollectionScreen({ route, navigation }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Folder options"
             >
-              <MoreHorizontal size={LUCIDE.lg} color="#6b7280" />
+              <MoreHorizontal size={LUCIDE.lg} color={TEXT_SECONDARY} />
             </TouchableOpacity>
           ) : (
             <View style={styles.headerMenuSpacer} />
@@ -255,7 +264,7 @@ export function CollectionScreen({ route, navigation }: Props) {
               ? "Search all recipes..."
               : `Search in ${collectionName}...`
           }
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={TEXT_SECONDARY}
           value={searchQuery}
           onChangeText={setSearchQuery}
           returnKeyType="search"
@@ -267,7 +276,7 @@ export function CollectionScreen({ route, navigation }: Props) {
             onPress={() => setSearchQuery("")}
             testID="collection-search-clear"
           >
-            <X size={LUCIDE.md} color="#6b7280" />
+            <X size={LUCIDE.md} color={TEXT_SECONDARY} />
           </TouchableOpacity>
         )}
       </View>
@@ -276,7 +285,7 @@ export function CollectionScreen({ route, navigation }: Props) {
         <ActivityIndicator
           style={styles.loader}
           size="large"
-          color="#2563eb"
+          color={PRIMARY}
         />
       )}
 
@@ -313,7 +322,7 @@ export function CollectionScreen({ route, navigation }: Props) {
           {
             key: "rename-folder",
             label: "Rename folder",
-            icon: <Pencil size={LUCIDE.row} color="#2563eb" />,
+            icon: <Pencil size={LUCIDE.row} color={PRIMARY} />,
             onPress: () => {
               setFolderMenuVisible(false);
               setRenameFolderVisible(true);
@@ -324,7 +333,7 @@ export function CollectionScreen({ route, navigation }: Props) {
             key: "delete-folder",
             label: "Delete folder",
             destructive: true,
-            icon: <Trash2 size={LUCIDE.row} color="#dc2626" />,
+            icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
             onPress: () => {
               setFolderMenuVisible(false);
               setDeleteFolderVisible(true);
@@ -440,7 +449,7 @@ export function CollectionScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb" },
+  container: { flex: 1, backgroundColor: SURFACE },
   header: { paddingHorizontal: HORIZONTAL_PADDING, paddingBottom: 12 },
   headerTopRow: {
     flexDirection: "row",
@@ -450,23 +459,23 @@ const styles = StyleSheet.create({
   },
   headerMenuSpacer: { width: 24, height: 24 },
   backRow: { flexDirection: "row", alignItems: "center" },
-  backText: { fontSize: 16, color: "#2563eb" },
+  backText: { fontSize: 16, color: PRIMARY },
   title: { fontSize: 24, fontWeight: "800" },
-  subtitle: { fontSize: 14, color: "#6b7280", marginTop: 2 },
+  subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginTop: 2 },
   searchContainer: {
     paddingHorizontal: HORIZONTAL_PADDING,
     marginBottom: 12,
     position: "relative",
   },
   searchInput: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
     letterSpacing: 0,
-    color: "#111827",
-    shadowColor: "#000",
+    color: TEXT_PRIMARY,
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -488,7 +497,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
   emptySubtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
   },

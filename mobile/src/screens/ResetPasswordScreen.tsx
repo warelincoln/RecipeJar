@@ -14,6 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Eye, EyeOff } from "lucide-react-native";
 import { supabase } from "../services/supabase";
 import { useAuthStore } from "../stores/auth.store";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 
 export function ResetPasswordScreen() {
   const insets = useSafeAreaInsets();
@@ -73,7 +81,7 @@ export function ResetPasswordScreen() {
                 if (error) setError(null);
               }}
               placeholder="New password"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={TEXT_SECONDARY}
               secureTextEntry={!showNew}
               autoCapitalize="none"
               autoCorrect={false}
@@ -89,9 +97,9 @@ export function ResetPasswordScreen() {
               accessibilityLabel={showNew ? "Hide password" : "Show password"}
             >
               {showNew ? (
-                <EyeOff size={22} color="#6b7280" />
+                <EyeOff size={22} color={TEXT_SECONDARY} />
               ) : (
-                <Eye size={22} color="#6b7280" />
+                <Eye size={22} color={TEXT_SECONDARY} />
               )}
             </TouchableOpacity>
           </View>
@@ -105,7 +113,7 @@ export function ResetPasswordScreen() {
                 if (error) setError(null);
               }}
               placeholder="Confirm password"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={TEXT_SECONDARY}
               secureTextEntry={!showConfirm}
               autoCapitalize="none"
               autoCorrect={false}
@@ -121,9 +129,9 @@ export function ResetPasswordScreen() {
               accessibilityLabel={showConfirm ? "Hide password" : "Show password"}
             >
               {showConfirm ? (
-                <EyeOff size={22} color="#6b7280" />
+                <EyeOff size={22} color={TEXT_SECONDARY} />
               ) : (
-                <Eye size={22} color="#6b7280" />
+                <Eye size={22} color={TEXT_SECONDARY} />
               )}
             </TouchableOpacity>
           </View>
@@ -138,7 +146,7 @@ export function ResetPasswordScreen() {
             accessibilityLabel="Update password"
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={WHITE} />
             ) : (
               <Text style={styles.primaryBtnText}>Update Password</Text>
             )}
@@ -150,7 +158,7 @@ export function ResetPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#fff" },
+  root: { flex: 1, backgroundColor: WHITE },
   flex: { flex: 1 },
   scroll: {
     paddingHorizontal: 24,
@@ -159,13 +167,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     textAlign: "center",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     marginBottom: 24,
   },
@@ -174,14 +182,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   input: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   inputWithIcon: {
     paddingRight: 48,
@@ -194,12 +202,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   error: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 14,
     marginBottom: 12,
   },
   primaryBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
@@ -211,7 +219,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontWeight: "600",
     fontSize: 16,
   },

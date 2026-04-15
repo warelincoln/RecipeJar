@@ -5,6 +5,7 @@ import LinearGradient from "react-native-linear-gradient";
 import type { Recipe } from "@orzo/shared";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "./RecipeImagePlaceholder";
+import { DIVIDER, WHITE } from "../theme/colors";
 
 /** Storage paths stay the same after re-upload; bust FastImage cache when recipe row changes. */
 function imageUriWithVersion(
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: "#d1d5db",
+    backgroundColor: DIVIDER,
   },
   hidden: {
     opacity: 0,
@@ -102,7 +103,7 @@ const styles = StyleSheet.create({
     bottom: 10,
   },
   title: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 15,
     fontWeight: "700",
     lineHeight: 20,

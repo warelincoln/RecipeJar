@@ -23,6 +23,17 @@ import type { Recipe } from "@orzo/shared";
 import { scaleIngredient } from "../utils/scaling";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import {
+  PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  ERROR,
+  SUCCESS,
+  WARNING,
+  WHITE,
+  TINT_AMBER,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeDetail">;
 
@@ -126,7 +137,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={PRIMARY} />
       </View>
     );
   }
@@ -346,13 +357,13 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: WHITE },
   content: { paddingBottom: 40 },
   heroWrap: {
     width: "100%",
     aspectRatio: 16 / 9,
     marginBottom: 14,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
   },
   heroImage: {
     ...StyleSheet.absoluteFillObject,
@@ -364,7 +375,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   loader: { flex: 1, justifyContent: "center", alignItems: "center" },
-  errorText: { fontSize: 16, color: "#dc2626" },
+  errorText: { fontSize: 16, color: ERROR },
   titleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -374,86 +385,86 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: "800", flex: 1, marginRight: 12 },
   titleActions: { flexDirection: "row", gap: 8, marginTop: 2 },
   collectionButton: {
-    backgroundColor: "#16a34a",
+    backgroundColor: SUCCESS,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  collectionButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  collectionButtonText: { color: WHITE, fontSize: 14, fontWeight: "600" },
   editButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  editButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  description: { fontSize: 15, color: "#6b7280", lineHeight: 22, marginBottom: 16 },
+  editButtonText: { color: WHITE, fontSize: 14, fontWeight: "600" },
+  description: { fontSize: 15, color: TEXT_SECONDARY, lineHeight: 22, marginBottom: 16 },
   badge: {
-    alignSelf: "flex-start", backgroundColor: "#fef3c7",
+    alignSelf: "flex-start", backgroundColor: TINT_AMBER,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginBottom: 16,
   },
-  badgeText: { fontSize: 12, fontWeight: "600", color: "#b45309" },
+  badgeText: { fontSize: 12, fontWeight: "600", color: WARNING },
   servingsControl: {
     marginTop: 20,
   },
   servingsLabel: {
-    fontSize: 16, fontWeight: "600", color: "#374151", marginBottom: 8,
+    fontSize: 16, fontWeight: "600", color: TEXT_TERTIARY, marginBottom: 8,
   },
   servingsRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
   },
   servingsStepBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center",
+    backgroundColor: DIVIDER, alignItems: "center", justifyContent: "center",
   },
   servingsStepText: {
-    fontSize: 20, fontWeight: "600", color: "#374151", lineHeight: 22,
+    fontSize: 20, fontWeight: "600", color: TEXT_TERTIARY, lineHeight: 22,
   },
   servingsInput: {
-    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
+    borderWidth: 1, borderColor: DIVIDER, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 6, fontSize: 16,
     width: 60, textAlign: "center",
   },
   servingsResetText: {
-    fontSize: 14, color: "#2563eb", fontWeight: "500",
+    fontSize: 14, color: PRIMARY, fontWeight: "500",
   },
   sectionTitle: {
     fontSize: 20, fontWeight: "700", marginTop: 24, marginBottom: 12,
   },
   ingredientHeader: {
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
-    color: "#374151", marginTop: 12, marginBottom: 4,
+    color: TEXT_TERTIARY, marginTop: 12, marginBottom: 4,
   },
   ingredientRow: { flexDirection: "row", marginBottom: 6 },
-  bullet: { fontSize: 15, marginRight: 8, color: "#2563eb" },
+  bullet: { fontSize: 15, marginRight: 8, color: PRIMARY },
   ingredientText: { flex: 1, fontSize: 15, lineHeight: 22 },
   stepSectionHeader: {
     fontSize: 15, fontWeight: "600", fontStyle: "italic",
-    color: "#374151", marginTop: 12, marginBottom: 4,
+    color: TEXT_TERTIARY, marginTop: 12, marginBottom: 4,
   },
   stepRow: { flexDirection: "row", marginBottom: 16 },
   stepNumber: {
     width: 28, height: 28, borderRadius: 14,
-    backgroundColor: "#2563eb", color: "#fff",
+    backgroundColor: PRIMARY, color: WHITE,
     textAlign: "center", lineHeight: 28, fontSize: 14, fontWeight: "700",
     marginRight: 12,
   },
   stepText: { flex: 1, fontSize: 15, lineHeight: 22 },
   meta: {
     marginTop: 32, paddingTop: 16,
-    borderTopWidth: 1, borderTopColor: "#e5e7eb",
+    borderTopWidth: 1, borderTopColor: DIVIDER,
   },
-  metaText: { fontSize: 12, color: "#9ca3af", marginBottom: 4 },
+  metaText: { fontSize: 12, color: TEXT_SECONDARY, marginBottom: 4 },
   deleteButton: {
     marginTop: 32,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#dc2626",
+    borderColor: ERROR,
     alignItems: "center",
   },
   deleteButtonText: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 16,
     fontWeight: "600",
   },

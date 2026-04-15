@@ -15,6 +15,14 @@ import { ChevronLeft } from "lucide-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { supabase } from "../services/supabase";
 import { AUTH_REDIRECT_URL } from "../services/authRedirect";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  WHITE,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<any, "ForgotPassword">;
 
@@ -70,7 +78,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
             accessibilityLabel="Back"
             style={styles.backBtn}
           >
-            <ChevronLeft size={28} color="#111827" />
+            <ChevronLeft size={28} color={TEXT_PRIMARY} />
           </TouchableOpacity>
 
           {sent ? (
@@ -99,7 +107,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
                   if (error) setError(null);
                 }}
                 placeholder="Email"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={TEXT_SECONDARY}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
@@ -116,7 +124,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
                 accessibilityLabel="Send reset link"
               >
                 {loading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={WHITE} />
                 ) : (
                   <Text style={styles.primaryBtnText}>Send Reset Link</Text>
                 )}
@@ -139,7 +147,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#fff" },
+  root: { flex: 1, backgroundColor: WHITE },
   flex: { flex: 1 },
   scroll: {
     paddingHorizontal: 24,
@@ -153,32 +161,32 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     marginBottom: 24,
   },
   input: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 12,
   },
   error: {
-    color: "#dc2626",
+    color: ERROR,
     fontSize: 14,
     marginBottom: 12,
   },
   primaryBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
@@ -189,19 +197,19 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   primaryBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontWeight: "600",
     fontSize: 16,
   },
   successTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 8,
   },
   successBody: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     marginBottom: 24,
   },
   bottomLinkWrap: {
@@ -210,7 +218,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   bottomLink: {
-    color: "#2563eb",
+    color: PRIMARY,
     fontWeight: "600",
     fontSize: 14,
   },

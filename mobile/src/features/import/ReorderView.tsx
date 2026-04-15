@@ -10,6 +10,14 @@ import {
 } from "react-native";
 import { ChevronUp, ChevronDown } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  SURFACE,
+  WHITE,
+} from "../../theme/colors";
 
 const THUMB_W = 48 * 3;
 const THUMB_H = 64 * 3;
@@ -92,7 +100,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
                 >
                   <ChevronUp
                     size={LUCIDE.xl}
-                    color={index === 0 ? "#d1d5db" : "#2563eb"}
+                    color={index === 0 ? DIVIDER : PRIMARY}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -106,7 +114,7 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
                   <ChevronDown
                     size={LUCIDE.xl}
                     color={
-                      index === orderedPages.length - 1 ? "#d1d5db" : "#2563eb"
+                      index === orderedPages.length - 1 ? DIVIDER : PRIMARY
                     }
                   />
                 </TouchableOpacity>
@@ -145,23 +153,23 @@ export function ReorderView({ pages, onReorder, onConfirm, onCancel }: ReorderVi
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
-  cancelText: { fontSize: 16, color: "#6b7280" },
+  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
   header: {
     fontSize: 22,
     fontWeight: "700",
     marginBottom: 8,
     textAlign: "center",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     paddingHorizontal: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     marginBottom: 12,
     textAlign: "center",
     lineHeight: 22,
@@ -177,7 +185,7 @@ const styles = StyleSheet.create({
   },
   singlePreviewImage: {
     borderRadius: 12,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
   },
   pageRow: {
     flexDirection: "row",
@@ -185,14 +193,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: DIVIDER,
     gap: 12,
   },
   pageThumb: {
     width: THUMB_W,
     height: THUMB_H,
     borderRadius: 10,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
     flexShrink: 0,
   },
   arrows: {
@@ -207,12 +215,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   confirmButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
     marginTop: 16,
     marginBottom: 8,
   },
-  confirmText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  confirmText: { color: WHITE, fontSize: 16, fontWeight: "600" },
 });

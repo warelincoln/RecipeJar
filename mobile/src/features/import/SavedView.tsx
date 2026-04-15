@@ -8,6 +8,14 @@ import {
 } from "react-native";
 import { Check } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
+import {
+  PRIMARY,
+  SUCCESS,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  WHITE,
+} from "../../theme/colors";
 
 interface SavedViewProps {
   recipeId: string | null;
@@ -57,7 +65,7 @@ export function SavedView({
       >
         <Check
           size={LUCIDE.hero}
-          color="#16a34a"
+          color={SUCCESS}
           accessibilityLabel="Recipe saved"
         />
       </Animated.View>
@@ -106,7 +114,7 @@ export function SavedView({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 32,
@@ -117,7 +125,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   title: { fontSize: 24, fontWeight: "700", marginBottom: 8, marginTop: 2 },
-  subtitle: { fontSize: 15, color: "#6b7280", textAlign: "center" },
+  subtitle: { fontSize: 15, color: TEXT_SECONDARY, textAlign: "center" },
   actions: {
     flexDirection: "row",
     gap: 12,
@@ -126,24 +134,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   viewButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 12,
   },
-  viewText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  viewText: { color: WHITE, fontSize: 16, fontWeight: "600" },
   addMoreButton: {
-    backgroundColor: "#16a34a",
+    backgroundColor: SUCCESS,
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 12,
   },
-  addMoreText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  addMoreText: { color: WHITE, fontSize: 16, fontWeight: "600" },
   doneButton: {
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 12,
   },
-  doneText: { fontSize: 16, fontWeight: "600", color: "#374151" },
+  doneText: { fontSize: 16, fontWeight: "600", color: TEXT_TERTIARY },
 });

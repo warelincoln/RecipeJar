@@ -13,6 +13,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Link } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
+import {
+  PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  SURFACE,
+  ERROR,
+  WHITE,
+} from "../../theme/colors";
 
 interface UrlInputViewProps {
   onSubmit: (url: string) => void;
@@ -51,7 +59,7 @@ export function UrlInputView({ onSubmit, onCancel }: UrlInputViewProps) {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        <Link size={LUCIDE.landing} color="#7c3aed" style={styles.icon} />
+        <Link size={LUCIDE.landing} color={PRIMARY} style={styles.icon} />
         <Text style={styles.title}>Import from URL</Text>
         <Text style={styles.subtitle}>
           Paste a recipe URL below. Works best with sites that use structured
@@ -63,7 +71,7 @@ export function UrlInputView({ onSubmit, onCancel }: UrlInputViewProps) {
           value={url}
           onChangeText={setUrl}
           placeholder="https://www.example.com/recipe"
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={TEXT_SECONDARY}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
@@ -92,27 +100,27 @@ export function UrlInputView({ onSubmit, onCancel }: UrlInputViewProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 24 },
+  container: { flex: 1, backgroundColor: WHITE, paddingHorizontal: 24 },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
-  cancelText: { fontSize: 16, color: "#6b7280" },
+  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
   content: { flexGrow: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingBottom: 24 },
   icon: { marginBottom: 20 },
   title: { fontSize: 24, fontWeight: "700", marginBottom: 8, marginTop: 2 },
   subtitle: {
-    fontSize: 14, color: "#6b7280",
+    fontSize: 14, color: TEXT_SECONDARY,
     textAlign: "center", lineHeight: 20, marginBottom: 24,
   },
   input: {
-    width: "100%", borderWidth: 1, borderColor: "#d1d5db", borderRadius: 12,
+    width: "100%", borderWidth: 1, borderColor: DIVIDER, borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
   },
-  inputError: { borderColor: "#ef4444" },
-  hint: { color: "#ef4444", fontSize: 12, marginTop: 6, alignSelf: "flex-start" },
+  inputError: { borderColor: ERROR },
+  hint: { color: ERROR, fontSize: 12, marginTop: 6, alignSelf: "flex-start" },
   submitButton: {
-    width: "100%", backgroundColor: "#7c3aed",
+    width: "100%", backgroundColor: PRIMARY,
     paddingVertical: 14, borderRadius: 12, alignItems: "center", marginTop: 20,
   },
-  submitButtonDisabled: { backgroundColor: "#9ca3af" },
-  submitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  submitButtonDisabled: { backgroundColor: TEXT_SECONDARY },
+  submitText: { color: WHITE, fontSize: 16, fontWeight: "600" },
 });

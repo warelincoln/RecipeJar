@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useImportQueueStore } from "../stores/importQueue.store";
 import type { NavigationContainerRef } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/types";
+import { SUCCESS, TEXT_TERTIARY, BLACK, WHITE } from "../theme/colors";
 
 const HIDDEN_SCREENS = new Set(["ImportFlow", "ImportHub", "WebRecipeImport"]);
 
@@ -114,7 +115,7 @@ export function PendingImportsBanner({ navigationRef }: Props) {
     label = readyCount === 1 ? "1 ready" : `${readyCount} ready`;
   }
 
-  const dotColor = anyParsing ? "#fb923c" : "#16a34a";
+  const dotColor = anyParsing ? "#fb923c" : SUCCESS;
 
   return (
     <Animated.View
@@ -159,11 +160,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "#374151",
+    backgroundColor: TEXT_TERTIARY,
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
     shadowRadius: 3,
@@ -177,6 +178,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#fff",
+    color: WHITE,
   },
 });

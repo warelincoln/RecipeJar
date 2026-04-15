@@ -3,6 +3,13 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import LinearGradient from "react-native-linear-gradient";
 import { ImageIcon } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
+import {
+  WARM_CREAM,
+  LIGHT_PEACH,
+  SAND,
+  SURFACE,
+  TEXT_SECONDARY,
+} from "../theme/colors";
 
 interface RecipeImagePlaceholderProps {
   style?: StyleProp<ViewStyle>;
@@ -12,13 +19,13 @@ export function RecipeImagePlaceholder({ style }: RecipeImagePlaceholderProps) {
   return (
     <View style={[styles.wrap, style]}>
       <LinearGradient
-        colors={["#f7f4ee", "#edf2e8"]}
+        colors={[WARM_CREAM, SAND]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
       <View style={styles.circle} />
-      <ImageIcon size={LUCIDE.xl} color="#9ca3af" />
+      <ImageIcon size={LUCIDE.xl} color={TEXT_SECONDARY} />
     </View>
   );
 }
@@ -27,7 +34,7 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
   },
   circle: {
     position: "absolute",

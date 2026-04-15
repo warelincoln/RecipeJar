@@ -1,5 +1,79 @@
 # Orzo Changelog
 
+### 2026-04-14 — Mobile app terracotta palette migration
+
+The mobile app UI has been fully migrated from the MVP blue-forward palette to the canonical terracotta brand palette codified in `ROADMAP.md` → "Brand Identity & Color Scheme" (2026-04-10). The app icon, landing page, and emails were already on the new palette; this closes the gap so the mobile chrome, App Store listing, and every screen the user actually touches are visually unified.
+
+**New file: `mobile/src/theme/colors.ts`** — canonical source-of-truth module for all palette tokens. Exports both raw palette names (`TERRACOTTA`, `ESPRESSO`, `SAGE_GREEN`, `PAPRIKA`, etc.) and semantic aliases (`PRIMARY`, `TEXT_PRIMARY`, `ERROR`, `SUCCESS`, `DIVIDER`, etc.). Components import these instead of hardcoding hex values. Two new tokens added for soft food-semantic icon variety: `MUTED_PLUM` (`#8E6B90`) and `DUSTY_ROSE` (`#BC6F83`).
+
+**37 files migrated** across screens, features, and components. ~846 insertions, ~569 deletions. Every hardcoded blue-family hex (`#2563eb`, `#eff6ff`, `#3b82f6`, `#7c3aed`) and every Tailwind gray (`#111827`, `#6b7280`, `#d1d5db`, `#e5e7eb`) replaced with imported tokens.
+
+**Hex → token migration summary:**
+
+| Old hex | → New token | Role |
+|---|---|---|
+| `#2563eb`, `#3b82f6`, `#60a5fa` | `PRIMARY` (`#C4633A`) | Primary CTAs, icons, links |
+| `#eff6ff` | `PRIMARY_LIGHT` (`#FFF8F0`) | Page backgrounds |
+| `#111827`, `#1f2937` | `TEXT_PRIMARY` (`#2D1F14`) | Headings, primary body |
+| `#6b7280`, `#9ca3af`, `#888` | `TEXT_SECONDARY` (`#7A6E64`) | Secondary text, placeholders |
+| `#374151`, `#4b5563` | `TEXT_TERTIARY` (`#4A3F36`) | Tertiary labels, button text |
+| `#d1d5db`, `#e5e7eb` | `DIVIDER` (`#E8DFD5`) | Borders, separators |
+| `#dc2626`, `#ef4444`, `#991b1b` | `ERROR` (`#C43A3A`) | Destructive actions, errors |
+| `#16a34a` | `SUCCESS` (`#6B8F71`) | Success states, checkmarks |
+| `#eab308` | `GOLDEN_AMBER` (`#D4952B`) | Star ratings, badges |
+| `#fef2f2`, `#fecaca`, `#fee2e2` | `TINT_RED` (`#F8E4E4`) | Destructive confirmation surfaces |
+| `#fef3c7` | `TINT_AMBER` (`#FBF0DC`) | Amber badge backgrounds |
+
+**`collectionIconRules.ts` — food-semantic icon colors softened and unified:**
+
+Preserved warm inline hexes (food-semantic oranges and browns that harmonize with terracotta): `#f59e0b`, `#ea580c`, `#f97316`, `#d97706`, `#92400e`, `#78350f`, `#a16207`, `#ca8a04`, `#b8860b`.
+
+Bright Tailwind colors softened to muted palette variants:
+
+| Old (bright) | → New (muted) | Rule categories |
+|---|---|---|
+| `#16a34a`, `#22c55e`, `#059669` (bright greens) | `SAGE_GREEN` | lunch, sandwich, apple, salad, vegan, vegetarian, side, tea, holiday |
+| `#dc2626`, `#ef4444`, `#b91c1c` (bright reds) | `PAPRIKA` | dinner, pizza, italian, beef, healthy |
+| `#ec4899`, `#f472b6`, `#e11d48` (bright pinks) | `DUSTY_ROSE` | dessert, donut, candy, lollipop, fruit, asian, party, family, date night |
+| `#7c3aed`, `#a855f7`, `#8b5cf6` (bright purples) | `MUTED_PLUM` | grape, wine, cake, pie, bake, appetizer, experiment |
+| `#eab308` (bright yellow) | `GOLDEN_AMBER` | egg, banana, popcorn, favorite |
+| `#0ea5e9`, `#3b82f6`, `#6366f1` (cool blues — originally food-semantic) | `WARM_TAUPE`, `GOLDEN_AMBER` | fish, greek, meal prep, cocktail, drink, french, world, quick |
+| `#06b6d4` (cyan) | `DUSTY_TERRACOTTA` | popsicle, smoothie |
+| `#64748b`, `#1e293b` (cool grays) | `WARM_GRAY`, `DARK_WARM_GRAY` | winter/fall/comfort, chef/special |
+
+**HomeScreen jar fan actions — four contrasting palette colors:**
+
+The four fan-out icons that reveal when the jar FAB is tapped each get a distinct palette color to make them visually distinguishable without clashing with the warm/cream aesthetic:
+
+| Button | Color | Hex |
+|---|---|---|
+| Camera | `GOLDEN_AMBER` | `#D4952B` |
+| Photos | `DUSTY_ROSE` | `#BC6F83` |
+| URL | `SAGE_GREEN` | `#6B8F71` |
+| Add Folder | `MUTED_PLUM` | `#8E6B90` |
+
+The main jar FAB "+" button background migrated from the MVP warm orange `#fb923c` to `PRIMARY` (terracotta `#C4633A`), matching the "Go" button in the web import screen and other primary CTAs for chrome consistency.
+
+**Preserved inline hexes (intentionally):**
+
+- `#fdba74` on HomeScreen avatar fallback (user profile initial circle) — already warm and on-brand
+- Gradient stops in `ParseRevealEdgeGlow.tsx` — all warm-tone stops (`#ea580c`, `#f97316`, `#fbbf24`, `#fde68a`, `#fff7ed`, etc.) intentional for the parse reveal animation
+
+**Not in scope (leave for follow-up):**
+
+- `mobile/ios/Orzo/LaunchScreen.storyboard` still uses `systemBackgroundColor` (white, not blue — no flash on cold start, but not warm cream either). Updating requires XML edits that risk Xcode storyboard rendering; skipped to keep risk low.
+
+**Verification:**
+
+- `grep -rn "#2563eb\|#eff6ff\|#111827\|#6b7280\|#d1d5db" mobile/src` → 0 results
+- `npx tsc --noEmit` → only the pre-existing `AccountScreen.tsx:97` MFA-factor status error (unrelated to palette work — Supabase type says `f.status` is only `"verified"` but code checks for `"unverified"`)
+- Full visual walkthrough pending on the "Orzo Dev" physical iPhone build
+
+**Files modified:** 37 `mobile/src/**` TS/TSX files (screens, features/import, features/collections, components).  
+**Files created:** `mobile/src/theme/colors.ts`.
+
+---
+
 ### 2026-04-13 — Dev/prod app isolation: "Orzo Dev" debug build
 
 Debug builds now install as **"Orzo Dev"** (`app.orzo.ios.dev`) — a separate app that coexists alongside the production **"Orzo"** (`app.orzo.ios`) on the same phone. This enables a local dev workflow where code changes can be tested on a physical iPhone before pushing to the repo.

@@ -21,6 +21,18 @@ import { api } from "../services/api";
 import { useRecipesStore } from "../stores/recipes.store";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  SURFACE,
+  SUCCESS,
+  ERROR,
+  WHITE,
+  BLACK,
+} from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ImportHub">;
 
@@ -100,7 +112,7 @@ function QueueCard({
         )}
       </View>
       {isTappable && (
-        <ChevronRight size={LUCIDE.md} color="#9ca3af" />
+        <ChevronRight size={LUCIDE.md} color={TEXT_SECONDARY} />
       )}
     </View>
   );
@@ -230,7 +242,7 @@ export function ImportHubScreen({ navigation }: Props) {
             { opacity: checkOpacity, transform: [{ scale: checkScale }] },
           ]}
         >
-          <Check size={LUCIDE.hero} color="#16a34a" />
+          <Check size={LUCIDE.hero} color={SUCCESS} />
         </Animated.View>
         <Text style={styles.completionTitle}>All done!</Text>
         <Text style={styles.completionSubtitle}>
@@ -252,7 +264,7 @@ export function ImportHubScreen({ navigation }: Props) {
           hitSlop={12}
           style={styles.closeButton}
         >
-          <X size={LUCIDE.row} color="#6b7280" />
+          <X size={LUCIDE.row} color={TEXT_SECONDARY} />
         </TouchableOpacity>
       </View>
 
@@ -297,7 +309,7 @@ export function ImportHubScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   headerRow: {
     flexDirection: "row",
@@ -309,13 +321,13 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   closeButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -329,13 +341,13 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: DIVIDER,
     borderRadius: 12,
     padding: 12,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
@@ -348,7 +360,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 72,
     borderRadius: 8,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: SURFACE,
   },
   cardInfo: {
     flex: 1,
@@ -361,42 +373,42 @@ const styles = StyleSheet.create({
   statusParsing: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
   },
   titleParsed: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: TEXT_PRIMARY,
   },
   statusReady: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#16a34a",
+    color: SUCCESS,
   },
   titleDefault: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#374151",
+    color: TEXT_TERTIARY,
   },
   statusRetake: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#2563eb",
+    color: PRIMARY,
   },
   statusCancel: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#dc2626",
+    color: ERROR,
   },
   titleMuted: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
   },
   statusMuted: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
   },
   bottomAction: {
     position: "absolute",
@@ -405,22 +417,22 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 24,
     paddingTop: 12,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
   },
   importAnotherButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
   },
   importAnotherText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 16,
     fontWeight: "600",
   },
   completionContainer: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 32,
@@ -438,12 +450,12 @@ const styles = StyleSheet.create({
   },
   completionSubtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
   },
   doneButton: {
     marginTop: 32,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 12,
@@ -451,6 +463,6 @@ const styles = StyleSheet.create({
   doneButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: TEXT_TERTIARY,
   },
 });

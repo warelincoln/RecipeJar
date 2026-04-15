@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Star } from "lucide-react-native";
 import { LUCIDE } from "../theme/lucideSizes";
+import { GOLDEN_AMBER, DIVIDER, TEXT_SECONDARY } from "../theme/colors";
 
 const STAR_SIZE = LUCIDE.sm;
 const STAR_GAP = 8;
-const GOLD = "#eab308";
-const EMPTY_COLOR = "#d1d5db";
+const GOLD = GOLDEN_AMBER;
+const EMPTY_COLOR = DIVIDER;
 const DEBOUNCE_MS = 600;
 
 interface RecipeRatingInputProps {
@@ -158,6 +159,6 @@ const styles = StyleSheet.create({
   },
   clearText: {
     fontSize: 13,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
   },
 });

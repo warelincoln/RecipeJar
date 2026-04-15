@@ -13,6 +13,15 @@ import {
 } from "react-native";
 import { NOTE_MAX_LENGTH } from "@orzo/shared";
 import type { RecipeNote } from "@orzo/shared";
+import {
+  PRIMARY,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  SURFACE,
+  WHITE,
+} from "../theme/colors";
 
 interface RecipeNotesSectionProps {
   notes: RecipeNote[];
@@ -157,7 +166,7 @@ export function RecipeNotesSection({
                 value={draft}
                 onChangeText={setDraft}
                 placeholder="Write a note..."
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={TEXT_SECONDARY}
                 multiline
                 maxLength={NOTE_MAX_LENGTH}
                 autoFocus
@@ -209,23 +218,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   addButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
   },
   addButtonText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 13,
     fontWeight: "600",
   },
   emptyText: {
     fontSize: 14,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
     fontStyle: "italic",
   },
   noteCard: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     borderRadius: 10,
     padding: 12,
     marginBottom: 8,
@@ -233,7 +242,7 @@ const styles = StyleSheet.create({
   noteText: {
     fontSize: 14,
     lineHeight: 20,
-    color: "#1f2937",
+    color: TEXT_PRIMARY,
   },
   noteMeta: {
     flexDirection: "row",
@@ -243,11 +252,11 @@ const styles = StyleSheet.create({
   },
   noteDate: {
     fontSize: 11,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
   },
   editedLabel: {
     fontSize: 11,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
     fontStyle: "italic",
   },
   modalKeyboardView: {
@@ -261,7 +270,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalCard: {
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 16,
     padding: 20,
     width: "100%",
@@ -274,23 +283,23 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: DIVIDER,
     borderRadius: 10,
     padding: 12,
     fontSize: 15,
     lineHeight: 22,
     minHeight: 100,
     textAlignVertical: "top",
-    color: "#1f2937",
+    color: TEXT_PRIMARY,
   },
   charCounter: {
     fontSize: 12,
-    color: "#9ca3af",
+    color: TEXT_SECONDARY,
     textAlign: "right",
     marginTop: 4,
   },
   charCounterOver: {
-    color: "#dc2626",
+    color: ERROR,
   },
   modalActions: {
     flexDirection: "row",
@@ -304,11 +313,11 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     fontWeight: "600",
   },
   saveBtn: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 10,
@@ -317,7 +326,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   saveBtnText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 15,
     fontWeight: "600",
   },

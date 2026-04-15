@@ -9,6 +9,14 @@ import {
   StyleSheet,
 } from "react-native";
 import type { ValidationIssue } from "@orzo/shared";
+import {
+  PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  ERROR,
+  WHITE,
+  TINT_RED,
+} from "../../theme/colors";
 
 interface RetakeRequiredViewProps {
   pages: { pageId: string; imageUri: string; retakeCount: number }[];
@@ -88,31 +96,31 @@ export function RetakeRequiredView({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", paddingHorizontal: 24, paddingTop: 16 },
+  container: { flex: 1, backgroundColor: WHITE, paddingHorizontal: 24, paddingTop: 16 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  subtitle: { fontSize: 14, color: "#6b7280", marginBottom: 16, lineHeight: 20 },
+  subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginBottom: 16, lineHeight: 20 },
   issueBanner: {
-    backgroundColor: "#fef2f2", padding: 12,
+    backgroundColor: TINT_RED, padding: 12,
     borderRadius: 8, marginBottom: 8,
   },
-  issueText: { color: "#dc2626", fontSize: 13 },
+  issueText: { color: ERROR, fontSize: 13 },
   list: { flex: 1 },
   pageRow: {
     flexDirection: "row", alignItems: "center",
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#e5e7eb",
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: DIVIDER,
   },
   thumbnail: { width: 48, height: 64, borderRadius: 4, marginRight: 12 },
   pageInfo: { flex: 1 },
   pageLabel: { fontSize: 16, fontWeight: "500" },
-  retakeCount: { fontSize: 12, color: "#6b7280" },
+  retakeCount: { fontSize: 12, color: TEXT_SECONDARY },
   retakeButton: {
-    backgroundColor: "#2563eb", paddingHorizontal: 16,
+    backgroundColor: PRIMARY, paddingHorizontal: 16,
     paddingVertical: 8, borderRadius: 8,
   },
-  retakeButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  retakeButtonText: { color: WHITE, fontSize: 14, fontWeight: "600" },
   goHomeButton: {
-    backgroundColor: "#2563eb", paddingHorizontal: 24,
+    backgroundColor: PRIMARY, paddingHorizontal: 24,
     paddingVertical: 14, borderRadius: 12, alignSelf: "center", marginTop: 24,
   },
-  goHomeText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  goHomeText: { color: WHITE, fontSize: 16, fontWeight: "600" },
 });

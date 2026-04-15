@@ -82,17 +82,25 @@ Used for soft colored circles behind feature icons on the landing page. Each is 
 
 `#FFF8F0` (Warm Cream) — set in `<meta name="theme-color">` on web and as the status bar background on mobile.
 
-### Mobile app application (agent instructions)
+### Mobile app application
 
-The mobile app (`mobile/src/**`) currently uses a blue-forward palette established during MVP development. Another agent should migrate it to the warm terracotta palette above. Key files that reference colors:
+**Status:** Complete (2026-04-14). The mobile app has been fully migrated from the MVP blue-forward palette to the terracotta palette above.
 
-- `mobile/src/screens/AuthScreen.tsx` — canonical color constants (`PRIMARY_BLUE = '#2563eb'` → migrate to `#C4633A`, `PRIMARY_TEXT = '#111827'` → migrate to `#2D1F14`, `SECONDARY_TEXT = '#6b7280'` → migrate to `#7A6E64`)
-- `mobile/src/screens/HomeScreen.tsx` — background `#eff6ff` → migrate to `#FFF8F0`
-- `mobile/src/screens/OnboardingScreen.tsx` — button and accent colors
-- `mobile/src/features/collections/collectionIconRules.ts` — 80+ keyword-based icon colors (these are category-specific and should be evaluated individually — some warm tones may stay, but blues should be replaced with warm equivalents)
-- Any other component with inline `#2563eb`, `#eff6ff`, `#dbeafe`, or similar blue-family hex values
+**What landed:**
 
-The goal is visual consistency across the app icon, mobile app UI, landing page, emails, and App Store listing. The terracotta palette is the source of truth going forward.
+- **Canonical palette module:** `mobile/src/theme/colors.ts` exports both raw tokens (`TERRACOTTA`, `ESPRESSO`, `SAGE_GREEN`, `PAPRIKA`, etc.) and semantic aliases (`PRIMARY`, `TEXT_PRIMARY`, `ERROR`, `SUCCESS`, etc.). Components import from this module instead of hardcoding hex values — future palette tweaks are single-file edits.
+- **Two new tokens added** for soft food-semantic icon variety: `MUTED_PLUM` (`#8E6B90`) and `DUSTY_ROSE` (`#BC6F83`). These fill hue gaps in the palette while staying in the muted/warm tonal register.
+- **37 files migrated** across screens, import flow, recipe management, auth, and shared components. Every blue-family hex and every Tailwind gray is now an imported palette token.
+- **`collectionIconRules.ts`:** food-semantic warm tones preserved (pizza red, pumpkin orange, etc.); cool-tone rules (blue/cyan/slate) remapped to warm palette equivalents; bright Tailwind rules softened to muted palette variants (`SAGE_GREEN`, `PAPRIKA`, `DUSTY_ROSE`, `MUTED_PLUM`, `GOLDEN_AMBER`).
+- **HomeScreen jar fan:** four fan-out icons (Camera, Photos, URL, Add Folder) each get a distinct contrasting palette color (`GOLDEN_AMBER`, `DUSTY_ROSE`, `SAGE_GREEN`, `MUTED_PLUM`) for visual distinction. Jar FAB "+" background migrated from MVP orange `#fb923c` to `PRIMARY` (terracotta).
+
+**Not migrated (intentional):**
+
+- `#fdba74` on HomeScreen user avatar fallback (already warm and on-brand)
+- Warm gradient stops in `ParseRevealEdgeGlow.tsx` (intentional design flourish)
+- `LaunchScreen.storyboard` still uses `systemBackgroundColor` (white — not blue, so no flash on cold start, but not warm cream either). Updating requires XML edits that risk Xcode storyboard rendering; left as a small follow-up.
+
+See `CHANGELOG.md` 2026-04-14 entry for full hex-to-token migration table. The terracotta palette is the source of truth going forward — any new UI should import from `mobile/src/theme/colors.ts`.
 
 ---
 
@@ -1080,6 +1088,7 @@ Concurrent Queue ──────→ 4.2 Cookbook Bundle Mode
 
 | Date | Change |
 |---|---|
+| 2026-04-14 | Mobile app terracotta palette migration complete. Created `mobile/src/theme/colors.ts` canonical palette module with raw tokens + semantic aliases. Added `MUTED_PLUM` and `DUSTY_ROSE` tokens. Migrated 37 files across screens/features/components (846+/569- lines). `collectionIconRules.ts` softened from Tailwind brights to muted palette variants; food-semantic warm tones preserved. Jar fan icons given four contrasting palette colors. Jar FAB background → PRIMARY. Updated "Brand Identity → Mobile app application" section status from pending to complete. See `CHANGELOG.md` 2026-04-14 for full hex-to-token mapping. |
 | 2026-04-08 | Added 0.1b Dev/Prod Environment Isolation section: Git branching (`dev` branch), second Supabase project, second Railway service, separate Xcode scheme (`app.orzo.dev` bundle ID). Documents setup checklists, conditional file changes, and one-time vs ongoing tasks. |
 | 2026-04-08 | Production deployment complete: Fastify API live on Railway at `https://api.getorzo.com`. Dockerfile fixed (skip root postinstall, install `@img/sharp-linux-x64`). Custom domain via Cloudflare CNAME (DNS-only). Apple Developer Portal setup (App ID, Services ID). Google Cloud OAuth client updated. Supabase providers configured. Release build verified on physical iPhone. `react-native+0.76.9.patch` extended with Hermes spaces-in-path fix. Updated 0.2 status to "Partially started." |
 | 2026-04-04 | Auth complete: all 8 work streams (WS-1 through WS-8) finished. WS-6: private buckets, signed URLs, user-scoped paths. WS-7a: account deletion, sign-out-all, email change, MFA enrollment. WS-7b: step-up auth, MFA recovery codes, provider linking, session tracking. WS-8: rate limiting, auth header redaction, integration tests, security checklist. Production deployment Dockerfile and guide created. Updated 0.1 status to "Complete." Architecture notes updated. Feature table updated. |

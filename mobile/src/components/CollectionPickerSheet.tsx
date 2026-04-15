@@ -14,6 +14,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
 import { LUCIDE } from "../theme/lucideSizes";
+import {
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  DIVIDER,
+  SURFACE,
+  PRIMARY_LIGHT,
+  TINT_RED,
+  ERROR,
+  WHITE,
+  BLACK,
+  DEEP_TERRACOTTA,
+} from "../theme/colors";
 
 export type CollectionPickerItem = { id: string; name: string };
 
@@ -117,7 +129,7 @@ export function CollectionPickerSheet({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <X size={LUCIDE.lg} color="#6b7280" />
+            <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
           </TouchableOpacity>
           <Text style={styles.title}>{title}</Text>
           {recipeTitle ? (
@@ -167,7 +179,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   sheet: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 36,
@@ -182,7 +194,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     marginBottom: 6,
     textAlign: "center",
     paddingHorizontal: 40,
@@ -190,7 +202,7 @@ const styles = StyleSheet.create({
   recipeTitleLine: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#1e40af",
+    color: DEEP_TERRACOTTA,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 6,
@@ -198,7 +210,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 14,
@@ -217,12 +229,12 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 14,
     gap: 12,
-    shadowColor: "#000",
+    shadowColor: BLACK,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
     shadowRadius: 3,
@@ -232,7 +244,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 14,
-    backgroundColor: "#f9fafb",
+    backgroundColor: SURFACE,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -240,7 +252,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: TEXT_PRIMARY,
     paddingTop: 2,
   },
   removeRow: {
@@ -248,13 +260,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     borderRadius: 14,
-    backgroundColor: "#fef2f2",
+    backgroundColor: TINT_RED,
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: TINT_RED,
   },
   removeLabel: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#dc2626",
+    color: ERROR,
   },
 });

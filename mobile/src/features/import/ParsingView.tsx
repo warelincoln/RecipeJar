@@ -21,6 +21,16 @@ import {
 } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
 import type { QueueEntry } from "../../stores/importQueue.store";
+import {
+  PRIMARY,
+  PRIMARY_LIGHT,
+  SURFACE,
+  TEXT_SECONDARY,
+  TEXT_TERTIARY,
+  DIVIDER,
+  SUCCESS,
+  WHITE,
+} from "../../theme/colors";
 
 const ICONS = [
   CookingPot,
@@ -161,7 +171,7 @@ export function ParsingView({
           { transform: [{ scale: scaleAnim }], opacity: fadeAnim },
         ]}
       >
-        <IconComponent size={LUCIDE.importParsingHero} color="#2563eb" />
+        <IconComponent size={LUCIDE.importParsingHero} color={PRIMARY} />
       </Animated.View>
       <Text style={styles.title} testID="parsing-title">
         Extracting Recipe
@@ -220,7 +230,7 @@ export function ParsingView({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: WHITE,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 32,
@@ -229,14 +239,14 @@ const styles = StyleSheet.create({
     width: 104,
     height: 104,
     borderRadius: 52,
-    backgroundColor: "#eff6ff",
+    backgroundColor: PRIMARY_LIGHT,
     alignItems: "center",
     justifyContent: "center",
   },
   title: { fontSize: 22, fontWeight: "700", marginTop: 32 },
   subtitle: {
     fontSize: 15,
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     marginTop: 16,
     lineHeight: 22,
@@ -257,13 +267,13 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: "#fff",
-    backgroundColor: "#f3f4f6",
+    borderColor: WHITE,
+    backgroundColor: SURFACE,
   },
   queueSummary: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#6b7280",
+    color: TEXT_SECONDARY,
     textAlign: "center",
     marginBottom: 4,
   },
@@ -273,18 +283,18 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   primaryButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: PRIMARY,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
   },
   primaryButtonText: {
-    color: "#fff",
+    color: WHITE,
     fontSize: 16,
     fontWeight: "600",
   },
   secondaryButton: {
-    backgroundColor: "#e5e7eb",
+    backgroundColor: DIVIDER,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -293,7 +303,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   secondaryButtonText: {
-    color: "#374151",
+    color: TEXT_TERTIARY,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -301,6 +311,6 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#16a34a",
+    backgroundColor: SUCCESS,
   },
 });
