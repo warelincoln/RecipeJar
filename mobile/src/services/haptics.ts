@@ -30,12 +30,22 @@ function safeTrigger(type: HapticFeedbackTypes) {
 }
 
 export const haptics = {
-  /** Light tap — used for bulk-mode entry. */
+  /**
+   * Strong tap for state-change moments — currently bulk-mode entry.
+   * `impactMedium` is noticeably punchier than `impactLight` and is the
+   * default haptic iOS itself uses when entering select/edit modes in
+   * apps like Photos and Notes. Dropped from `impactLight` after user
+   * feedback that the original was too subtle to feel on-device.
+   */
   tap(): void {
-    safeTrigger(HapticFeedbackTypes.impactLight);
+    safeTrigger(HapticFeedbackTypes.impactMedium);
   },
-  /** Medium tap — used for selection toggle in bulk mode. */
+  /**
+   * Lighter tap for high-frequency actions — bulk selection toggle.
+   * Bumped from `selection` (which is near-imperceptible in normal use)
+   * to `impactLight` so each checkmark tap has clear physical feedback.
+   */
   toggle(): void {
-    safeTrigger(HapticFeedbackTypes.selection);
+    safeTrigger(HapticFeedbackTypes.impactLight);
   },
 };

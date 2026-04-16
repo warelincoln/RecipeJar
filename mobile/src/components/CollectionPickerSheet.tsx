@@ -11,7 +11,7 @@ import {
   ListRenderItemInfo,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { X } from "lucide-react-native";
+import { FolderPlus, X } from "lucide-react-native";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
 import { LUCIDE } from "../theme/lucideSizes";
 import {
@@ -19,6 +19,7 @@ import {
   TEXT_SECONDARY,
   DIVIDER,
   SURFACE,
+  PRIMARY,
   PRIMARY_LIGHT,
   TINT_RED,
   ERROR,
@@ -38,6 +39,11 @@ type Props = {
   subtitle?: string;
   collections: CollectionPickerItem[];
   onSelectCollection: (collectionId: string) => void | Promise<void>;
+  /** When provided, adds a "+ New folder" row at the top of the list.
+   *  Parent is responsible for closing the picker, opening a
+   *  CreateCollectionSheet, creating the collection, and then running
+   *  the assignment. Keeps this sheet state-free. */
+  onCreateNewCollection?: () => void;
   showRemoveOption?: boolean;
   removeLabel?: string;
   onRemove?: () => void | Promise<void>;
@@ -53,6 +59,7 @@ export function CollectionPickerSheet({
   subtitle,
   collections,
   onSelectCollection,
+  onCreateNewCollection,
   showRemoveOption = false,
   removeLabel = "Remove from collection",
   onRemove,
@@ -148,6 +155,35 @@ export function CollectionPickerSheet({
             style={styles.list}
             contentContainerStyle={styles.listContent}
             ItemSeparatorComponent={() => <View style={styles.rowSep} />}
+            ListHeaderComponent={
+              onCreateNewCollection ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.row, styles.newFolderRow]}
+                    onPress={() => {
+                      onClose();
+                      onCreateNewCollection();
+                    }}
+                    testID="collection-picker-new-folder"
+                    accessibilityRole="button"
+                    accessibilityLabel="Create new folder"
+                  >
+                    <View style={[styles.rowIconWrap, styles.newFolderIconWrap]}>
+                      <FolderPlus size={LUCIDE.row} color={WHITE} />
+                    </View>
+                    <Text style={[styles.rowLabel, styles.newFolderLabel]}>
+                      New folder
+                    </Text>
+                  </TouchableOpacity>
+                  {collections.length > 0 && <View style={styles.rowSep} />}
+                </>
+              ) : null
+            }
+            ListEmptyComponent={
+              onCreateNewCollection ? null : (
+                <Text style={styles.emptyText}>No folders yet.</Text>
+              )
+            }
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={collections.length > 6}
           />
@@ -254,6 +290,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: TEXT_PRIMARY,
     paddingTop: 2,
+  },
+  newFolderRow: {
+    backgroundColor: PRIMARY,
+  },
+  newFolderIconWrap: {
+    backgroundColor: "rgba(255,255,255,0.22)",
+  },
+  newFolderLabel: {
+    color: WHITE,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+    textAlign: "center",
+    paddingVertical: 12,
   },
   removeRow: {
     marginTop: 6,

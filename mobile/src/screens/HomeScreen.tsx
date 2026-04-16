@@ -178,6 +178,8 @@ export function HomeScreen({ navigation, route }: Props) {
     useState(false);
   const [bulkCollectionPickerVisible, setBulkCollectionPickerVisible] =
     useState(false);
+  const [bulkNewFolderSheetVisible, setBulkNewFolderSheetVisible] =
+    useState(false);
   const {
     collections,
     fetchCollections,
@@ -434,13 +436,8 @@ export function HomeScreen({ navigation, route }: Props) {
 
   const handleBulkAddToCollection = () => {
     if (bulk.selectedCount === 0) return;
-    if (collections.length === 0) {
-      Alert.alert(
-        "No collections yet",
-        "Create a collection first from the home screen.",
-      );
-      return;
-    }
+    // With the in-picker "+ New folder" row, zero-collection users get a
+    // graceful onboarding path — no alert, just open the picker.
     setBulkCollectionPickerVisible(true);
   };
 
@@ -674,7 +671,13 @@ export function HomeScreen({ navigation, route }: Props) {
         ]}
       />
 
-      {jarOpen && (
+      {/*
+        Jar FAB + fan are hidden in bulk-select mode. The bulk action bar
+        occupies the bottom-center region and starting a new import mid-
+        selection would be a weird flow anyway. The block below renders
+        nothing while bulk.bulkMode is true.
+      */}
+      {!bulk.bulkMode && jarOpen && (
         <TouchableOpacity
           style={styles.backdrop}
           activeOpacity={1}
@@ -683,7 +686,7 @@ export function HomeScreen({ navigation, route }: Props) {
         />
       )}
 
-      {[
+      {!bulk.bulkMode && [
         {
           icon: <Camera size={LUCIDE.jarFanAction} color={GOLDEN_AMBER} />,
           label: "Camera",
@@ -780,22 +783,24 @@ export function HomeScreen({ navigation, route }: Props) {
         );
       })}
 
-      <TouchableOpacity
-        style={[
-          styles.jarButton,
-          { bottom: insets.bottom + JAR_FAB_BOTTOM_OFFSET },
-        ]}
-        testID="jar-button"
-        accessibilityRole="button"
-        accessibilityLabel={jarOpen ? "Close import menu" : "Open import menu"}
-        onPress={toggleJar}
-      >
-        {jarOpen ? (
-          <Minus size={LUCIDE.fab} color={WHITE} />
-        ) : (
-          <Plus size={LUCIDE.fab} color={WHITE} />
-        )}
-      </TouchableOpacity>
+      {!bulk.bulkMode && (
+        <TouchableOpacity
+          style={[
+            styles.jarButton,
+            { bottom: insets.bottom + JAR_FAB_BOTTOM_OFFSET },
+          ]}
+          testID="jar-button"
+          accessibilityRole="button"
+          accessibilityLabel={jarOpen ? "Close import menu" : "Open import menu"}
+          onPress={toggleJar}
+        >
+          {jarOpen ? (
+            <Minus size={LUCIDE.fab} color={WHITE} />
+          ) : (
+            <Plus size={LUCIDE.fab} color={WHITE} />
+          )}
+        </TouchableOpacity>
+      )}
 
       <ToastQueue ref={toastRef} />
 
@@ -999,7 +1004,15 @@ export function HomeScreen({ navigation, route }: Props) {
       <RecipeDeleteConfirmSheet
         visible={bulkDeleteConfirmVisible}
         onClose={() => setBulkDeleteConfirmVisible(false)}
-        recipeTitle=""
+        // When exactly one recipe is selected the sheet renders the
+        // single-recipe copy ("Recipe X will be permanently removed")
+        // and needs the actual title. When multiple, `count > 1` makes
+        // the sheet use plural copy and ignore recipeTitle.
+        recipeTitle={
+          bulk.selectedCount === 1
+            ? recipes.find((r) => bulk.isSelected(r.id))?.title ?? ""
+            : ""
+        }
         count={bulk.selectedCount}
         onConfirm={handleBulkDeleteConfirm}
       />
@@ -1012,9 +1025,47 @@ export function HomeScreen({ navigation, route }: Props) {
             ? "Add to collection"
             : `Add ${bulk.selectedCount} recipes to collection`
         }
-        subtitle="Choose a folder."
+        subtitle={
+          collections.length === 0
+            ? "Start a new folder to organize your recipes."
+            : "Choose a folder."
+        }
         collections={collections}
         onSelectCollection={handleBulkCollectionChosen}
+        onCreateNewCollection={() => {
+          // Picker closes itself; we open the create sheet next frame.
+          setBulkNewFolderSheetVisible(true);
+        }}
+      />
+
+      <CreateCollectionSheet
+        visible={bulkNewFolderSheetVisible}
+        mode="create"
+        onClose={() => setBulkNewFolderSheetVisible(false)}
+        onSubmit={async (name) => {
+          // Create the folder, then immediately assign the selection to it
+          // in one user action. Selection is preserved across the picker →
+          // create-sheet hop because bulk.exit() only runs on success here.
+          const ids = Array.from(bulk.selectedIds);
+          try {
+            const newCollection = await createCollection(name);
+            await bulkAssignCollection(ids, newCollection.id);
+            setBulkNewFolderSheetVisible(false);
+            bulk.exit();
+            toastRef.current?.addToast({
+              message:
+                ids.length === 1
+                  ? `Added to ${newCollection.name}`
+                  : `${ids.length} recipes added to ${newCollection.name}`,
+            });
+          } catch (err) {
+            setBulkNewFolderSheetVisible(false);
+            Alert.alert(
+              "Couldn't create folder",
+              err instanceof Error ? err.message : "Please try again.",
+            );
+          }
+        }}
       />
 
       {photoPreview && (

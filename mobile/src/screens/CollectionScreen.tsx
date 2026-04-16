@@ -77,6 +77,8 @@ export function CollectionScreen({ route, navigation }: Props) {
     useState(false);
   const [bulkCollectionPickerVisible, setBulkCollectionPickerVisible] =
     useState(false);
+  const [bulkNewFolderSheetVisible, setBulkNewFolderSheetVisible] =
+    useState(false);
 
   const {
     collections,
@@ -239,13 +241,8 @@ export function CollectionScreen({ route, navigation }: Props) {
   const handleBulkPrimary = () => {
     if (bulk.selectedCount === 0) return;
     if (isAllRecipes) {
-      if (collections.length === 0) {
-        Alert.alert(
-          "No collections yet",
-          "Create a collection first from the home screen.",
-        );
-        return;
-      }
+      // Zero-collection path is handled by the picker's "+ New folder" row,
+      // so we open unconditionally now.
       setBulkCollectionPickerVisible(true);
     } else {
       void handleBulkRemoveFromCollection();
@@ -466,7 +463,11 @@ export function CollectionScreen({ route, navigation }: Props) {
       <RecipeDeleteConfirmSheet
         visible={bulkDeleteConfirmVisible}
         onClose={() => setBulkDeleteConfirmVisible(false)}
-        recipeTitle=""
+        recipeTitle={
+          bulk.selectedCount === 1
+            ? recipes.find((r) => bulk.isSelected(r.id))?.title ?? ""
+            : ""
+        }
         count={bulk.selectedCount}
         onConfirm={handleBulkDeleteConfirm}
       />
@@ -479,9 +480,40 @@ export function CollectionScreen({ route, navigation }: Props) {
             ? "Add to collection"
             : `Add ${bulk.selectedCount} recipes to collection`
         }
-        subtitle="Choose a folder."
+        subtitle={
+          collections.length === 0
+            ? "Start a new folder to organize your recipes."
+            : "Choose a folder."
+        }
         collections={collections}
         onSelectCollection={handleBulkCollectionChosen}
+        onCreateNewCollection={() => {
+          setBulkNewFolderSheetVisible(true);
+        }}
+      />
+
+      <CreateCollectionSheet
+        visible={bulkNewFolderSheetVisible}
+        mode="create"
+        onClose={() => setBulkNewFolderSheetVisible(false)}
+        onSubmit={async (name) => {
+          const ids = Array.from(bulk.selectedIds);
+          try {
+            const { createCollection } =
+              useCollectionsStore.getState();
+            const newCollection = await createCollection(name);
+            await api.recipes.bulkAssignCollection(ids, newCollection.id);
+            setBulkNewFolderSheetVisible(false);
+            bulk.exit();
+            fetchData();
+          } catch (err) {
+            setBulkNewFolderSheetVisible(false);
+            Alert.alert(
+              "Couldn't create folder",
+              err instanceof Error ? err.message : "Please try again.",
+            );
+          }
+        }}
       />
 
       <RecipeQuickActionsSheet
