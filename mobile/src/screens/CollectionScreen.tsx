@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -194,8 +194,24 @@ export function CollectionScreen({ route, navigation }: Props) {
   // style). The single-recipe RecipeQuickActionsSheet handlers above are
   // preserved but no longer triggered by long-press — they remain in the
   // file in case any future flow needs to re-enable them.
+  //
+  // Edge case: on some iOS devices the onPress fires briefly after
+  // onLongPress for the same gesture, which would toggle the freshly
+  // selected card OFF the instant bulk mode appears. Record the id +
+  // timestamp of the long-press and swallow the immediate follow-up
+  // press if it's for the same card. Same guard as HomeScreen.
+  const recentLongPressRef = useRef<{ id: string; at: number } | null>(null);
   const handleLongPress = (item: Recipe) => {
+    recentLongPressRef.current = { id: item.id, at: Date.now() };
     bulk.enterBulk(item.id);
+  };
+  const handleBulkCardPress = (item: Recipe) => {
+    const recent = recentLongPressRef.current;
+    if (recent && recent.id === item.id && Date.now() - recent.at < 600) {
+      recentLongPressRef.current = null;
+      return;
+    }
+    bulk.toggle(item.id);
   };
   // Silence TS "defined but never used" warnings for now-unused handlers.
   void handleLongPressNormal;
@@ -438,7 +454,7 @@ export function CollectionScreen({ route, navigation }: Props) {
             selected={bulk.isSelected(item.id)}
             onPress={() =>
               bulk.bulkMode
-                ? bulk.toggle(item.id)
+                ? handleBulkCardPress(item)
                 : navigation.navigate("RecipeDetail", { recipeId: item.id })
             }
             onLongPress={

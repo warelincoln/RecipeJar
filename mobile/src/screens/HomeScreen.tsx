@@ -387,11 +387,24 @@ export function HomeScreen({ navigation, route }: Props) {
   // mode, preselecting the pressed recipe. Single-recipe quick actions
   // (via RecipeQuickActionsSheet) are still wired into HomeScreen for
   // other flows but no longer triggered by card long-press.
+  //
+  // Edge case: on some iOS devices the onPress fires briefly after
+  // onLongPress for the same gesture, which would toggle the freshly
+  // selected card OFF the instant bulk mode appears. Record the id +
+  // timestamp of the long-press and swallow the immediate follow-up
+  // press if it's for the same card.
+  const recentLongPressRef = useRef<{ id: string; at: number } | null>(null);
   const handleLongPressRecipe = (item: Recipe) => {
+    recentLongPressRef.current = { id: item.id, at: Date.now() };
     bulk.enterBulk(item.id);
   };
 
   const handleBulkCardPress = (item: Recipe) => {
+    const recent = recentLongPressRef.current;
+    if (recent && recent.id === item.id && Date.now() - recent.at < 600) {
+      recentLongPressRef.current = null;
+      return;
+    }
     bulk.toggle(item.id);
   };
 
