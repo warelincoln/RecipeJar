@@ -403,6 +403,102 @@ export const recipesRepository = {
     return deleted ?? null;
   },
 
+  /**
+   * Delete multiple recipes in a single DB transaction.
+   *
+   * - Filters `ids` to those owned by `userId` — other users' recipes are
+   *   silently ignored (no 404, just excluded from the count). This mirrors
+   *   the bulk-assign semantics and avoids enumeration oracles for recipes
+   *   the caller doesn't own.
+   * - Mirrors `delete()`'s app-level cascade for ingredients, steps, source
+   *   pages, and collection links (the FKs cascade on delete at the DB
+   *   level too, but the explicit order matches the single-delete pattern
+   *   for parity).
+   * - Returns the list of IDs that were actually deleted so the route
+   *   layer can trigger Supabase Storage image cleanup only for those.
+   */
+  async bulkDelete(userId: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+
+    return db.transaction(async (tx) => {
+      const owned = await tx
+        .select({ id: recipes.id })
+        .from(recipes)
+        .where(and(eq(recipes.userId, userId), inArray(recipes.id, ids)));
+      const ownedIds = owned.map((r) => r.id);
+      if (ownedIds.length === 0) return [];
+
+      await tx
+        .delete(recipeIngredients)
+        .where(inArray(recipeIngredients.recipeId, ownedIds));
+      await tx
+        .delete(recipeSteps)
+        .where(inArray(recipeSteps.recipeId, ownedIds));
+      await tx
+        .delete(recipeSourcePages)
+        .where(inArray(recipeSourcePages.recipeId, ownedIds));
+      await tx
+        .delete(recipeCollections)
+        .where(inArray(recipeCollections.recipeId, ownedIds));
+
+      const deleted = await tx
+        .delete(recipes)
+        .where(inArray(recipes.id, ownedIds))
+        .returning({ id: recipes.id });
+      return deleted.map((r) => r.id);
+    });
+  },
+
+  /**
+   * Bulk-assign (or bulk-clear) a collection on multiple recipes.
+   *
+   * - Scoped to `userId`: non-owned ids are silently excluded.
+   * - `collectionId === null` clears all collection assignments for the
+   *   owned ids (equivalent to N calls to `removeFromCollection`).
+   * - `collectionId !== null` replaces any existing assignment with the
+   *   single specified collection (UI remains single-assignment; the
+   *   schema supports many-to-many but the app currently assigns one).
+   * - Bumps `updatedAt` on every affected recipe for sort order.
+   * - Returns the number of recipes that were updated.
+   *
+   * Caller is expected to pre-validate that `collectionId`, if provided,
+   * belongs to `userId` — the bulk route does this via
+   * `collectionsRepository.findById` before calling in.
+   */
+  async bulkAssignCollection(
+    userId: string,
+    ids: string[],
+    collectionId: string | null,
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    return db.transaction(async (tx) => {
+      const owned = await tx
+        .select({ id: recipes.id })
+        .from(recipes)
+        .where(and(eq(recipes.userId, userId), inArray(recipes.id, ids)));
+      const ownedIds = owned.map((r) => r.id);
+      if (ownedIds.length === 0) return 0;
+
+      await tx
+        .delete(recipeCollections)
+        .where(inArray(recipeCollections.recipeId, ownedIds));
+      if (collectionId !== null) {
+        await tx.insert(recipeCollections).values(
+          ownedIds.map((recipeId) => ({
+            recipeId,
+            collectionId,
+          })),
+        );
+      }
+      await tx
+        .update(recipes)
+        .set({ updatedAt: new Date() })
+        .where(inArray(recipes.id, ownedIds));
+      return ownedIds.length;
+    });
+  },
+
   async assignToCollection(recipeId: string, collectionId: string) {
     await db
       .delete(recipeCollections)

@@ -51,6 +51,8 @@ import {
   type RecipeQuickAction,
 } from "../components/RecipeQuickActionsSheet";
 import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
+import { BulkActionsBar } from "../components/BulkActionsBar";
+import { useBulkSelection } from "../hooks/useBulkSelection";
 import { getCollectionIcon } from "../features/collections/collectionIconRules";
 import { LUCIDE } from "../theme/lucideSizes";
 import {
@@ -162,8 +164,20 @@ const avatarStyles = StyleSheet.create({
 
 export function HomeScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { recipes, loading, error, fetchRecipes, deleteRecipe } =
-    useRecipesStore();
+  const {
+    recipes,
+    loading,
+    error,
+    fetchRecipes,
+    deleteRecipe,
+    bulkDeleteRecipes,
+    bulkAssignCollection,
+  } = useRecipesStore();
+  const bulk = useBulkSelection();
+  const [bulkDeleteConfirmVisible, setBulkDeleteConfirmVisible] =
+    useState(false);
+  const [bulkCollectionPickerVisible, setBulkCollectionPickerVisible] =
+    useState(false);
   const {
     collections,
     fetchCollections,
@@ -367,32 +381,88 @@ export function HomeScreen({ navigation, route }: Props) {
     }
   }, []);
 
+  // Long-press on a recipe card now enters iOS-Photos-style bulk-select
+  // mode, preselecting the pressed recipe. Single-recipe quick actions
+  // (via RecipeQuickActionsSheet) are still wired into HomeScreen for
+  // other flows but no longer triggered by card long-press.
   const handleLongPressRecipe = (item: Recipe) => {
-    const actions: RecipeQuickAction[] = [];
-    if (collections.length > 0) {
-      actions.push({
-        key: "add-collection",
-        label: "Add to collection",
-        icon: <FolderOpen size={LUCIDE.row} color={PRIMARY} />,
-        onPress: () => {
-          setRecipeQuickActions(null);
-          setCollectionPickerTarget(item);
-        },
-        testID: "recipe-quick-action-add-collection",
-      });
+    bulk.enterBulk(item.id);
+  };
+
+  const handleBulkCardPress = (item: Recipe) => {
+    bulk.toggle(item.id);
+  };
+
+  const allFilteredSelected =
+    bulk.bulkMode &&
+    filteredRecipes.length > 0 &&
+    filteredRecipes.every((r) => bulk.isSelected(r.id));
+
+  const handleSelectAllToggle = () => {
+    if (allFilteredSelected) {
+      bulk.clear();
+    } else {
+      bulk.selectAll(filteredRecipes.map((r) => r.id));
     }
-    actions.push({
-      key: "delete",
-      label: "Delete recipe",
-      destructive: true,
-      icon: <Trash2 size={LUCIDE.row} color={ERROR} />,
-      onPress: () => {
-        setRecipeQuickActions(null);
-        setDeleteConfirmTarget(item);
-      },
-      testID: "recipe-quick-action-delete",
-    });
-    setRecipeQuickActions({ recipe: item, actions });
+  };
+
+  const handleBulkDelete = () => {
+    if (bulk.selectedCount === 0) return;
+    setBulkDeleteConfirmVisible(true);
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    const ids = Array.from(bulk.selectedIds);
+    try {
+      const result = await bulkDeleteRecipes(ids);
+      setBulkDeleteConfirmVisible(false);
+      bulk.exit();
+      toastRef.current?.addToast({
+        message:
+          result.deletedCount === 1
+            ? "Recipe deleted"
+            : `${result.deletedCount} recipes deleted`,
+      });
+    } catch (err) {
+      setBulkDeleteConfirmVisible(false);
+      Alert.alert(
+        "Delete failed",
+        err instanceof Error ? err.message : "Could not delete recipes",
+      );
+    }
+  };
+
+  const handleBulkAddToCollection = () => {
+    if (bulk.selectedCount === 0) return;
+    if (collections.length === 0) {
+      Alert.alert(
+        "No collections yet",
+        "Create a collection first from the home screen.",
+      );
+      return;
+    }
+    setBulkCollectionPickerVisible(true);
+  };
+
+  const handleBulkCollectionChosen = async (collectionId: string) => {
+    const ids = Array.from(bulk.selectedIds);
+    try {
+      const result = await bulkAssignCollection(ids, collectionId);
+      setBulkCollectionPickerVisible(false);
+      bulk.exit();
+      toastRef.current?.addToast({
+        message:
+          result.updatedCount === 1
+            ? "Moved to collection"
+            : `${result.updatedCount} recipes moved`,
+      });
+    } catch (err) {
+      setBulkCollectionPickerVisible(false);
+      Alert.alert(
+        "Move failed",
+        err instanceof Error ? err.message : "Could not move recipes",
+      );
+    }
   };
 
   const renderEmptyState = () => {
@@ -436,37 +506,75 @@ export function HomeScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container} testID="home-screen">
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title} testID="home-title">
-          Orzo
-        </Text>
-        <Text style={styles.subtitle} testID="home-subtitle">
-          Save, Plan, Cook.
-        </Text>
-        <ProfileAvatar />
-      </View>
-
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search recipes..."
-          placeholderTextColor={TEXT_SECONDARY}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          returnKeyType="search"
-          testID="home-search-input"
-        />
-        {isSearching && (
+      {bulk.bulkMode ? (
+        <View
+          style={[styles.bulkHeader, { paddingTop: insets.top + 12 }]}
+          testID="home-bulk-header"
+        >
           <TouchableOpacity
-            style={styles.searchClear}
-            onPress={() => setSearchQuery("")}
-            testID="home-search-clear"
+            onPress={bulk.exit}
+            style={styles.bulkHeaderSide}
+            testID="home-bulk-cancel"
+            accessibilityRole="button"
+            accessibilityLabel="home-bulk-cancel"
           >
-            <X size={LUCIDE.md} color={TEXT_SECONDARY} />
+            <Text style={styles.bulkHeaderCancel}>Cancel</Text>
           </TouchableOpacity>
-        )}
-      </View>
+          <Text style={styles.bulkHeaderCount} testID="home-bulk-count">
+            {bulk.selectedCount === 0
+              ? "Select recipes"
+              : bulk.selectedCount === 1
+                ? "1 selected"
+                : `${bulk.selectedCount} selected`}
+          </Text>
+          <TouchableOpacity
+            onPress={handleSelectAllToggle}
+            style={styles.bulkHeaderSide}
+            testID="home-bulk-select-all"
+            accessibilityRole="button"
+            accessibilityLabel="home-bulk-select-all"
+          >
+            <Text style={styles.bulkHeaderSelectAll}>
+              {allFilteredSelected ? "Deselect All" : "Select All"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+            <Text style={styles.title} testID="home-title">
+              Orzo
+            </Text>
+            <Text style={styles.subtitle} testID="home-subtitle">
+              Save, Plan, Cook.
+            </Text>
+            <ProfileAvatar />
+          </View>
 
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search recipes..."
+              placeholderTextColor={TEXT_SECONDARY}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              testID="home-search-input"
+            />
+            {isSearching && (
+              <TouchableOpacity
+                style={styles.searchClear}
+                onPress={() => setSearchQuery("")}
+                testID="home-search-clear"
+              >
+                <X size={LUCIDE.md} color={TEXT_SECONDARY} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      )}
+
+      {!bulk.bulkMode && (
       <FlatList
         testID="home-collections-row"
         horizontal
@@ -514,6 +622,7 @@ export function HomeScreen({ navigation, route }: Props) {
         contentContainerStyle={styles.collectionsContent}
         style={styles.collectionsList}
       />
+      )}
 
       {loading && recipes.length === 0 && (
         <ActivityIndicator
@@ -544,14 +653,25 @@ export function HomeScreen({ navigation, route }: Props) {
             recipe={item}
             width={CARD_WIDTH}
             testID={`recipe-card-${item.id}`}
+            bulkMode={bulk.bulkMode}
+            selected={bulk.isSelected(item.id)}
             onPress={() =>
-              navigation.navigate("RecipeDetail", { recipeId: item.id })
+              bulk.bulkMode
+                ? handleBulkCardPress(item)
+                : navigation.navigate("RecipeDetail", { recipeId: item.id })
             }
-            onLongPress={() => handleLongPressRecipe(item)}
+            onLongPress={
+              bulk.bulkMode ? undefined : () => handleLongPressRecipe(item)
+            }
           />
         )}
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          // When the bulk action bar is visible, pad the bottom so the
+          // last row of cards isn't obscured. 96 ≈ bar height + a bit.
+          bulk.bulkMode && { paddingBottom: 96 + insets.bottom },
+        ]}
       />
 
       {jarOpen && (
@@ -867,6 +987,36 @@ export function HomeScreen({ navigation, route }: Props) {
         }}
       />
 
+      {/* Bulk mode overlays */}
+      <BulkActionsBar
+        visible={bulk.bulkMode}
+        count={bulk.selectedCount}
+        primaryAction="add-to-collection"
+        onPrimary={handleBulkAddToCollection}
+        onDelete={handleBulkDelete}
+      />
+
+      <RecipeDeleteConfirmSheet
+        visible={bulkDeleteConfirmVisible}
+        onClose={() => setBulkDeleteConfirmVisible(false)}
+        recipeTitle=""
+        count={bulk.selectedCount}
+        onConfirm={handleBulkDeleteConfirm}
+      />
+
+      <CollectionPickerSheet
+        visible={bulkCollectionPickerVisible}
+        onClose={() => setBulkCollectionPickerVisible(false)}
+        title={
+          bulk.selectedCount === 1
+            ? "Add to collection"
+            : `Add ${bulk.selectedCount} recipes to collection`
+        }
+        subtitle="Choose a folder."
+        collections={collections}
+        onSelectCollection={handleBulkCollectionChosen}
+      />
+
       {photoPreview && (
         <View style={[styles.photoPreviewOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]} testID="photo-preview">
           <Image
@@ -923,6 +1073,36 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 30, fontWeight: "800", fontStyle: "italic" },
   subtitle: { fontSize: 14, marginTop: 2, color: TEXT_SECONDARY },
+  bulkHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: HORIZONTAL_PADDING,
+    paddingBottom: 12,
+  },
+  bulkHeaderSide: {
+    paddingVertical: 8,
+    minWidth: 80,
+  },
+  bulkHeaderCancel: {
+    fontSize: 16,
+    color: TEXT_SECONDARY,
+    fontWeight: "500",
+    textAlign: "left",
+  },
+  bulkHeaderSelectAll: {
+    fontSize: 16,
+    color: PRIMARY,
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  bulkHeaderCount: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: TEXT_PRIMARY,
+    textAlign: "center",
+    flex: 1,
+  },
   searchContainer: {
     paddingHorizontal: HORIZONTAL_PADDING,
     marginBottom: 12,

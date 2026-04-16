@@ -1844,6 +1844,27 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - RNReactNativeHapticFeedback (3.0.0):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.10.14.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Yoga
   - RNReanimated (3.16.1):
     - DoubleConversion
     - glog
@@ -2113,6 +2134,7 @@ DEPENDENCIES:
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - "RNGoogleSignin (from `../../node_modules/@react-native-google-signin/google-signin`)"
   - RNKeychain (from `../../node_modules/react-native-keychain`)
+  - RNReactNativeHapticFeedback (from `../../node_modules/react-native-haptic-feedback`)
   - RNReanimated (from `../../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../../node_modules/react-native-svg`)
@@ -2287,6 +2309,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@react-native-google-signin/google-signin"
   RNKeychain:
     :path: "../../node_modules/react-native-keychain"
+  RNReactNativeHapticFeedback:
+    :path: "../../node_modules/react-native-haptic-feedback"
   RNReanimated:
     :path: "../../node_modules/react-native-reanimated"
   RNScreens:
@@ -2383,6 +2407,7 @@ SPEC CHECKSUMS:
   RNGestureHandler: fffddeb8af59709c6d8de11b6461a6af63cad532
   RNGoogleSignin: f505bc6e94a1065bb1a0f57ada31fc97abe789d5
   RNKeychain: 850638785745df5f70c37251130617a66ec82102
+  RNReactNativeHapticFeedback: d62ff6db8e265a057d9ff14bb81926407f078b65
   RNReanimated: 6160e93d990465818af00def404f2f7d8fa4eb05
   RNScreens: b31a78e0ad400e1ebca64016a0d3f45cbde507eb
   RNSVG: 868084fcd6670f7aff0b6d70f4ef626c500283b8

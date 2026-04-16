@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import FastImage from "react-native-fast-image";
 import LinearGradient from "react-native-linear-gradient";
+import { Check } from "lucide-react-native";
 import type { Recipe } from "@orzo/shared";
 import { ShimmerPlaceholder } from "./ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "./RecipeImagePlaceholder";
-import { DIVIDER, WHITE } from "../theme/colors";
+import { DIVIDER, PRIMARY, WHITE } from "../theme/colors";
 
 /** Storage paths stay the same after re-upload; bust FastImage cache when recipe row changes. */
 function imageUriWithVersion(
@@ -25,6 +26,13 @@ interface RecipeCardProps {
   width: number;
   onPress: () => void;
   onLongPress?: () => void;
+  /** When true, render an iOS-Photos-style checkmark overlay in the top-
+   *  right corner. Tap still calls `onPress` — caller wires the tap to
+   *  `toggle(id)` on the selection hook instead of navigating. */
+  bulkMode?: boolean;
+  /** When `bulkMode` is true, `selected` controls whether the checkmark
+   *  renders filled (primary color) or empty (thin outline). */
+  selected?: boolean;
   testID?: string;
 }
 
@@ -33,6 +41,8 @@ export function RecipeCard({
   width,
   onPress,
   onLongPress,
+  bulkMode = false,
+  selected = false,
   testID,
 }: RecipeCardProps) {
   const [loaded, setLoaded] = useState(false);
@@ -80,6 +90,20 @@ export function RecipeCard({
           {recipe.title}
         </Text>
       </View>
+      {bulkMode && (
+        <View
+          style={[
+            styles.checkmarkCircle,
+            selected
+              ? styles.checkmarkCircleSelected
+              : styles.checkmarkCircleEmpty,
+          ]}
+          testID={`recipe-card-checkmark-${recipe.id}`}
+          accessibilityLabel={selected ? "selected" : "not selected"}
+        >
+          {selected && <Check size={16} color={WHITE} strokeWidth={3} />}
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -110,5 +134,25 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.35)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+  },
+  checkmarkCircle: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkmarkCircleSelected: {
+    backgroundColor: PRIMARY,
+    borderWidth: 2,
+    borderColor: WHITE,
+  },
+  checkmarkCircleEmpty: {
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderWidth: 1.5,
+    borderColor: WHITE,
   },
 });

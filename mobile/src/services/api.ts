@@ -306,6 +306,29 @@ export const api = {
         body: JSON.stringify({ rating }),
       });
     },
+
+    /**
+     * Bulk-delete N recipes in one round-trip. Server silently ignores
+     * ids the caller doesn't own — `deletedCount` reflects only recipes
+     * that were actually deleted.
+     */
+    bulkDelete(ids: string[]) {
+      return request<{ deletedCount: number }>(`/recipes/bulk-delete`, {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      });
+    },
+
+    /**
+     * Bulk-assign a collection to N recipes (or clear if collectionId is
+     * null). Validates collection ownership server-side before writing.
+     */
+    bulkAssignCollection(ids: string[], collectionId: string | null) {
+      return request<{ updatedCount: number }>(`/recipes/bulk-collection`, {
+        method: "PATCH",
+        body: JSON.stringify({ ids, collectionId }),
+      });
+    },
   },
 
   account: {

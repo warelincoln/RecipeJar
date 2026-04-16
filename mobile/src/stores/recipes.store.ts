@@ -8,6 +8,16 @@ interface RecipesState {
   error: string | null;
   fetchRecipes: () => Promise<void>;
   deleteRecipe: (id: string) => Promise<void>;
+  /** Delete N recipes in one server call. Optimistically removes from
+   *  local state before awaiting; server rejection is a rare edge case. */
+  bulkDeleteRecipes: (ids: string[]) => Promise<{ deletedCount: number }>;
+  /** Assign (or clear) a collection on N recipes in one server call.
+   *  Calls fetchRecipes() on success to reflect updated `collections`
+   *  arrays in the local state. */
+  bulkAssignCollection: (
+    ids: string[],
+    collectionId: string | null,
+  ) => Promise<{ updatedCount: number }>;
   reset: () => void;
 }
 
@@ -34,6 +44,30 @@ export const useRecipesStore = create<RecipesState>((set) => ({
     set((state) => ({
       recipes: state.recipes.filter((r) => r.id !== id),
     }));
+  },
+
+  async bulkDeleteRecipes(ids: string[]) {
+    const result = await api.recipes.bulkDelete(ids);
+    // Filter local state by the IDs we asked to delete. The server may
+    // have silently skipped any non-owned ids, but those weren't in our
+    // local store anyway.
+    const idSet = new Set(ids);
+    set((state) => ({
+      recipes: state.recipes.filter((r) => !idSet.has(r.id)),
+    }));
+    return result;
+  },
+
+  async bulkAssignCollection(ids: string[], collectionId: string | null) {
+    const result = await api.recipes.bulkAssignCollection(ids, collectionId);
+    // Refetch to pick up the updated `collections` arrays — matches the
+    // single-assign pattern where HomeScreen/CollectionScreen call
+    // fetchRecipes after assignment.
+    await (async () => {
+      const refreshed = await api.recipes.list();
+      set({ recipes: refreshed });
+    })();
+    return result;
   },
 
   reset() {

@@ -161,7 +161,11 @@ export function RecipeQuickActionsSheet({
 type DeleteConfirmProps = {
   visible: boolean;
   onClose: () => void;
+  /** Single recipe: title shown in quotes. Ignored when `count > 1`. */
   recipeTitle: string;
+  /** When >1, copy becomes "Delete N recipes?" and recipeTitle is ignored.
+   *  Default: 1 (single-recipe path, existing behavior). */
+  count?: number;
   onConfirm: () => void | Promise<void>;
 };
 
@@ -169,6 +173,7 @@ export function RecipeDeleteConfirmSheet({
   visible,
   onClose,
   recipeTitle,
+  count = 1,
   onConfirm,
 }: DeleteConfirmProps) {
   const insets = useSafeAreaInsets();
@@ -226,9 +231,13 @@ export function RecipeDeleteConfirmSheet({
           >
             <X size={LUCIDE.lg} color={TEXT_SECONDARY} />
           </TouchableOpacity>
-          <Text style={styles.sheetTitle}>Delete recipe?</Text>
+          <Text style={styles.sheetTitle}>
+            {count > 1 ? `Delete ${count} recipes?` : "Delete recipe?"}
+          </Text>
           <Text style={styles.confirmLead} numberOfLines={3}>
-            &ldquo;{recipeTitle}&rdquo; will be permanently removed.
+            {count > 1
+              ? `${count} recipes will be permanently removed.`
+              : `\u201C${recipeTitle}\u201D will be permanently removed.`}
           </Text>
           <Text style={styles.confirmHint}>This cannot be undone.</Text>
 
@@ -252,7 +261,9 @@ export function RecipeDeleteConfirmSheet({
             {busy ? (
               <ActivityIndicator color={ERROR} />
             ) : (
-              <Text style={styles.deleteBtnText}>Delete recipe</Text>
+              <Text style={styles.deleteBtnText}>
+                {count > 1 ? `Delete ${count} recipes` : "Delete recipe"}
+              </Text>
             )}
           </TouchableOpacity>
         </View>

@@ -26,6 +26,8 @@ import { useRecipesStore } from "../stores/recipes.store";
 import { RecipeCard } from "../components/RecipeCard";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import { CreateCollectionSheet } from "../components/CreateCollectionSheet";
+import { BulkActionsBar } from "../components/BulkActionsBar";
+import { useBulkSelection } from "../hooks/useBulkSelection";
 import {
   RecipeQuickActionsSheet,
   RecipeDeleteConfirmSheet,
@@ -70,6 +72,11 @@ export function CollectionScreen({ route, navigation }: Props) {
   const [folderMenuVisible, setFolderMenuVisible] = useState(false);
   const [renameFolderVisible, setRenameFolderVisible] = useState(false);
   const [deleteFolderVisible, setDeleteFolderVisible] = useState(false);
+  const bulk = useBulkSelection();
+  const [bulkDeleteConfirmVisible, setBulkDeleteConfirmVisible] =
+    useState(false);
+  const [bulkCollectionPickerVisible, setBulkCollectionPickerVisible] =
+    useState(false);
 
   const {
     collections,
@@ -181,9 +188,99 @@ export function CollectionScreen({ route, navigation }: Props) {
     setRecipeQuickActions({ recipe: item, actions });
   };
 
-  const handleLongPress = isAllRecipes
-    ? handleLongPressAllRecipes
-    : handleLongPressNormal;
+  // Long-press on a recipe card now enters bulk-select mode (iOS Photos
+  // style). The single-recipe RecipeQuickActionsSheet handlers above are
+  // preserved but no longer triggered by long-press — they remain in the
+  // file in case any future flow needs to re-enable them.
+  const handleLongPress = (item: Recipe) => {
+    bulk.enterBulk(item.id);
+  };
+  // Silence TS "defined but never used" warnings for now-unused handlers.
+  void handleLongPressNormal;
+  void handleLongPressAllRecipes;
+
+  const allFilteredSelected =
+    bulk.bulkMode &&
+    filteredRecipes.length > 0 &&
+    filteredRecipes.every((r) => bulk.isSelected(r.id));
+
+  const handleSelectAllToggle = () => {
+    if (allFilteredSelected) {
+      bulk.clear();
+    } else {
+      bulk.selectAll(filteredRecipes.map((r) => r.id));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (bulk.selectedCount === 0) return;
+    setBulkDeleteConfirmVisible(true);
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    const ids = Array.from(bulk.selectedIds);
+    try {
+      await api.recipes.bulkDelete(ids);
+      setBulkDeleteConfirmVisible(false);
+      bulk.exit();
+      fetchData();
+    } catch (err) {
+      setBulkDeleteConfirmVisible(false);
+      Alert.alert(
+        "Delete failed",
+        err instanceof Error ? err.message : "Could not delete recipes",
+      );
+    }
+  };
+
+  // On Home + All Recipes, the bar's primary action is "Add to collection"
+  // (open picker). Inside a specific collection, it's "Remove from folder"
+  // (bulk null-assign). Each handler wraps the appropriate bulk endpoint.
+  const handleBulkPrimary = () => {
+    if (bulk.selectedCount === 0) return;
+    if (isAllRecipes) {
+      if (collections.length === 0) {
+        Alert.alert(
+          "No collections yet",
+          "Create a collection first from the home screen.",
+        );
+        return;
+      }
+      setBulkCollectionPickerVisible(true);
+    } else {
+      void handleBulkRemoveFromCollection();
+    }
+  };
+
+  const handleBulkRemoveFromCollection = async () => {
+    const ids = Array.from(bulk.selectedIds);
+    try {
+      await api.recipes.bulkAssignCollection(ids, null);
+      bulk.exit();
+      fetchData();
+    } catch (err) {
+      Alert.alert(
+        "Could not remove",
+        err instanceof Error ? err.message : "Please try again.",
+      );
+    }
+  };
+
+  const handleBulkCollectionChosen = async (chosenId: string) => {
+    const ids = Array.from(bulk.selectedIds);
+    try {
+      await api.recipes.bulkAssignCollection(ids, chosenId);
+      setBulkCollectionPickerVisible(false);
+      bulk.exit();
+      fetchData();
+    } catch (err) {
+      setBulkCollectionPickerVisible(false);
+      Alert.alert(
+        "Move failed",
+        err instanceof Error ? err.message : "Could not move recipes",
+      );
+    }
+  };
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -221,41 +318,77 @@ export function CollectionScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container} testID="collection-screen">
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.headerTopRow}>
+      {bulk.bulkMode ? (
+        <View
+          style={[styles.bulkHeader, { paddingTop: insets.top + 12 }]}
+          testID="collection-bulk-header"
+        >
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            testID="collection-back"
+            onPress={bulk.exit}
+            style={styles.bulkHeaderSide}
+            testID="collection-bulk-cancel"
             accessibilityRole="button"
-            accessibilityLabel="collection-back"
+            accessibilityLabel="collection-bulk-cancel"
           >
-            <View style={styles.backRow}>
-              <ChevronLeft size={LUCIDE.nav} color={PRIMARY} />
-              <Text style={styles.backText}>Back</Text>
-            </View>
+            <Text style={styles.bulkHeaderCancel}>Cancel</Text>
           </TouchableOpacity>
-          {!isAllRecipes ? (
-            <TouchableOpacity
-              onPress={() => setFolderMenuVisible(true)}
-              hitSlop={14}
-              testID="collection-folder-menu"
-              accessibilityRole="button"
-              accessibilityLabel="Folder options"
-            >
-              <MoreHorizontal size={LUCIDE.lg} color={TEXT_SECONDARY} />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.headerMenuSpacer} />
-          )}
+          <Text style={styles.bulkHeaderCount} testID="collection-bulk-count">
+            {bulk.selectedCount === 0
+              ? "Select recipes"
+              : bulk.selectedCount === 1
+                ? "1 selected"
+                : `${bulk.selectedCount} selected`}
+          </Text>
+          <TouchableOpacity
+            onPress={handleSelectAllToggle}
+            style={styles.bulkHeaderSide}
+            testID="collection-bulk-select-all"
+            accessibilityRole="button"
+            accessibilityLabel="collection-bulk-select-all"
+          >
+            <Text style={styles.bulkHeaderSelectAll}>
+              {allFilteredSelected ? "Deselect All" : "Select All"}
+            </Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.title} testID="collection-title">
-          {collectionName}
-        </Text>
-        <Text style={styles.subtitle}>
-          {recipes.length} recipe{recipes.length !== 1 ? "s" : ""}
-        </Text>
-      </View>
+      ) : (
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              testID="collection-back"
+              accessibilityRole="button"
+              accessibilityLabel="collection-back"
+            >
+              <View style={styles.backRow}>
+                <ChevronLeft size={LUCIDE.nav} color={PRIMARY} />
+                <Text style={styles.backText}>Back</Text>
+              </View>
+            </TouchableOpacity>
+            {!isAllRecipes ? (
+              <TouchableOpacity
+                onPress={() => setFolderMenuVisible(true)}
+                hitSlop={14}
+                testID="collection-folder-menu"
+                accessibilityRole="button"
+                accessibilityLabel="Folder options"
+              >
+                <MoreHorizontal size={LUCIDE.lg} color={TEXT_SECONDARY} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.headerMenuSpacer} />
+            )}
+          </View>
+          <Text style={styles.title} testID="collection-title">
+            {collectionName}
+          </Text>
+          <Text style={styles.subtitle}>
+            {recipes.length} recipe{recipes.length !== 1 ? "s" : ""}
+          </Text>
+        </View>
+      )}
 
+      {!bulk.bulkMode && (
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
@@ -280,6 +413,7 @@ export function CollectionScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         )}
       </View>
+      )}
 
       {loading && (
         <ActivityIndicator
@@ -303,13 +437,51 @@ export function CollectionScreen({ route, navigation }: Props) {
             recipe={item}
             width={CARD_WIDTH}
             testID={`recipe-card-${item.id}`}
+            bulkMode={bulk.bulkMode}
+            selected={bulk.isSelected(item.id)}
             onPress={() =>
-              navigation.navigate("RecipeDetail", { recipeId: item.id })
+              bulk.bulkMode
+                ? bulk.toggle(item.id)
+                : navigation.navigate("RecipeDetail", { recipeId: item.id })
             }
-            onLongPress={() => handleLongPress(item)}
+            onLongPress={
+              bulk.bulkMode ? undefined : () => handleLongPress(item)
+            }
           />
         )}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          bulk.bulkMode && { paddingBottom: 96 + insets.bottom },
+        ]}
+      />
+
+      <BulkActionsBar
+        visible={bulk.bulkMode}
+        count={bulk.selectedCount}
+        primaryAction={isAllRecipes ? "add-to-collection" : "remove-from-collection"}
+        onPrimary={handleBulkPrimary}
+        onDelete={handleBulkDelete}
+      />
+
+      <RecipeDeleteConfirmSheet
+        visible={bulkDeleteConfirmVisible}
+        onClose={() => setBulkDeleteConfirmVisible(false)}
+        recipeTitle=""
+        count={bulk.selectedCount}
+        onConfirm={handleBulkDeleteConfirm}
+      />
+
+      <CollectionPickerSheet
+        visible={bulkCollectionPickerVisible}
+        onClose={() => setBulkCollectionPickerVisible(false)}
+        title={
+          bulk.selectedCount === 1
+            ? "Add to collection"
+            : `Add ${bulk.selectedCount} recipes to collection`
+        }
+        subtitle="Choose a folder."
+        collections={collections}
+        onSelectCollection={handleBulkCollectionChosen}
       />
 
       <RecipeQuickActionsSheet
@@ -451,6 +623,33 @@ export function CollectionScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SURFACE },
   header: { paddingHorizontal: HORIZONTAL_PADDING, paddingBottom: 12 },
+  bulkHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: HORIZONTAL_PADDING,
+    paddingBottom: 12,
+  },
+  bulkHeaderSide: { paddingVertical: 8, minWidth: 80 },
+  bulkHeaderCancel: {
+    fontSize: 16,
+    color: TEXT_SECONDARY,
+    fontWeight: "500",
+    textAlign: "left",
+  },
+  bulkHeaderSelectAll: {
+    fontSize: 16,
+    color: PRIMARY,
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  bulkHeaderCount: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: TEXT_PRIMARY,
+    textAlign: "center",
+    flex: 1,
+  },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",

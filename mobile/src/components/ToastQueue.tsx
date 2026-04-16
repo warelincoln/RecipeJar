@@ -19,7 +19,10 @@ import {
 interface ToastItem {
   id: string;
   message: string;
-  onUndo: () => Promise<void>;
+  /** Optional — omit for informational toasts (e.g. bulk delete
+   *  confirmation) where undo isn't meaningful. When absent, the Undo
+   *  button is hidden and the toast is dismiss-on-timeout only. */
+  onUndo?: () => Promise<void>;
 }
 
 export interface ToastQueueHandle {
@@ -59,7 +62,7 @@ export const ToastQueue = forwardRef<ToastQueueHandle>((_props, ref) => {
   }));
 
   const handleUndo = async () => {
-    if (!current || undoing) return;
+    if (!current || undoing || !current.onUndo) return;
     setUndoing(true);
     try {
       await current.onUndo();
@@ -82,15 +85,17 @@ export const ToastQueue = forwardRef<ToastQueueHandle>((_props, ref) => {
         <Text style={styles.message} numberOfLines={1}>
           {current.message}
         </Text>
-        <TouchableOpacity
-          onPress={handleUndo}
-          disabled={undoing}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Text style={[styles.undoText, undoing && styles.undoDisabled]}>
-            {undoing ? "..." : "Undo"}
-          </Text>
-        </TouchableOpacity>
+        {current.onUndo && (
+          <TouchableOpacity
+            onPress={handleUndo}
+            disabled={undoing}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.undoText, undoing && styles.undoDisabled]}>
+              {undoing ? "..." : "Undo"}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

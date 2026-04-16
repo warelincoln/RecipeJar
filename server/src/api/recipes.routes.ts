@@ -132,6 +132,75 @@ export async function recipesRoutes(app: FastifyInstance) {
     },
   );
 
+  // --- Bulk operations ---
+  //
+  // Both bulk endpoints:
+  //   - Return JSON bodies (NOT 204 No Content). The mobile client's
+  //     request() helper calls .json() on every response; a 204 would
+  //     throw on the client.
+  //   - Scope by request.userId. Non-owned ids are silently excluded from
+  //     the count (same as bulk delete semantics elsewhere).
+  //   - Inherit the global 100 req/min rate limit; bulk operations are
+  //     one request regardless of selection size.
+
+  app.post<{ Body: { ids: string[] } }>(
+    "/recipes/bulk-delete",
+    async (request, reply) => {
+      const { ids } = request.body;
+      if (!Array.isArray(ids)) {
+        return reply.status(400).send({ error: "ids must be an array" });
+      }
+      const deletedIds = await recipesRepository.bulkDelete(
+        request.userId,
+        ids,
+      );
+      // Fire-and-forget image cleanup: log but don't fail the response
+      // if Storage has transient issues (same pattern as single-delete).
+      await Promise.all(
+        deletedIds.map((id) =>
+          deleteRecipeImage(request.userId, id).catch((err) => {
+            request.log.warn(
+              { err, recipeId: id },
+              "Failed to delete recipe image from storage during bulk delete",
+            );
+          }),
+        ),
+      );
+      return reply.send({ deletedCount: deletedIds.length });
+    },
+  );
+
+  app.patch<{ Body: { ids: string[]; collectionId: string | null } }>(
+    "/recipes/bulk-collection",
+    async (request, reply) => {
+      const { ids, collectionId } = request.body;
+      if (!Array.isArray(ids)) {
+        return reply.status(400).send({ error: "ids must be an array" });
+      }
+      if (collectionId !== null && typeof collectionId !== "string") {
+        return reply
+          .status(400)
+          .send({ error: "collectionId must be a string or null" });
+      }
+      // Validate collection ownership before touching any rows.
+      if (collectionId !== null) {
+        const collection = await collectionsRepository.findById(
+          collectionId,
+          request.userId,
+        );
+        if (!collection) {
+          return reply.status(404).send({ error: "Collection not found" });
+        }
+      }
+      const updatedCount = await recipesRepository.bulkAssignCollection(
+        request.userId,
+        ids,
+        collectionId,
+      );
+      return reply.send({ updatedCount });
+    },
+  );
+
   app.post<{ Params: { id: string } }>(
     "/recipes/:id/image",
     async (request, reply) => {
