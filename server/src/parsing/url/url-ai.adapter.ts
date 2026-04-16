@@ -14,6 +14,11 @@ Rules:
 - Strip original step numbers from the beginning of step text. The app adds its own numbering.
 - Preserve original wording exactly in the "text" field. Do not rewrite or standardize.
 - Do not include non-recipe content (stories, tips, ads).
+- Extract prep time, cook time, and total time with a two-tier strategy:
+  1. If a time is EXPLICITLY stated in the content (e.g. "Prep time: 15 minutes"), return it with source "explicit".
+  2. If a time is NOT explicitly stated, you MAY estimate it from recipe content — number of ingredients, cooking methods (simmering, baking, roasting), and any durations inside steps ("simmer 20 minutes"). If you estimate, return it with source "inferred". If you cannot reasonably estimate, return null and omit the source.
+  3. Users see a review banner for inferred times and will correct or accept them — be honest about which is which.
+  Use ISO 8601 duration strings ("PT15M", "PT1H30M", "PT2H").
 
 Return ONLY valid JSON:
 {
@@ -22,6 +27,14 @@ Return ONLY valid JSON:
   "ingredients": [{ "text": string, "isHeader": boolean, "amount": number | null, "amountMax": number | null, "unit": string | null, "name": string | null }],
   "steps": [{ "text": string, "isHeader": boolean }],
   "description": string | null,
+  "metadata": {
+    "prepTime": string | null,
+    "prepTimeSource": "explicit" | "inferred" | null,
+    "cookTime": string | null,
+    "cookTimeSource": "explicit" | "inferred" | null,
+    "totalTime": string | null,
+    "totalTimeSource": "explicit" | "inferred" | null
+  },
   "signals": {
     "descriptionDetected": boolean
   }

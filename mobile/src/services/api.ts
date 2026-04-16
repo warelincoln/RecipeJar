@@ -236,6 +236,9 @@ export const api = {
         description?: string | null;
         collectionId?: string | null;
         baselineServings?: number | null;
+        prepTimeMinutes?: number | null;
+        cookTimeMinutes?: number | null;
+        totalTimeMinutes?: number | null;
         ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
         steps: { text: string; orderIndex: number; isHeader: boolean }[];
       },

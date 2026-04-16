@@ -29,6 +29,7 @@ import {
   resolveImageUrls,
 } from "../services/recipe-image.service.js";
 import { acquireParseLock, releaseParseLock } from "../parsing/parse-semaphore.js";
+import { isoDurationToMinutes } from "../parsing/time.js";
 
 const PARSE_ALLOWED_STATUSES = new Set<DraftStatus>([
   "READY_FOR_PARSE",
@@ -564,16 +565,57 @@ export async function draftsRoutes(app: FastifyInstance) {
       const baselineServings =
         edited.servings ?? parsedCandidate?.servings ?? null;
 
+      // Time resolution order per field:
+      //   1. User override in EditedRecipeCandidate (set via the times
+      //      review banner on preview) → source "user_confirmed"
+      //   2. Parsed metadata time (JSON-LD/Microdata → "explicit", or
+      //      AI estimate → "inferred")
+      //   3. null if neither is available
+      //
+      // If the user overrode the value — even to null — that wins.
+      const resolveTime = (
+        overrideKey: "prepTimeMinutes" | "cookTimeMinutes" | "totalTimeMinutes",
+        parsedIsoKey: "prepTime" | "cookTime" | "totalTime",
+        parsedSourceKey: "prepTimeSource" | "cookTimeSource" | "totalTimeSource",
+      ): {
+        minutes: number | null;
+        source: "explicit" | "inferred" | "user_confirmed" | null;
+      } => {
+        if (overrideKey in edited) {
+          const v = (edited as unknown as Record<string, unknown>)[overrideKey];
+          const minutes = typeof v === "number" && v > 0 ? Math.round(v) : null;
+          return { minutes, source: minutes != null ? "user_confirmed" : null };
+        }
+        const minutes = isoDurationToMinutes(
+          parsedCandidate?.metadata?.[parsedIsoKey],
+        );
+        const parsedSource = parsedCandidate?.metadata?.[parsedSourceKey];
+        return {
+          minutes,
+          source: minutes != null ? (parsedSource ?? null) : null,
+        };
+      };
+      const prepTime = resolveTime("prepTimeMinutes", "prepTime", "prepTimeSource");
+      const cookTime = resolveTime("cookTimeMinutes", "cookTime", "cookTimeSource");
+      const totalTime = resolveTime("totalTimeMinutes", "totalTime", "totalTimeSource");
+
       const pages = await draftsRepository.getPages(draftId);
 
       const recipe = await recipesRepository.save({
         userId: request.userId,
         title: edited.title,
         description: edited.description,
+        descriptionSummary: null, // Feature 5 wiring deferred
         sourceType: draft.sourceType as "image" | "url",
         originalUrl: draft.originalUrl,
         imageUrl: null,
         baselineServings,
+        prepTimeMinutes: prepTime.minutes,
+        prepTimeSource: prepTime.source,
+        cookTimeMinutes: cookTime.minutes,
+        cookTimeSource: cookTime.source,
+        totalTimeMinutes: totalTime.minutes,
+        totalTimeSource: totalTime.source,
         saveDecision,
         ingredients: edited.ingredients.map((ing) => ({
           text: ing.text,
@@ -586,7 +628,12 @@ export async function draftsRoutes(app: FastifyInstance) {
           rawText: ing.raw ?? ing.text,
           isScalable: ing.isScalable ?? false,
         })),
-        steps: edited.steps,
+        steps: edited.steps.map((step) => ({
+          text: step.text,
+          summaryText: null, // Feature 5 wiring deferred
+          orderIndex: step.orderIndex,
+          isHeader: step.isHeader,
+        })),
         sourcePages: pages.map((p) => ({
           orderIndex: p.orderIndex,
           imageUri: p.imageUri,

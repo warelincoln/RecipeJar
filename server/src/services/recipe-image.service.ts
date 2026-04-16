@@ -83,6 +83,22 @@ export async function resolveImageUrls(imageUrl: string | null) {
   };
 }
 
+/**
+ * Create a signed URL for a source page image stored in the `recipe-pages` bucket.
+ * Returns null if the path is empty or signing fails.
+ */
+export async function resolveSourcePageUrl(
+  storagePath: string | null | undefined,
+): Promise<string | null> {
+  if (!storagePath) return null;
+  const supabase = getSupabase();
+  const { data, error } = await supabase.storage
+    .from(RECIPE_PAGES_BUCKET)
+    .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
+
 export async function deleteRecipeImage(userId: string, recipeId: string): Promise<void> {
   await ensureRecipeImagesBucket();
   const paths = [heroPathFor(userId, recipeId), thumbnailPathFor(userId, recipeId)];

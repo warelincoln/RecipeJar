@@ -8,8 +8,10 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
+  Linking,
 } from "react-native";
 import FastImage from "react-native-fast-image";
+import { Clock, Globe, Camera } from "lucide-react-native";
 import { api } from "../services/api";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
@@ -21,6 +23,7 @@ import { FullScreenImageViewer } from "../components/FullScreenImageViewer";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import type { Recipe } from "@orzo/shared";
 import { scaleIngredient } from "../utils/scaling";
+import { formatMinutes, hasAnyTime } from "../utils/time";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import {
@@ -35,6 +38,22 @@ import {
   TINT_AMBER,
 } from "../theme/colors";
 
+const SERVINGS_MULTIPLIERS: { label: string; value: number }[] = [
+  { label: "½", value: 0.5 },
+  { label: "2×", value: 2 },
+  { label: "3×", value: 3 },
+];
+
+function hostnameFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeDetail">;
 
 export function RecipeDetailScreen({ route, navigation }: Props) {
@@ -43,6 +62,7 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [heroLoaded, setHeroLoaded] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [pageViewerUrl, setPageViewerUrl] = useState<string | null>(null);
   const [imgCacheBuster, setImgCacheBuster] = useState(() => Date.now());
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
   const [displayServingsText, setDisplayServingsText] = useState("");
@@ -134,6 +154,30 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
     }
   };
 
+  const handleServingsMultiplier = (multiplier: number) => {
+    if (baseline == null || baseline === 0) return;
+    const next = Math.max(0.25, Math.min(99, baseline * multiplier));
+    setDisplayServingsText(String(next));
+  };
+
+  const handleOpenSourceUrl = async () => {
+    const url = recipe?.sourceContext?.originalUrl;
+    if (!url) return;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          "Cannot open link",
+          "This device doesn't have an app that can open this link.",
+        );
+      }
+    } catch (err) {
+      Alert.alert("Cannot open link", "Something went wrong opening the link.");
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loader}>
@@ -214,6 +258,123 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         <Text style={styles.description} testID="recipe-detail-description">{recipe.description}</Text>
       )}
 
+      {(() => {
+        const sourceType = recipe.sourceContext?.sourceType;
+        const originalUrl = recipe.sourceContext?.originalUrl ?? null;
+        const pages = recipe.sourceContext?.pages ?? [];
+        if (sourceType === "url" && originalUrl) {
+          const host = hostnameFromUrl(originalUrl);
+          if (!host) return null;
+          return (
+            <TouchableOpacity
+              style={styles.sourceChip}
+              onPress={handleOpenSourceUrl}
+              testID="recipe-detail-source-chip"
+              accessibilityRole="link"
+              accessibilityLabel={`Open source: ${host}`}
+            >
+              <Globe size={14} color={TEXT_SECONDARY} strokeWidth={2} />
+              <Text style={styles.sourceChipText} numberOfLines={1}>{host}</Text>
+            </TouchableOpacity>
+          );
+        }
+        if (sourceType === "image" && pages.length > 0) {
+          return (
+            <View style={styles.sourceSection} testID="recipe-detail-source-pages">
+              <View style={styles.sourceChipStatic}>
+                <Camera size={14} color={TEXT_SECONDARY} strokeWidth={2} />
+                <Text style={styles.sourceChipText}>Imported from photo</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.pageStrip}
+              >
+                {pages.map((page) => {
+                  const uri = page.imageUri;
+                  if (!uri) return null;
+                  return (
+                    <TouchableOpacity
+                      key={page.id}
+                      style={styles.pageThumb}
+                      onPress={() => setPageViewerUrl(uri)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel={`View source page ${page.orderIndex + 1}`}
+                    >
+                      <FastImage
+                        source={{ uri }}
+                        style={styles.pageThumbImage}
+                        resizeMode={FastImage.resizeMode.cover}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          );
+        }
+        return null;
+      })()}
+
+      {hasAnyTime(
+        recipe.prepTimeMinutes,
+        recipe.cookTimeMinutes,
+        recipe.totalTimeMinutes,
+      ) && (() => {
+        // Unconfirmed AI estimates get a muted "~" prefix on the chip so
+        // users can tell at a glance which values were stated vs. guessed.
+        // Explicit (authored on the source) and user_confirmed values
+        // render clean.
+        const fmt = (
+          minutes: number | null,
+          source: Recipe["prepTimeSource"],
+          label: string,
+        ): string | null => {
+          const text = formatMinutes(minutes);
+          if (!text) return null;
+          const prefix = source === "inferred" ? "~" : "";
+          return `${prefix}${text} ${label}`;
+        };
+        // Display-layer fallback: if the source didn't supply a total but
+        // did supply prep and/or cook, derive total = prep + cook at render
+        // time and prefix with "~" so it reads as a computed estimate. This
+        // fills the common JSON-LD gap where sites authoritatively publish
+        // prepTime/cookTime but not totalTime.
+        const storedTotal = formatMinutes(recipe.totalTimeMinutes);
+        const derivedTotalMinutes =
+          recipe.totalTimeMinutes == null &&
+          (recipe.prepTimeMinutes != null || recipe.cookTimeMinutes != null)
+            ? (recipe.prepTimeMinutes ?? 0) + (recipe.cookTimeMinutes ?? 0)
+            : null;
+        const totalChip = storedTotal
+          ? fmt(recipe.totalTimeMinutes, recipe.totalTimeSource, "total")
+          : derivedTotalMinutes != null && derivedTotalMinutes > 0
+            ? `~${formatMinutes(derivedTotalMinutes)} total`
+            : null;
+        const parts = [
+          fmt(recipe.prepTimeMinutes, recipe.prepTimeSource, "prep"),
+          fmt(recipe.cookTimeMinutes, recipe.cookTimeSource, "cook"),
+          totalChip,
+        ].filter(Boolean);
+        const anyInferred =
+          recipe.prepTimeSource === "inferred" ||
+          recipe.cookTimeSource === "inferred" ||
+          recipe.totalTimeSource === "inferred";
+        return (
+          <View style={styles.timeRow} testID="recipe-detail-time-row">
+            <Clock size={14} color={TEXT_SECONDARY} strokeWidth={2} />
+            <Text
+              style={[
+                styles.timeText,
+                anyInferred && styles.timeTextInferred,
+              ]}
+            >
+              {parts.join(" · ")}
+            </Text>
+          </View>
+        );
+      })()}
+
       <RecipeRatingInput
         rating={recipe.rating}
         onRate={(value) => {
@@ -230,6 +391,35 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       {baseline != null && (
         <View style={styles.servingsControl}>
           <Text style={styles.servingsLabel}>Servings</Text>
+          <View style={styles.servingsMultiplierRow}>
+            {SERVINGS_MULTIPLIERS.map(({ label, value }) => {
+              const isActive =
+                displayServings != null &&
+                Math.abs(displayServings - baseline * value) < 0.01;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={[
+                    styles.servingsMultiplierChip,
+                    isActive && styles.servingsMultiplierChipActive,
+                  ]}
+                  onPress={() => handleServingsMultiplier(value)}
+                  testID={`recipe-detail-servings-x${value}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Scale servings by ${label}`}
+                >
+                  <Text
+                    style={[
+                      styles.servingsMultiplierText,
+                      isActive && styles.servingsMultiplierTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
           <View style={styles.servingsRow}>
             <TouchableOpacity
               style={styles.servingsStepBtn}
@@ -315,14 +505,6 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         }}
       />
 
-      <View style={styles.meta}>
-        {recipe.sourceContext?.sourceType && (
-          <Text style={styles.metaText}>
-            Source: {recipe.sourceContext.sourceType}
-          </Text>
-        )}
-      </View>
-
       <TouchableOpacity
         style={styles.deleteButton}
         onPress={handleDelete}
@@ -337,6 +519,11 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
         visible={viewerVisible}
         imageUrl={heroUrl}
         onClose={() => setViewerVisible(false)}
+      />
+      <FullScreenImageViewer
+        visible={pageViewerUrl != null}
+        imageUrl={pageViewerUrl}
+        onClose={() => setPageViewerUrl(null)}
       />
     </ScrollView>
     <CollectionPickerSheet
@@ -398,7 +585,69 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   editButtonText: { color: WHITE, fontSize: 14, fontWeight: "600" },
-  description: { fontSize: 15, color: TEXT_SECONDARY, lineHeight: 22, marginBottom: 16 },
+  description: { fontSize: 15, color: TEXT_SECONDARY, lineHeight: 22, marginBottom: 12 },
+  sourceChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: DIVIDER,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginBottom: 12,
+    maxWidth: "100%",
+  },
+  sourceChipStatic: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: DIVIDER,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginBottom: 8,
+  },
+  sourceChipText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: "500",
+    flexShrink: 1,
+  },
+  sourceSection: {
+    marginBottom: 12,
+  },
+  pageStrip: {
+    gap: 8,
+    paddingRight: 16,
+  },
+  pageThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: DIVIDER,
+  },
+  pageThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  timeText: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    fontWeight: "500",
+  },
+  timeTextInferred: {
+    fontStyle: "italic",
+    color: TEXT_TERTIARY,
+  },
   badge: {
     alignSelf: "flex-start", backgroundColor: TINT_AMBER,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginBottom: 16,
@@ -406,6 +655,30 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: "600", color: WARNING },
   servingsControl: {
     marginTop: 20,
+  },
+  servingsMultiplierRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  servingsMultiplierChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: DIVIDER,
+    minWidth: 44,
+    alignItems: "center",
+  },
+  servingsMultiplierChipActive: {
+    backgroundColor: PRIMARY,
+  },
+  servingsMultiplierText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TEXT_TERTIARY,
+  },
+  servingsMultiplierTextActive: {
+    color: WHITE,
   },
   servingsLabel: {
     fontSize: 16, fontWeight: "600", color: TEXT_TERTIARY, marginBottom: 8,
@@ -450,11 +723,6 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   stepText: { flex: 1, fontSize: 15, lineHeight: 22 },
-  meta: {
-    marginTop: 32, paddingTop: 16,
-    borderTopWidth: 1, borderTopColor: DIVIDER,
-  },
-  metaText: { fontSize: 12, color: TEXT_SECONDARY, marginBottom: 4 },
   deleteButton: {
     marginTop: 32,
     paddingVertical: 14,

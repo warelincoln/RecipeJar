@@ -430,6 +430,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
       return (
         <PreviewEditView
           candidate={state.context.editedCandidate}
+          parsedMetadata={state.context.parsedCandidate?.metadata ?? null}
           validationResult={state.context.validationResult}
           dismissedIssueIds={dismissedIssueIds}
           heroImageUrl={

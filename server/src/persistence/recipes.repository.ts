@@ -20,10 +20,17 @@ export interface SaveRecipeInput {
   userId: string;
   title: string;
   description?: string | null;
+  descriptionSummary?: string | null;
   sourceType: "image" | "url";
   originalUrl?: string | null;
   imageUrl?: string | null;
   baselineServings: number | null;
+  prepTimeMinutes?: number | null;
+  prepTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
+  cookTimeMinutes?: number | null;
+  cookTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
+  totalTimeMinutes?: number | null;
+  totalTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
   saveDecision: SaveDecision;
   ingredients: {
     text: string;
@@ -36,7 +43,12 @@ export interface SaveRecipeInput {
     rawText: string | null;
     isScalable: boolean;
   }[];
-  steps: { text: string; orderIndex: number; isHeader: boolean }[];
+  steps: {
+    text: string;
+    summaryText?: string | null;
+    orderIndex: number;
+    isHeader: boolean;
+  }[];
   sourcePages: {
     orderIndex: number;
     imageUri?: string | null;
@@ -84,6 +96,7 @@ export const recipesRepository = {
         userId: input.userId,
         title: input.title,
         description: input.description ?? null,
+        descriptionSummary: input.descriptionSummary ?? null,
         sourceType: input.sourceType,
         originalUrl: input.originalUrl ?? null,
         imageUrl: input.imageUrl ?? null,
@@ -91,6 +104,12 @@ export const recipesRepository = {
           input.baselineServings != null
             ? String(input.baselineServings)
             : null,
+        prepTimeMinutes: input.prepTimeMinutes ?? null,
+        prepTimeSource: input.prepTimeSource ?? null,
+        cookTimeMinutes: input.cookTimeMinutes ?? null,
+        cookTimeSource: input.cookTimeSource ?? null,
+        totalTimeMinutes: input.totalTimeMinutes ?? null,
+        totalTimeSource: input.totalTimeSource ?? null,
         saveState: input.saveDecision.saveState,
         isUserVerified: input.saveDecision.isUserVerified,
         hasUnresolvedWarnings: input.saveDecision.hasUnresolvedWarnings,
@@ -120,6 +139,7 @@ export const recipesRepository = {
           recipeId: recipe.id,
           orderIndex: step.orderIndex,
           text: step.text,
+          summaryText: step.summaryText ?? null,
           isHeader: step.isHeader,
         })),
       );
@@ -236,11 +256,20 @@ export const recipesRepository = {
     input: {
       title: string;
       description?: string | null;
+      descriptionSummary?: string | null;
       imageUrl?: string | null;
       collectionId?: string | null;
       baselineServings?: number | null;
+      prepTimeMinutes?: number | null;
+      cookTimeMinutes?: number | null;
+      totalTimeMinutes?: number | null;
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
-      steps: { text: string; orderIndex: number; isHeader: boolean }[];
+      steps: {
+        text: string;
+        summaryText?: string | null;
+        orderIndex: number;
+        isHeader: boolean;
+      }[];
     },
     userId?: string,
   ) {
@@ -249,12 +278,34 @@ export const recipesRepository = {
       description: input.description ?? null,
       updatedAt: new Date(),
     };
+    if (input.descriptionSummary !== undefined) {
+      recipeSet.descriptionSummary = input.descriptionSummary;
+    }
     if (input.imageUrl !== undefined) recipeSet.imageUrl = input.imageUrl;
     if (input.baselineServings !== undefined) {
       recipeSet.baselineServings =
         input.baselineServings != null
           ? String(input.baselineServings)
           : null;
+    }
+    // Any time field supplied via update() implies the user has reviewed the
+    // value in RecipeEditScreen. Flip the source to "user_confirmed" so the
+    // detail chip drops the muted "~" inferred-cue. If the caller is
+    // explicitly clearing the value (null), also clear the source.
+    if (input.prepTimeMinutes !== undefined) {
+      recipeSet.prepTimeMinutes = input.prepTimeMinutes;
+      recipeSet.prepTimeSource =
+        input.prepTimeMinutes == null ? null : "user_confirmed";
+    }
+    if (input.cookTimeMinutes !== undefined) {
+      recipeSet.cookTimeMinutes = input.cookTimeMinutes;
+      recipeSet.cookTimeSource =
+        input.cookTimeMinutes == null ? null : "user_confirmed";
+    }
+    if (input.totalTimeMinutes !== undefined) {
+      recipeSet.totalTimeMinutes = input.totalTimeMinutes;
+      recipeSet.totalTimeSource =
+        input.totalTimeMinutes == null ? null : "user_confirmed";
     }
 
     const whereClause = userId
@@ -325,6 +376,7 @@ export const recipesRepository = {
           recipeId: id,
           orderIndex: step.orderIndex,
           text: step.text,
+          summaryText: step.summaryText ?? null,
           isHeader: step.isHeader,
         })),
       );

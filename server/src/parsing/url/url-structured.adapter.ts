@@ -171,16 +171,45 @@ function findRecipeInLdJson(data: unknown): RawExtractionResult | null {
 
 function extractMetadata(
   obj: Record<string, unknown>,
-): { yield?: string; prepTime?: string; cookTime?: string; totalTime?: string; imageUrl?: string } | undefined {
-  const meta: Record<string, string> = {};
+): {
+  yield?: string;
+  prepTime?: string;
+  prepTimeSource?: "explicit" | "inferred";
+  cookTime?: string;
+  cookTimeSource?: "explicit" | "inferred";
+  totalTime?: string;
+  totalTimeSource?: "explicit" | "inferred";
+  imageUrl?: string;
+} | undefined {
+  const meta: {
+    yield?: string;
+    prepTime?: string;
+    prepTimeSource?: "explicit" | "inferred";
+    cookTime?: string;
+    cookTimeSource?: "explicit" | "inferred";
+    totalTime?: string;
+    totalTimeSource?: "explicit" | "inferred";
+    imageUrl?: string;
+  } = {};
 
   if (typeof obj.recipeYield === "string") meta.yield = obj.recipeYield;
   else if (Array.isArray(obj.recipeYield) && typeof obj.recipeYield[0] === "string")
     meta.yield = obj.recipeYield[0];
 
-  if (typeof obj.prepTime === "string") meta.prepTime = obj.prepTime;
-  if (typeof obj.cookTime === "string") meta.cookTime = obj.cookTime;
-  if (typeof obj.totalTime === "string") meta.totalTime = obj.totalTime;
+  // JSON-LD / Microdata times are always "explicit" — they were authored
+  // into the page's structured data, not estimated by us.
+  if (typeof obj.prepTime === "string") {
+    meta.prepTime = obj.prepTime;
+    meta.prepTimeSource = "explicit";
+  }
+  if (typeof obj.cookTime === "string") {
+    meta.cookTime = obj.cookTime;
+    meta.cookTimeSource = "explicit";
+  }
+  if (typeof obj.totalTime === "string") {
+    meta.totalTime = obj.totalTime;
+    meta.totalTimeSource = "explicit";
+  }
 
   if (typeof obj.image === "string") meta.imageUrl = obj.image;
   else if (Array.isArray(obj.image) && typeof obj.image[0] === "string")

@@ -148,6 +148,13 @@ export const recipes = pgTable(
     imageUrl: text("image_url"),
     ratingHalfSteps: integer("rating_half_steps"),
     baselineServings: numeric("baseline_servings"),
+    prepTimeMinutes: integer("prep_time_minutes"),
+    prepTimeSource: text("prep_time_source"),
+    cookTimeMinutes: integer("cook_time_minutes"),
+    cookTimeSource: text("cook_time_source"),
+    totalTimeMinutes: integer("total_time_minutes"),
+    totalTimeSource: text("total_time_source"),
+    descriptionSummary: text("description_summary"),
     saveState: text("save_state").notNull(),
     isUserVerified: boolean("is_user_verified").notNull().default(false),
     hasUnresolvedWarnings: boolean("has_unresolved_warnings")
@@ -225,6 +232,7 @@ export const recipeSteps = pgTable(
       .references(() => recipes.id, { onDelete: "cascade" }),
     orderIndex: integer("order_index").notNull(),
     text: text("text").notNull(),
+    summaryText: text("summary_text"),
     isHeader: boolean("is_header").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

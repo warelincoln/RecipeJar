@@ -1,3 +1,14 @@
+/**
+ * Provenance of a recipe time field.
+ *  - "explicit": the time was literally stated on the source (JSON-LD,
+ *    Microdata, or a cookbook page that said "Prep: 15 min").
+ *  - "inferred": the AI parser estimated the time because it wasn't stated.
+ *    The mobile app shows a review banner and renders the time with a
+ *    muted "~" prefix on the detail chip until the user confirms.
+ *  - "user_confirmed": the user accepted or edited the value in the app.
+ */
+export type TimeSource = "explicit" | "inferred" | "user_confirmed";
+
 export interface RecipeIngredientEntry {
   id: string;
   text: string;
@@ -14,6 +25,7 @@ export interface RecipeIngredientEntry {
 export interface RecipeStepEntry {
   id: string;
   text: string;
+  summaryText: string | null;
   orderIndex: number;
   isHeader: boolean;
 }
@@ -49,9 +61,16 @@ export interface Recipe {
   ingredients: RecipeIngredientEntry[];
   steps: RecipeStepEntry[];
   description?: string | null;
+  descriptionSummary: string | null;
   imageUrl?: string | null;
   thumbnailUrl?: string | null;
   baselineServings: number | null;
+  prepTimeMinutes: number | null;
+  prepTimeSource: TimeSource | null;
+  cookTimeMinutes: number | null;
+  cookTimeSource: TimeSource | null;
+  totalTimeMinutes: number | null;
+  totalTimeSource: TimeSource | null;
 
   rating: number | null;
   notes: RecipeNote[];

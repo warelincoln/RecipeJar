@@ -58,6 +58,13 @@ export function RecipeEditScreen({ route, navigation }: Props) {
   const [ingredients, setIngredients] = useState<EditableIngredient[]>([]);
   const [steps, setSteps] = useState<EditableStep[]>([]);
   const [servingsText, setServingsText] = useState("");
+  const [prepTimeText, setPrepTimeText] = useState("");
+  const [cookTimeText, setCookTimeText] = useState("");
+  const [totalTimeText, setTotalTimeText] = useState("");
+  // Tracks whether the current totalTimeText was populated by the auto-sum
+  // effect below (so we can keep updating it as prep/cook change) vs.
+  // entered/edited by the user (manual total always wins).
+  const [totalIsAutoFilled, setTotalIsAutoFilled] = useState(false);
   const [collectionId, setCollectionId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
@@ -81,6 +88,15 @@ export function RecipeEditScreen({ route, navigation }: Props) {
       setSteps((recipe.steps ?? []).map((s) => ({ text: s.text, isHeader: s.isHeader })));
       setServingsText(
         recipe.baselineServings != null ? String(recipe.baselineServings) : "",
+      );
+      setPrepTimeText(
+        recipe.prepTimeMinutes != null ? String(recipe.prepTimeMinutes) : "",
+      );
+      setCookTimeText(
+        recipe.cookTimeMinutes != null ? String(recipe.cookTimeMinutes) : "",
+      );
+      setTotalTimeText(
+        recipe.totalTimeMinutes != null ? String(recipe.totalTimeMinutes) : "",
       );
       setCollectionId(recipe.collections?.[0]?.id ?? null);
       setImageUrl(recipe.imageUrl ?? null);
@@ -161,6 +177,49 @@ export function RecipeEditScreen({ route, navigation }: Props) {
     ]);
   };
 
+  const parsePositiveInt = (text: string): number | null => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return null;
+    const n = parseInt(trimmed, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  /**
+   * Auto-sum prep + cook → total.
+   *
+   * Rules (per locked decision: "manual total always wins"):
+   *   - If the user has a manual total value (non-empty, not auto-filled),
+   *     never overwrite.
+   *   - If the total field is empty OR was previously auto-filled, follow
+   *     prep + cook. This covers both initial load (recipe had null total
+   *     but prep+cook) and live typing.
+   *   - If prep and cook both clear, and total was auto-filled, clear it.
+   *
+   * Tapping or typing the total field flips `totalIsAutoFilled` to false,
+   * ceding control to the user until they clear the field again.
+   */
+  useEffect(() => {
+    if (totalTimeText.trim() !== "" && !totalIsAutoFilled) return;
+    const prep = parsePositiveInt(prepTimeText) ?? 0;
+    const cook = parsePositiveInt(cookTimeText) ?? 0;
+    const sum = prep + cook;
+    if (sum > 0) {
+      const next = String(sum);
+      if (next !== totalTimeText) {
+        setTotalTimeText(next);
+        setTotalIsAutoFilled(true);
+      }
+    } else if (totalIsAutoFilled && totalTimeText !== "") {
+      setTotalTimeText("");
+      setTotalIsAutoFilled(false);
+    }
+  }, [prepTimeText, cookTimeText, totalTimeText, totalIsAutoFilled]);
+
+  const handleTotalTimeChange = (text: string) => {
+    setTotalTimeText(text);
+    setTotalIsAutoFilled(false);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const parsedServings = parseFloat(servingsText);
@@ -172,6 +231,9 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         description: description || null,
         collectionId,
         baselineServings,
+        prepTimeMinutes: parsePositiveInt(prepTimeText),
+        cookTimeMinutes: parsePositiveInt(cookTimeText),
+        totalTimeMinutes: parsePositiveInt(totalTimeText),
         ingredients: ingredients.map((ing, i) => ({
           text: ing.text,
           orderIndex: i,
@@ -321,6 +383,45 @@ export function RecipeEditScreen({ route, navigation }: Props) {
         keyboardType="numeric"
         testID="edit-servings-input"
       />
+
+      <Text style={styles.sectionTitle}>Times (minutes, optional)</Text>
+      <View style={styles.timesRow}>
+        <View style={styles.timeField}>
+          <Text style={styles.timeLabel}>Prep</Text>
+          <TextInput
+            style={[styles.input, styles.timeInput]}
+            value={prepTimeText}
+            onChangeText={setPrepTimeText}
+            placeholder="—"
+            keyboardType="number-pad"
+            testID="edit-prep-time-input"
+          />
+        </View>
+        <View style={styles.timeField}>
+          <Text style={styles.timeLabel}>Cook</Text>
+          <TextInput
+            style={[styles.input, styles.timeInput]}
+            value={cookTimeText}
+            onChangeText={setCookTimeText}
+            placeholder="—"
+            keyboardType="number-pad"
+            testID="edit-cook-time-input"
+          />
+        </View>
+        <View style={styles.timeField}>
+          <Text style={styles.timeLabel}>
+            Total{totalIsAutoFilled ? " (auto)" : ""}
+          </Text>
+          <TextInput
+            style={[styles.input, styles.timeInput]}
+            value={totalTimeText}
+            onChangeText={handleTotalTimeChange}
+            placeholder="—"
+            keyboardType="number-pad"
+            testID="edit-total-time-input"
+          />
+        </View>
+      </View>
 
       <Text style={styles.sectionTitle}>Description</Text>
       <TextInput
@@ -523,6 +624,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   servingsInput: { width: 100 },
+  timesRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 4,
+  },
+  timeField: {
+    flex: 1,
+  },
+  timeLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: TEXT_SECONDARY,
+    marginBottom: 4,
+  },
+  timeInput: {
+    textAlign: "center",
+  },
   multilineInput: { minHeight: 60, textAlignVertical: "top" },
   collectionPicker: { flexGrow: 0, marginBottom: 8 },
   collectionChip: {

@@ -12,8 +12,15 @@ import type {
 export interface RecipeMetadata {
   yield?: string;
   prepTime?: string;
+  /**
+   * "explicit" when the time was literally stated on the source, "inferred"
+   * when the parser estimated it. Absent when no value was extracted.
+   */
+  prepTimeSource?: "explicit" | "inferred";
   cookTime?: string;
+  cookTimeSource?: "explicit" | "inferred";
   totalTime?: string;
+  totalTimeSource?: "explicit" | "inferred";
   imageUrl?: string;
 }
 

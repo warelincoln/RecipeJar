@@ -53,6 +53,19 @@ export interface EditedRecipeCandidate {
   steps: EditableStepEntry[];
   description?: string | null;
   servings: number | null;
+  /**
+   * User-overridden prep/cook/total times (in minutes). Presence here means
+   * the user confirmed or edited the value via the TimesReviewBanner on the
+   * import preview screen — at save time these override
+   * `parsedCandidate.metadata.{prepTime,cookTime,totalTime}` and their
+   * source is persisted as "user_confirmed".
+   *
+   * Absence means no user action yet: the save path falls back to the
+   * parsed metadata times + source.
+   */
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  totalTimeMinutes?: number | null;
 }
 
 export interface DraftWarningState {

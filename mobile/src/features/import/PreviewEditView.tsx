@@ -7,14 +7,16 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import { Plus } from "lucide-react-native";
+import { Plus, Clock, Check } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
 import FastImage from "react-native-fast-image";
 import type {
   EditedRecipeCandidate,
+  ParsedRecipeCandidate,
   ValidationResult,
   ValidationIssue,
 } from "@orzo/shared";
+import { formatMinutes, isoDurationToMinutes } from "../../utils/time";
 import {
   blockIndexForField,
   sliceWordsToText,
@@ -63,6 +65,10 @@ function issueSummaryBadgeColor(
 
 interface PreviewEditViewProps {
   candidate: EditedRecipeCandidate;
+  /** Parsed metadata from the original parse — used by the times review
+   *  banner to show estimated prep/cook/total so the user can confirm
+   *  inferred values. Null/undefined when no metadata is available. */
+  parsedMetadata?: ParsedRecipeCandidate["metadata"] | null;
   validationResult: ValidationResult | null;
   dismissedIssueIds: Set<string>;
   heroImageUrl?: string | null;
@@ -80,6 +86,7 @@ interface PreviewEditViewProps {
 
 export function PreviewEditView({
   candidate,
+  parsedMetadata = null,
   validationResult,
   dismissedIssueIds,
   heroImageUrl = null,
@@ -99,6 +106,82 @@ export function PreviewEditView({
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
   const [heroLoaded, setHeroLoaded] = useState(false);
+
+  // Times review banner state --------------------------------------------
+  // Derive the banner's "seed" values from the candidate's user overrides
+  // first (set by the banner on previous interactions — persisted to the
+  // draft via PATCH /drafts/:id/candidate), falling back to the parsed
+  // metadata ISO values if no override exists.
+  const parsedPrepMin = isoDurationToMinutes(parsedMetadata?.prepTime);
+  const parsedCookMin = isoDurationToMinutes(parsedMetadata?.cookTime);
+  const parsedTotalMin = isoDurationToMinutes(parsedMetadata?.totalTime);
+
+  const prepInferred = parsedMetadata?.prepTimeSource === "inferred";
+  const cookInferred = parsedMetadata?.cookTimeSource === "inferred";
+  const totalInferred = parsedMetadata?.totalTimeSource === "inferred";
+
+  // Show the banner whenever at least one time was AI-inferred, so the
+  // user has the chance to review before saving. Explicit-only or null-only
+  // parses skip the banner entirely.
+  const showTimesBanner = prepInferred || cookInferred || totalInferred;
+
+  const seedPrep =
+    candidate.prepTimeMinutes != null
+      ? String(candidate.prepTimeMinutes)
+      : parsedPrepMin != null
+        ? String(parsedPrepMin)
+        : "";
+  const seedCook =
+    candidate.cookTimeMinutes != null
+      ? String(candidate.cookTimeMinutes)
+      : parsedCookMin != null
+        ? String(parsedCookMin)
+        : "";
+  const seedTotal =
+    candidate.totalTimeMinutes != null
+      ? String(candidate.totalTimeMinutes)
+      : parsedTotalMin != null
+        ? String(parsedTotalMin)
+        : "";
+
+  const [prepInput, setPrepInput] = useState(seedPrep);
+  const [cookInput, setCookInput] = useState(seedCook);
+  const [totalInput, setTotalInput] = useState(seedTotal);
+
+  // Any inferred field is "unconfirmed" until the user either taps Accept
+  // (sets candidate.prepTimeMinutes explicitly) or edits the field.
+  const unconfirmedCount =
+    (prepInferred && candidate.prepTimeMinutes == null ? 1 : 0) +
+    (cookInferred && candidate.cookTimeMinutes == null ? 1 : 0) +
+    (totalInferred && candidate.totalTimeMinutes == null ? 1 : 0);
+  const allTimesConfirmed = unconfirmedCount === 0;
+
+  const parsePositiveIntLocal = (text: string): number | null => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return null;
+    const n = parseInt(trimmed, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  const handleTimeFieldChange = (
+    field: "prepTimeMinutes" | "cookTimeMinutes" | "totalTimeMinutes",
+    text: string,
+  ) => {
+    if (field === "prepTimeMinutes") setPrepInput(text);
+    else if (field === "cookTimeMinutes") setCookInput(text);
+    else setTotalInput(text);
+    onEdit({ ...candidate, [field]: parsePositiveIntLocal(text) });
+  };
+
+  const handleAcceptTimes = () => {
+    onEdit({
+      ...candidate,
+      prepTimeMinutes: parsePositiveIntLocal(prepInput),
+      cookTimeMinutes: parsePositiveIntLocal(cookInput),
+      totalTimeMinutes: parsePositiveIntLocal(totalInput),
+    });
+  };
+  // ----------------------------------------------------------------------
 
   useEffect(() => {
     setHeroLoaded(false);
@@ -252,6 +335,90 @@ export function PreviewEditView({
       <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
         <Text style={styles.cancelText}>Cancel</Text>
       </TouchableOpacity>
+
+      {showTimesBanner && (
+        <View
+          style={[
+            styles.timesBanner,
+            allTimesConfirmed && styles.timesBannerConfirmed,
+          ]}
+          testID="preview-times-banner"
+        >
+          <View style={styles.timesBannerHeader}>
+            <Clock
+              size={LUCIDE.sm}
+              color={allTimesConfirmed ? SUCCESS : PRIMARY}
+              strokeWidth={2}
+            />
+            <Text style={styles.timesBannerTitle}>
+              {allTimesConfirmed
+                ? "Times confirmed"
+                : "We estimated these times"}
+            </Text>
+          </View>
+          <Text style={styles.timesBannerSubtitle}>
+            {allTimesConfirmed
+              ? "Edit any field to adjust before saving."
+              : "The recipe didn't state all times, so we estimated from the content. Tap a field to edit, or accept to save as-is."}
+          </Text>
+          <View style={styles.timesBannerRow}>
+            <View style={styles.timesBannerField}>
+              <Text style={styles.timesBannerLabel}>Prep</Text>
+              <TextInput
+                style={styles.timesBannerInput}
+                value={prepInput}
+                onChangeText={(t) =>
+                  handleTimeFieldChange("prepTimeMinutes", t)
+                }
+                placeholder="—"
+                keyboardType="number-pad"
+                testID="preview-prep-time-input"
+              />
+              <Text style={styles.timesBannerUnit}>min</Text>
+            </View>
+            <View style={styles.timesBannerField}>
+              <Text style={styles.timesBannerLabel}>Cook</Text>
+              <TextInput
+                style={styles.timesBannerInput}
+                value={cookInput}
+                onChangeText={(t) =>
+                  handleTimeFieldChange("cookTimeMinutes", t)
+                }
+                placeholder="—"
+                keyboardType="number-pad"
+                testID="preview-cook-time-input"
+              />
+              <Text style={styles.timesBannerUnit}>min</Text>
+            </View>
+            <View style={styles.timesBannerField}>
+              <Text style={styles.timesBannerLabel}>Total</Text>
+              <TextInput
+                style={styles.timesBannerInput}
+                value={totalInput}
+                onChangeText={(t) =>
+                  handleTimeFieldChange("totalTimeMinutes", t)
+                }
+                placeholder="—"
+                keyboardType="number-pad"
+                testID="preview-total-time-input"
+              />
+              <Text style={styles.timesBannerUnit}>min</Text>
+            </View>
+          </View>
+          {!allTimesConfirmed && (
+            <TouchableOpacity
+              style={styles.timesBannerAcceptButton}
+              onPress={handleAcceptTimes}
+              testID="preview-times-accept"
+              accessibilityRole="button"
+              accessibilityLabel="preview-times-accept"
+            >
+              <Check size={16} color={WHITE} strokeWidth={2.5} />
+              <Text style={styles.timesBannerAcceptText}>Accept estimates</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <Text style={styles.sectionTitle}>Title</Text>
       {isRevealing ? (
@@ -540,6 +707,84 @@ const styles = StyleSheet.create({
   },
   cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
   cancelText: { fontSize: 16, color: TEXT_SECONDARY },
+  timesBanner: {
+    backgroundColor: LIGHT_PEACH,
+    borderWidth: 1,
+    borderColor: PRIMARY_LIGHT,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  timesBannerConfirmed: {
+    backgroundColor: WHITE,
+    borderColor: SUCCESS,
+  },
+  timesBannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  timesBannerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: TEXT_PRIMARY,
+  },
+  timesBannerSubtitle: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  timesBannerRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  timesBannerField: {
+    flex: 1,
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  timesBannerLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: TEXT_TERTIARY,
+    marginBottom: 4,
+  },
+  timesBannerInput: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: DIVIDER,
+    borderRadius: 8,
+    backgroundColor: WHITE,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  timesBannerUnit: {
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    alignSelf: "center",
+  },
+  timesBannerAcceptButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: PRIMARY,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  timesBannerAcceptText: {
+    color: WHITE,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   sectionTitle: { fontSize: 18, fontWeight: "700", marginTop: 20, marginBottom: 8 },
   input: {
     borderWidth: 1, borderColor: DIVIDER, borderRadius: 8,

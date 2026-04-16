@@ -6,6 +6,7 @@ import { NOTE_MAX_LENGTH } from "@orzo/shared";
 import {
   deleteRecipeImage,
   resolveImageUrls,
+  resolveSourcePageUrl,
   uploadRecipeImage,
 } from "../services/recipe-image.service.js";
 
@@ -18,10 +19,54 @@ async function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) 
   };
 }
 
+type SourcePageRow = {
+  id: string;
+  orderIndex: number;
+  imageUri: string | null;
+  extractedText: string | null;
+};
+
+/**
+ * Full response transform: resolves image + thumbnail signed URLs, builds
+ * the `sourceContext` wrapper the mobile client expects (with signed URLs
+ * for source page images), and strips the flat `sourcePages` field now
+ * that it lives inside sourceContext. The result matches the shared Recipe
+ * type.
+ */
+async function enrichRecipeResponse<
+  T extends {
+    imageUrl?: string | null;
+    sourceType: string;
+    originalUrl: string | null;
+    sourcePages?: SourcePageRow[] | null;
+  },
+>(recipe: T) {
+  const resolvedImage = await resolveImageUrls(recipe.imageUrl ?? null);
+  const pages = recipe.sourcePages ?? [];
+  const resolvedPages = await Promise.all(
+    pages.map(async (page) => ({
+      id: page.id,
+      orderIndex: page.orderIndex,
+      imageUri: await resolveSourcePageUrl(page.imageUri),
+      extractedText: page.extractedText,
+    })),
+  );
+  const { sourcePages: _drop, ...rest } = recipe;
+  return {
+    ...rest,
+    ...resolvedImage,
+    sourceContext: {
+      sourceType: recipe.sourceType as "image" | "url",
+      originalUrl: recipe.originalUrl,
+      pages: resolvedPages,
+    },
+  };
+}
+
 export async function recipesRoutes(app: FastifyInstance) {
   app.get("/recipes", async (request, reply) => {
     const recipes = await recipesRepository.list(request.userId);
-    return reply.send(await Promise.all(recipes.map(withImageUrls)));
+    return reply.send(await Promise.all(recipes.map(enrichRecipeResponse)));
   });
 
   app.get<{ Params: { id: string } }>(
@@ -31,7 +76,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       if (!recipe) {
         return reply.status(404).send({ error: "Recipe not found" });
       }
-      return reply.send(await withImageUrls(recipe));
+      return reply.send(await enrichRecipeResponse(recipe));
     },
   );
 
@@ -40,10 +85,19 @@ export async function recipesRoutes(app: FastifyInstance) {
     Body: {
       title: string;
       description?: string | null;
+      descriptionSummary?: string | null;
       collectionId?: string | null;
       baselineServings?: number | null;
+      prepTimeMinutes?: number | null;
+      cookTimeMinutes?: number | null;
+      totalTimeMinutes?: number | null;
       ingredients: { text: string; orderIndex: number; isHeader: boolean }[];
-      steps: { text: string; orderIndex: number; isHeader: boolean }[];
+      steps: {
+        text: string;
+        summaryText?: string | null;
+        orderIndex: number;
+        isHeader: boolean;
+      }[];
     };
   }>("/recipes/:id", async (request, reply) => {
     const existing = await recipesRepository.findById(request.params.id, request.userId);
@@ -55,7 +109,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       request.body,
       request.userId,
     );
-    return reply.send(updated ? await withImageUrls(updated) : null);
+    return reply.send(updated ? await enrichRecipeResponse(updated) : null);
   });
 
   app.delete<{ Params: { id: string } }>(
@@ -100,7 +154,7 @@ export async function recipesRoutes(app: FastifyInstance) {
 
       await recipesRepository.setImage(request.params.id, imagePath);
       const updated = await recipesRepository.findById(request.params.id, request.userId);
-      return reply.send(updated ? await withImageUrls(updated) : null);
+      return reply.send(updated ? await enrichRecipeResponse(updated) : null);
     },
   );
 
@@ -114,7 +168,7 @@ export async function recipesRoutes(app: FastifyInstance) {
       await deleteRecipeImage(request.userId, request.params.id);
       await recipesRepository.setImage(request.params.id, null);
       const updated = await recipesRepository.findById(request.params.id, request.userId);
-      return reply.send(updated ? await withImageUrls(updated) : null);
+      return reply.send(updated ? await enrichRecipeResponse(updated) : null);
     },
   );
 
@@ -142,7 +196,7 @@ export async function recipesRoutes(app: FastifyInstance) {
     }
 
     const updated = await recipesRepository.findById(request.params.id, request.userId);
-    return reply.send(updated ? await withImageUrls(updated) : null);
+    return reply.send(updated ? await enrichRecipeResponse(updated) : null);
   });
 
   // --- Notes CRUD ---
@@ -214,6 +268,6 @@ export async function recipesRoutes(app: FastifyInstance) {
     const halfSteps = rating !== null ? Math.round(rating * 2) : null;
     await recipesRepository.setRating(request.params.id, halfSteps);
     const updated = await recipesRepository.findById(request.params.id, request.userId);
-    return reply.send(updated ? await withImageUrls(updated) : null);
+    return reply.send(updated ? await enrichRecipeResponse(updated) : null);
   });
 }

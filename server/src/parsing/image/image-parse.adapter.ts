@@ -25,6 +25,11 @@ Rules:
 - Cross-references like "See page 28" should be preserved as-is.
 - If you detect a description paragraph before the recipe, include it separately.
 - If multiple distinct recipes are visible, extract only the most prominent or primary recipe. Do not merge content from adjacent recipes.
+- Extract prep time, cook time, and total time with a two-tier strategy:
+  1. If a time is EXPLICITLY stated on the page (e.g. "Prep: 15 minutes", "Bake: 30 minutes", "Total time: 1 hour 30 minutes"), return the value with source "explicit".
+  2. If a time is NOT explicitly stated, you MAY estimate it based on recipe content — number of ingredients, complexity of prep (chopping, marinating), cooking methods (simmering, baking), and any explicit durations mentioned inside steps ("simmer for 20 minutes"). If you estimate, return the value with source "inferred". Only estimate when you have meaningful signal; if you truly cannot tell, return null and omit the source.
+  3. Be honest about which is which — users see a review banner for inferred times and will correct or accept them. Inflating inferred times erodes trust.
+  Report times as ISO 8601 duration strings: "PT15M" for 15 minutes, "PT1H30M" for 1 hour 30 minutes, "PT2H" for 2 hours.
 
 For each ingredient, report signal hints:
 - mergedWhenSeparable: true if the line contains multiple ingredients that should be separate entries
@@ -53,6 +58,14 @@ Return ONLY valid JSON matching this schema:
   "ingredients": [{ "text": string, "isHeader": boolean, "amount": number | null, "amountMax": number | null, "unit": string | null, "name": string | null }],
   "steps": [{ "text": string, "isHeader": boolean }],
   "description": string | null,
+  "metadata": {
+    "prepTime": string | null,
+    "prepTimeSource": "explicit" | "inferred" | null,
+    "cookTime": string | null,
+    "cookTimeSource": "explicit" | "inferred" | null,
+    "totalTime": string | null,
+    "totalTimeSource": "explicit" | "inferred" | null
+  },
   "signals": {
     "structureSeparable": boolean,
     "lowConfidenceStructure": boolean,
@@ -66,7 +79,7 @@ Return ONLY valid JSON matching this schema:
   "stepSignals": [{ "index": number, "text": string, "mergedWhenSeparable": boolean, "minorOcrArtifact": boolean, "majorOcrArtifact": boolean }]
 }`;
 
-const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), servings ({min: number, max: number|null}|null), ingredients (array of {text, isHeader, amount: number|null, amountMax: number|null, unit: string|null, name: string|null}), steps (array of {text, isHeader}), description (string|null). For each ingredient, "text" is the full original line; amount/unit/name decompose it for scaling. Convert fractions to decimals in amount. Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. Return ONLY valid JSON.`;
+const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), servings ({min: number, max: number|null}|null), ingredients (array of {text, isHeader, amount: number|null, amountMax: number|null, unit: string|null, name: string|null}), steps (array of {text, isHeader}), description (string|null), metadata ({prepTime: string|null, prepTimeSource: "explicit"|"inferred"|null, cookTime: string|null, cookTimeSource: "explicit"|"inferred"|null, totalTime: string|null, totalTimeSource: "explicit"|"inferred"|null}). For each ingredient, "text" is the full original line; amount/unit/name decompose it for scaling. Convert fractions to decimals in amount. Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. For metadata times: use source "explicit" when literally stated on the page, "inferred" when you're estimating from recipe content, and null when you truly cannot tell. Use ISO 8601 ("PT15M", "PT1H30M"). Return ONLY valid JSON.`;
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

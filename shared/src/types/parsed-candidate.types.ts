@@ -48,8 +48,14 @@ export interface ParsedRecipeCandidate {
   metadata?: {
     yield?: string;
     prepTime?: string;
+    /** "explicit" if literally stated on the source, "inferred" if the
+     *  parser estimated the time when it wasn't stated. Absent if no
+     *  value was extracted or inferred. */
+    prepTimeSource?: "explicit" | "inferred";
     cookTime?: string;
+    cookTimeSource?: "explicit" | "inferred";
     totalTime?: string;
+    totalTimeSource?: "explicit" | "inferred";
     imageUrl?: string;
   };
 }
