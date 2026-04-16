@@ -280,12 +280,14 @@ The README intentionally stays slim so any agent can read it in one pass. Detail
 | **Troubleshooting** — symptom → cause → fix table | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | When something breaks at runtime or build time |
 | **Development workflow** — adding rules, modifying parsers, extending the state machine, auth/security architecture, testID conventions | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Before writing non-trivial server or mobile code |
 | **Status & known gaps** — proven-live evidence, test coverage, what's NOT yet proven | [`docs/STATUS.md`](docs/STATUS.md) | Sanity check before shipping or before claiming a feature works |
+| **Current state assessment** — what's built today vs. what each roadmap phase promises | [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) | Sanity-checking the roadmap against ground truth |
+| **Brand identity & color palette** — terracotta tokens, typography, shadow recipes | [`docs/BRAND.md`](docs/BRAND.md) | Designing UI, building marketing surfaces, picking a color |
 | **Auth & RLS security plan** — 8 work streams (all complete) | [`docs/AUTH_RLS_SECURITY_PLAN.md`](docs/AUTH_RLS_SECURITY_PLAN.md) | Touching auth, sessions, or RLS policies |
 | **Security audit checklist** — Supabase dashboard, key rotation, human access | [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md) | Pre-launch security review or routine audit |
 | **Production deployment** — Railway / Render / Fly.io recipes + mobile rebuild | [`docs/PRODUCTION_DEPLOY.md`](docs/PRODUCTION_DEPLOY.md) | Deploying or moving the API host |
 | **Manual QA checklist** — full 11-scenario matrix | [`QA_CHECKLIST.md`](QA_CHECKLIST.md) | Manual test passes |
 | **Changelog** — dated release notes | [`CHANGELOG.md`](CHANGELOG.md) | Catching up after a long break |
-| **Roadmap** — what's planned next | [`ROADMAP.md`](ROADMAP.md) | Planning the next iteration |
+| **Roadmap** — phase overview, gating, revenue model, dependency graph (per-phase deep dives in `docs/ROADMAP_PHASE_*.md`) | [`ROADMAP.md`](ROADMAP.md) | Planning the next iteration |
 | **ELI5** — non-technical explanation | [`ELI5.md`](ELI5.md) | Explaining the project to someone outside engineering |
 
 ---
