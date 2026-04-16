@@ -3,8 +3,12 @@ import "react-native-get-random-values";
 import { createClient } from "@supabase/supabase-js";
 import * as Keychain from "react-native-keychain";
 
-const SUPABASE_URL = "https://ttpgamwmjtrdnsfmdkec.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_5MtAOYkHnILB0W6pw6RQpg_BicQm1b2";
+const SUPABASE_URL = __DEV__
+  ? "https://nrdomcszbvqnfinrjvuz.supabase.co"
+  : "https://ttpgamwmjtrdnsfmdkec.supabase.co";
+const SUPABASE_ANON_KEY = __DEV__
+  ? "sb_publishable_4a3e4yMFKFrqIsaiAbyuvg_vEPnDS21"
+  : "sb_publishable_5MtAOYkHnILB0W6pw6RQpg_BicQm1b2";
 
 const KEYCHAIN_SERVICE = "app.orzo.session";
 
@@ -31,3 +35,5 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: false,
   },
 });
+
+console.log("[orzo] Supabase:", __DEV__ ? "DEV" : "PROD", SUPABASE_URL);
