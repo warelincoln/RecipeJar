@@ -54,6 +54,8 @@ export function buildImportEventProps(
     first_block_code: blockCodes[0] ?? null,
     retake_codes: retakeCodes,
     flag_codes: flagCodes,
+    first_flag_code: flagCodes[0] ?? null,
+    has_flags: flagCodes.length > 0,
   };
   return { ...base, ...(extras ?? {}) };
 }

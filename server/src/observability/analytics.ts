@@ -5,7 +5,8 @@ export type AnalyticsEventName =
   | "server_parse_validated"
   | "server_parse_failed"
   | "server_url_capture_failed"
-  | "server_recipe_saved";
+  | "server_recipe_saved"
+  | "server_hero_image_missing";
 
 type Primitive = string | number | boolean | null | undefined;
 type AnalyticsProps = Record<string, Primitive | Primitive[]>;

@@ -98,6 +98,7 @@ function deriveParseEventProps(
   const flagCodes = (validationResult?.issues ?? [])
     .filter((i) => i.severity === "FLAG")
     .map((i) => i.code);
+  const hasFlags = flagCodes.length > 0;
 
   return {
     draft_id: draft.id,
@@ -122,6 +123,8 @@ function deriveParseEventProps(
     first_block_code: blockCodes[0] ?? null,
     retake_codes: retakeCodes,
     flag_codes: flagCodes,
+    first_flag_code: flagCodes[0] ?? null,
+    has_flags: hasFlags,
     block_count: blockCodes.length,
     retake_count: retakeCodes.length,
     flag_count: flagCodes.length,
@@ -775,12 +778,31 @@ export async function draftsRoutes(app: FastifyInstance) {
         ...(await resolveImageUrls(recipe.imageUrl ?? null)),
       };
 
+      let heroImageAttached = false;
+      let heroFailureReason: "no_metadata_url" | "download_failed" | null = null;
+      let metadataImageUrl: string | null = null;
+      let heroErrorMessage: string | null = null;
+
       try {
         let imagePath: string | null = null;
         if (draft.sourceType === "url") {
-          const metadataImageUrl = parsedCandidate?.metadata?.imageUrl;
+          metadataImageUrl = parsedCandidate?.metadata?.imageUrl ?? null;
           if (metadataImageUrl) {
-            imagePath = await downloadAndStoreFromUrl(request.userId, recipe.id, metadataImageUrl);
+            try {
+              imagePath = await downloadAndStoreFromUrl(
+                request.userId,
+                recipe.id,
+                metadataImageUrl,
+              );
+              if (!imagePath) {
+                heroFailureReason = "download_failed";
+              }
+            } catch (err) {
+              heroFailureReason = "download_failed";
+              heroErrorMessage = err instanceof Error ? err.message : String(err);
+            }
+          } else {
+            heroFailureReason = "no_metadata_url";
           }
         } else {
           const firstPage = pages.find((p) => p.orderIndex === 0);
@@ -795,9 +817,34 @@ export async function draftsRoutes(app: FastifyInstance) {
             ...resolvedRecipe,
             ...(await resolveImageUrls(imagePath)),
           };
+          heroImageAttached = true;
+          heroFailureReason = null;
         }
       } catch (err) {
         request.log.warn({ err, draftId }, "Failed to attach recipe hero image during save");
+        if (!heroFailureReason) {
+          heroFailureReason = "download_failed";
+        }
+        if (!heroErrorMessage) {
+          heroErrorMessage = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      if (draft.sourceType === "url" && !heroImageAttached) {
+        trackAnalytics(
+          "server_hero_image_missing",
+          {
+            draft_id: draftId,
+            recipe_id: recipe.id,
+            url: draft.originalUrl ?? null,
+            domain: extractDomain(draft.originalUrl),
+            extraction_method: parsedCandidate?.extractionMethod ?? "unknown",
+            reason: heroFailureReason ?? "download_failed",
+            metadata_image_url: metadataImageUrl,
+            error_message: heroErrorMessage,
+          },
+          { userId: request.userId },
+        );
       }
 
       await draftsRepository.markSaved(draftId);
@@ -836,6 +883,10 @@ export async function draftsRoutes(app: FastifyInstance) {
           had_prep_time: prepTime.minutes != null,
           had_cook_time: cookTime.minutes != null,
           had_total_time: totalTime.minutes != null,
+          hero_image_attached: heroImageAttached,
+          hero_image_failure_reason: heroFailureReason,
+          had_metadata_image_url:
+            draft.sourceType === "url" ? metadataImageUrl != null : null,
         },
         { userId: request.userId },
       );

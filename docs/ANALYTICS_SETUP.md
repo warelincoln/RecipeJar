@@ -93,6 +93,69 @@ Once Build 2 installs Track B client events, add:
 - **Title:** `Blocked screens — dismissed vs pushed through`
 - **Why:** Tells you which BLOCK codes make users give up vs push through.
 
+### Tile 7 — Missing hero images feed (SQL)
+
+Every URL save that didn't get a hero image, so you can spot domains whose JSON-LD omits `imageUrl` or whose image URLs 4xx.
+
+- **Insight type:** SQL
+- **Query:**
+
+```sql
+SELECT
+  timestamp,
+  properties.domain AS domain,
+  properties.url AS url,
+  properties.reason AS reason,
+  properties.metadata_image_url AS metadata_image_url,
+  properties.extraction_method AS tier,
+  properties.error_message AS error_message
+FROM events
+WHERE event = 'server_hero_image_missing'
+  AND timestamp > now() - interval 14 day
+ORDER BY timestamp DESC
+LIMIT 50
+```
+
+- **Title:** `URL saves without hero images — latest 50`
+- **Why:** Two distinct patterns to watch: `reason = "no_metadata_url"` means the source's JSON-LD/Microdata didn't expose an image (your parser is doing the right thing — pattern tells you which sites need a fallback heuristic). `reason = "download_failed"` means we tried the URL and it errored (403/404/timeout — pattern tells you about bot-protected CDNs).
+
+### Tile 8 — Hero image attachment rate by domain (SQL)
+
+Which domains consistently succeed vs fail at hero attachment. Complements tile 7's raw feed.
+
+- **Insight type:** SQL
+- **Query:**
+
+```sql
+SELECT
+  properties.domain AS domain,
+  count() AS saves,
+  countIf(properties.hero_image_attached = true) AS with_hero,
+  round(countIf(properties.hero_image_attached = true) / count() * 100, 1) AS attach_pct
+FROM events
+WHERE event = 'server_recipe_saved'
+  AND properties.source_type = 'url'
+  AND properties.domain IS NOT NULL
+  AND timestamp > now() - interval 14 day
+GROUP BY domain
+ORDER BY saves DESC
+LIMIT 20
+```
+
+- **Title:** `Hero attachment rate by domain`
+
+### Tile 9 — Which FLAG codes fire most (Trends, bar chart)
+
+Symmetric with tile 3 (block codes). FLAGs are dismissible warnings — tracking them shows you which soft issues keep tripping the validator.
+
+- **Insight type:** Trends → bar chart
+- **Event:** `server_parse_validated`
+- **Filter:** `properties.has_flags = true`
+- **Breakdown:** `properties.first_flag_code`
+- **Date range:** Last 14 days
+- **Title:** `Which FLAG codes fire most`
+- **Why:** FLAGs like `MAJOR_OCR_ARTIFACT`, `DESCRIPTION_DETECTED`, or `MULTI_RECIPE_DETECTED` are signals that the parse succeeded but the content has a quirk. High frequency on one code tells you which quirks are worth handling automatically vs surfacing to the user.
+
 ---
 
 ## Event reference
@@ -104,10 +167,13 @@ Quick glossary of everything that now flows into PostHog.
 | Event | Fires at | Key properties |
 |---|---|---|
 | `server_parse_completed` | Every parse that produced a candidate (before validation) | `url`, `domain`, `source_type`, `extraction_method`, `parse_duration_ms`, `page_count`, `ingredient_count`, `step_count`, `had_*` booleans |
-| `server_parse_validated` | Right after validation runs | All of above **plus** `save_state`, `has_blocking_issues`, `block_codes[]`, `first_block_code`, `retake_codes[]`, `flag_codes[]` |
+| `server_parse_validated` | Right after validation runs | All of above **plus** `save_state`, `has_blocking_issues`, `block_codes[]`, `first_block_code`, `retake_codes[]`, `flag_codes[]`, `first_flag_code`, `has_flags` |
 | `server_parse_failed` | Parse threw (fetch error, OpenAI timeout, etc.) | `url`, `domain`, `error_message`, `error_stage` (`fetch`\|`vision`\|`extract`\|`validate`\|`unknown`), `parse_duration_ms` |
 | `server_url_capture_failed` | WebView capture failed and fell back to server fetch | `url`, `domain`, `reason`, `acquisition_method` |
-| `server_recipe_saved` | User hit Save and the recipe persisted | `url`, `domain`, `save_state`, `had_user_edits`, `dismissed_issue_count`, times present |
+| `server_recipe_saved` | User hit Save and the recipe persisted | `url`, `domain`, `save_state`, `had_user_edits`, `dismissed_issue_count`, times present, **`hero_image_attached`**, **`hero_image_failure_reason`**, **`had_metadata_image_url`** |
+| `server_hero_image_missing` | URL import saved without a hero image | `url`, `domain`, `recipe_id`, `extraction_method`, `reason` (`no_metadata_url`\|`download_failed`), `metadata_image_url`, `error_message` |
+
+`server_parse_validated` also now carries `first_flag_code` and `has_flags` (symmetric with the BLOCK side) so FLAG breakdowns work the same way as BLOCK breakdowns in the dashboard.
 
 ### Client-side (Track B — ships with Build 2)
 
