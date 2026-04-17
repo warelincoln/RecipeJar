@@ -178,30 +178,39 @@
 | **Effort** | S (3–4 days) |
 | **Revenue impact** | Prerequisite for real-world testing and App Store launch |
 | **Depends on** | 0.1 (Auth) |
+| **Status** | **Internal TestFlight LIVE (2026-04-16 evening).** Build 1.0 (1) installed on a real tester's iPhone via TestFlight. Public App Store submission deferred. |
 
-**What to build:**
+**What landed in the 2026-04-16 TestFlight cycle:**
 
-- **Apple Developer Program setup:** ~~Provisioning profiles, signing certificates, bundle ID registration (`app.orzo.ios`)~~ **Done (2026-04-08):** App ID `app.orzo.ios` registered, Services ID `app.orzo.ios.auth` created, Xcode auto-managed signing with team `82MCB6UFTX`, Debug and Release builds verified on physical iPhone
-- **App Store Connect listing:** App name, category (Food & Drink), age rating, App Store description, keywords, screenshots (at least iPhone 15 Pro + iPhone SE sizes), preview video (optional but high-impact)
-- **Privacy nutrition labels:** Apple requires you to declare all data collected. With auth built, this includes: email address (account creation), photos (recipe images uploaded to Supabase), usage data (if analytics is added). Fill these out accurately — Apple rejects apps with incorrect privacy labels.
-- **TestFlight distribution:** Archive build from Xcode, upload to App Store Connect, create a TestFlight group for internal testing. First build triggers Apple's beta review (usually <48 hours). After approval, distribute to external testers via public link or email invite.
-- **Crash reporting:** Integrate Sentry (`@sentry/react-native`) for crash and error tracking on both JS and native layers. Free tier covers solo dev volume. This catches the issues your testers won't report.
-- **Analytics:** Integrate PostHog (`posthog-react-native`). PostHog is open-source, has a generous free tier (1M events/mo), and gives you: event tracking, funnels, retention charts, and feature flags (useful for Phase 1+ rollouts). Track at minimum: import started/completed (by source type), recipe saved, recipe viewed, collection created, paywall shown/converted (when 0.3 is built). This data is essential for knowing which import method drives retention and where users drop off.
-- **Privacy policy & terms of service:** Host on `getorzo.com/privacy` and `getorzo.com/terms`. Apple requires a privacy policy URL in the App Store listing. Can be simple markdown-to-HTML for v1 — cover what data you collect (email, recipe content, images), how it's stored (Supabase, PostgreSQL), and that you don't sell data.
-- **App icon & launch screen:** Final app icon (1024×1024 for App Store, plus all device sizes via asset catalog), launch screen (simple branded splash).
+- [x] **Apple Developer Program setup** (done 2026-04-08) — App ID `app.orzo.ios`, Services ID `app.orzo.ios.auth`, Xcode auto-managed signing with team `82MCB6UFTX`
+- [x] **Production API on Railway** (done 2026-04-08) — `https://api.getorzo.com` live and serving the TestFlight build
+- [x] **App Store Connect listing** — app record created as `Orzo - Cookbook` (Apple App ID `6762439164`), category Food & Drink, age rating **17+** (temporary — pending SFSafariViewController migration), content rights confirmed, Pricing Free all territories
+- [x] **Privacy nutrition labels** saved in App Privacy (email, photos, recipe content, user ID linked to App Functionality + Analytics; crash + performance data not linked)
+- [x] **Privacy Policy + Terms publicly hosted** — `landing/` directory deployed to Cloudflare Pages, live at `https://getorzo.com/privacy` and `https://getorzo.com/terms`
+- [x] **Launch screen + app icon** — `LaunchScreen.storyboard` migrated from white to warm cream `#FFF8F0`; app icon asset catalog already complete
+- [x] **App locked to light mode** via `UIUserInterfaceStyle = Light` (the terracotta palette is light-only)
+- [x] **Crash reporting (Sentry)** — `@sentry/react-native` 8.8.0 wired, DSN in `mobile/src/config/sentry.ts`, disabled in `__DEV__`, 10% trace sample. `Sentry.setUser()` on sign-in. Verified via MCP: 2 production events received within 30 min of first install.
+- [x] **Analytics (PostHog)** — `posthog-react-native` 4.42.0, typed 12-event taxonomy in `mobile/src/services/analytics.ts`. `analytics.identify()` on sign-in, `reset()` on sign-out. V1 events instrumented: `recipe_viewed`, `import_started`, `recipe_saved`.
+- [x] **iOS binary hardening for App Review** — Info.plist usage-description strings tightened, `ITSAppUsesNonExemptEncryption = false` (auto-answers export compliance). `$VCEnableLocation = false` in Podfile disables VisionCamera CLLocation APIs so Build 2 and beyond won't hit ITMS-90683.
+- [x] **TestFlight archive + upload** — Product → Archive → Distribute App → Upload succeeded. ITMS-90683 warning on Build 1 was non-blocking; delivery completed.
+- [x] **Internal TestFlight distribution** — `Testing` internal group created with automatic build distribution enabled. No Beta App Review required for internal testing. Tester installed Build 1.0 (1) end-to-end.
+- [x] **Beta feedback loop closed** — two hotfixes landed within an hour of first install: `d472dd3` raised `/parse` rate limit 10→100/hr (tester hit the original cap immediately), and `7bf810c` fixed a latent `RETAKE_LIMIT_REACHED` false-fire on URL imports caused by `Array.every()` returning `true` over empty `sourcePages`.
 
-**TestFlight steps (first-time checklist):**
+**Deferred — not required for internal TestFlight, needed for public App Store submission:**
 
-1. In Apple Developer portal: register a new App ID with bundle identifier
-2. Create a provisioning profile (App Store distribution) and download signing certificate
-3. In Xcode: set the team, bundle ID, and signing profile. Ensure "Automatically manage signing" works, or configure manually.
-4. Archive the app: Product → Archive in Xcode (requires a physical device or "Any iOS Device" as build target)
-5. Upload to App Store Connect via Xcode Organizer → Distribute App → App Store Connect
-6. In App Store Connect: create the app listing (name, category, privacy URL, etc.)
-7. Once uploaded, go to TestFlight tab → select the build → submit for Beta App Review
-8. After approval (~24–48 hrs first time, faster after): add internal testers (up to 100, no review needed) or create a public link for external testers (up to 10,000)
+- [ ] **App Store Connect public-listing metadata** — App Store description, keywords, subtitle, screenshots (iPhone 15 Pro Max 6.7" + iPhone SE 5.5" at minimum), optional preview video. None of this is required for internal testers; all of it is required before "Add for Review."
+- [ ] **External TestFlight public link** — requires submitting a build for Beta App Review (~24–48h wait). Skip until a wider tester pool is actually useful.
+- [ ] **Supabase email template branding** — dashboard change, not code. Currently defaults to unbranded Supabase emails.
+- [ ] **Production Supabase Site URL + redirect allowlist** — update to `app.orzo.ios://auth/callback` (dev project is already updated; production still reads `localhost:3000`).
 
-**Why this is 0.2, not later:** Without TestFlight, all testing happens on your device over a LAN dev server. You can't get real feedback from other people, and you can't validate auth or subscriptions in a production-like environment. Every week you delay TestFlight is a week of building features nobody else has tried.
+**Follow-up tasks flagged during this cycle (spawned as Cowork tasks):**
+
+- [ ] **SFSafariViewController migration** — replace the in-app WebView URL browser with Apple's Safari overlay so the app can drop the `Unrestricted Web Access` declaration and return to a **4+** age rating for public submission. Small refactor; schedule before App Store submission.
+- [ ] **Hermes dSYM upload** — Xcode's archive doesn't include the Hermes framework's dSYM by default on RN 0.76, so App Store Connect warned and Sentry can't symbolicate Hermes-internal crashes. Add a Podfile `post_install` step to copy the dSYM + a `sentry-cli upload-dif` build phase.
+- [ ] **PDF URL import support** — a tester pasted a `.pdf` recipe URL. Either detect and show a helpful "PDFs aren't supported yet — take a screenshot and use Camera" message (small), or extract text with `pdf-parse` and feed to the existing AI adapter (medium).
+- [ ] **`schema.org/Drink` handling** — the URL structured adapter only matches `@type: "Recipe"`. A tester imported a cocktail from a site whose JSON-LD was typed `Drink`, which silently dropped to the AI tier. Widen the accepted types.
+
+**Why this was 0.2, not later:** Without TestFlight, all testing happened on the dev's own device over a LAN server. Getting a second human on a real device via TestFlight on 2026-04-16 caught four issues in under an hour (rate limit, retake false-fire, PDF gap, Drink gap) that would have been invisible otherwise. The feedback loop is now live.
 
 ---
 

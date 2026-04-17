@@ -1,5 +1,54 @@
 # Orzo Changelog
 
+### 2026-04-16 (evening) — Phase 0.2: First TestFlight build LIVE
+
+Orzo's first internal TestFlight build is installed on a real tester's iPhone. The stack from code to end-user finally connects end-to-end: Xcode archive → App Store Connect → TestFlight on a real device. All 8 Steps of Phase 0.2 landed in a single session.
+
+**Shipped in this cycle (3 server/mobile commits + this docs commit):**
+
+- **`a445e90` feat(mobile): Phase 0.2 TestFlight prep — Sentry, PostHog, Info.plist, launch screen** — the core infrastructure.
+- **`d472dd3` fix(server): raise /drafts/:id/parse rate limit from 10/hr to 100/hr** — beta hotfix after the first tester hit the cap within minutes.
+- **`7bf810c` fix(validation): do not fire RETAKE_LIMIT_REACHED on URL imports** — beta hotfix for a latent `Array.every()` over empty array bug.
+
+**Observability:**
+
+- **`@sentry/react-native` 8.8.0** + native RNSentry (pod + source maps via Xcode build phase). `initSentry()` at `App.tsx` module load, `Sentry.wrap(App)` on the default export. DSN lives in `mobile/src/config/sentry.ts`, gated off in `__DEV__`, 10% trace sample, `sendDefaultPii: false`.
+- **`posthog-react-native` 4.42.0** (pure-JS, no pod). Typed 12-event taxonomy in `mobile/src/services/analytics.ts`, gated off in `__DEV__`. Project key US region.
+- `auth.store.ts` `identifyUser()` calls both `analytics.identify()` and `Sentry.setUser()` on sign-in / session restore; `clearIdentity()` on sign-out. Symmetric via `onAuthStateChange`.
+- Event instrumentation (v1, minimal): `recipe_viewed` (`RecipeDetailScreen`), `import_started` (`ImportFlowScreen` camera + photos), `recipe_saved` (xstate `saveDraft` actor).
+- **Sentry verification via MCP:** `orzo/react-native` project received 2 production events within 30 minutes of first install — a test crash (`-[RNSentry crash]`) and two App Hang events from the tester's rate-limited URL imports.
+
+**App Store Connect:**
+
+- App record created: **Orzo - Cookbook** (Apple App ID `6762439164`, bundle `app.orzo.ios`, category Food & Drink, age rating **17+** — temporary, pending SFSafariViewController migration for unrestricted-web-access).
+- Privacy nutrition labels saved (email, photos, recipe content, user ID linked to analytics + app functionality; crash + performance data not linked).
+- Privacy Policy URL: `https://getorzo.com/privacy`. Terms: `https://getorzo.com/terms`. Landing deployed on Cloudflare Pages from `landing/` directory.
+- TestFlight internal group `Testing` created with automatic build distribution enabled.
+
+**iOS binary hardening (`mobile/ios/Orzo/Info.plist` + `Podfile`):**
+
+- Launch screen migrated from `systemBackgroundColor` (white) to warm cream `#FFF8F0`.
+- App locked to light mode via `UIUserInterfaceStyle = Light` (terracotta palette is light-only).
+- `ITSAppUsesNonExemptEncryption = false` — auto-answers export compliance prompt on every archive upload.
+- Removed empty `NSLocationWhenInUseUsageDescription`, rewrote `NSLocalNetworkUsageDescription` for App Review, strengthened camera + photo usage strings.
+- `$VCEnableLocation = false` added to Podfile — disables VisionCamera's CLLocation APIs so the binary no longer triggers ITMS-90683 on future archives (Build 1 still got the warning; delivery succeeded anyway).
+
+**Real TestFlight feedback (first hour on device):**
+
+- Internal tester hit the `parse: 10/hr` rate limit within their first wave of URL imports (logs showed `rate_limit_exceeded` + `429` + `retry in 43 minutes`). Bumped to 100/hr and pushed (`d472dd3`). Railway in-memory counters reset on deploy, so the tester unblocked immediately.
+- `RETAKE_LIMIT_REACHED` validation rule false-fired on URL imports. Root cause: `Array.prototype.every()` returns `true` for an empty array, and URL imports have `sourcePages: []`. Guarded the rule with an early return when no pages exist (`7bf810c`).
+- **Four flagged follow-ups** (spawned as separate Cowork tasks): (1) SFSafariViewController migration to drop the 17+ age rating, (2) Hermes `dSYM` upload for full native crash symbolication, (3) PDF URL import support (tester pasted a .pdf recipe link), (4) `schema.org/Drink` type handling in the URL structured adapter (tester imported a cocktail recipe with valid JSON-LD that wasn't being recognized).
+
+**Deferred to post-TestFlight (tracked in `docs/ROADMAP_PHASE_0.md` 0.2 section):**
+
+- Public App Store submission workflow: screenshots, description, keywords, preview video.
+- External TestFlight public link (requires Beta App Review).
+- Email template branding on Supabase.
+
+**Files modified:** 16 (13 mobile infra + 2 server hotfixes + this changelog). **Files created:** `mobile/src/config/sentry.ts`, `mobile/src/services/analytics.ts`.
+
+---
+
 ### 2026-04-16 (afternoon) — Bulk select mode + polish
 
 Second of two cross-cutting UX upgrades landed today. Long-press any recipe card on Home or inside a collection → iOS-Photos-style multi-select (checkmarks, no jiggle). Delete or move N recipes in a single server round-trip.

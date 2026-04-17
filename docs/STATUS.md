@@ -138,11 +138,22 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Session tracking | Auth middleware records user agent + IP on every request. `GET /account/sessions` returns session list. |
 | Provider linking | AccountScreen shows interactive Link/Unlink for Apple and Google. |
 
+## Proven in 0.2 TestFlight (2026-04-16 evening)
+
+| What | Evidence |
+|---|---|
+| First internal TestFlight build uploaded and distributed | Build 1.0 (1) archived from Xcode, uploaded to App Store Connect, processed to "Ready to Test," auto-attached to the `Testing` internal group (automatic distribution enabled), and installed via the TestFlight app on a real tester's iPhone. Apple App ID: `6762439164`, bundle `app.orzo.ios`. |
+| Sentry crash reporting live in production | `@sentry/react-native` 8.8.0 wired with `initSentry()` at App.tsx module load + `Sentry.wrap(App)`. Verified via Sentry MCP: `orzo/react-native` project received 2 production events within 30 minutes of first install — a test crash (`-[RNSentry crash]`) and two App Hang Fully Blocked events (root-caused to rate-limited URL imports, both hotfixed). DSN in `mobile/src/config/sentry.ts`, disabled in `__DEV__`, 10% trace sample. |
+| PostHog analytics wired end-to-end | `posthog-react-native` 4.42.0 (pure-JS, no pod). `analytics.identify(userId, { email })` fires on sign-in via `auth.store.ts → identifyUser()`. `analytics.reset()` on sign-out. Event instrumentation landed for `recipe_viewed`, `import_started`, `recipe_saved`. Client gated off in `__DEV__`. |
+| App Store Connect listing configured for TestFlight | App record created with App Information, Pricing & Availability (Free, all territories), Privacy Policy URL (`https://getorzo.com/privacy`), privacy nutrition labels (email, photos, recipe content, user ID all linked; crash + performance data not linked), TestFlight Test Information (beta description, feedback email, marketing URL, privacy URL). Public-submission fields (description, keywords, screenshots, preview video) intentionally deferred. |
+| Landing site + privacy/terms publicly hosted | Cloudflare Pages deploy from `landing/` directory. Verified live at `https://getorzo.com/privacy` + `/terms` (200 OK, pretty-URL redirects from `.html`). Satisfies App Store Connect privacy policy URL requirement. |
+| iOS binary hardening for App Review | `Info.plist`: empty `NSLocationWhenInUseUsageDescription` removed, `NSLocalNetworkUsageDescription` rewritten, camera + photo usage strings strengthened, `UIUserInterfaceStyle = Light` added, `ITSAppUsesNonExemptEncryption = false` added (auto-answers export compliance). `LaunchScreen.storyboard`: background migrated to warm cream `#FFF8F0`. Build 1 uploaded with one non-blocking ITMS-90683 warning (VisionCamera CLLocation API) — already fixed in Podfile for Build 2 via `$VCEnableLocation = false`. |
+| Beta feedback loop closed with 2 hotfixes | Within 30 minutes of first install, tester surfaced that **every** URL import was silently failing. Railway logs showed `rate_limit_exceeded` / `429` on `POST /drafts/:id/parse` (hardcoded at 10/hr) — bumped to 100/hr (`d472dd3`). Tester then hit a bogus `RETAKE_LIMIT_REACHED` BLOCK on URL imports due to `Array.every()` returning `true` over empty `sourcePages` — guarded with an early return (`7bf810c`). Both commits auto-deployed to Railway. |
+
 ## Not Yet Proven
 
 | What | Why |
 |---|---|
-| Production server deployment | Fastify API runs on localhost only. Dockerfile and guide exist ([`PRODUCTION_DEPLOY.md`](PRODUCTION_DEPLOY.md)) but deployment not yet executed. Must be deployed before TestFlight. |
 | Email template branding | Supabase sends default unbranded confirmation/reset/email-change emails. Must customize in Supabase dashboard before public launch. |
 | Production Supabase Site URL + redirect allowlist | Dev project's Site URL is now `app.orzo.ios.dev://auth/callback` (done 2026-04-16). **Production** project's Site URL still reads `localhost:3000` and should be updated to `app.orzo.ios://auth/callback`, with the same value added to the redirect URL allowlist. |
 | MFA recovery code usage during sign-in | Recovery codes generated and stored, but the MFA challenge screen does not yet offer a "Use recovery code" option (endpoint exists, UI not wired). |
