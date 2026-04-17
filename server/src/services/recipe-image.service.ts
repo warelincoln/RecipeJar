@@ -223,13 +223,51 @@ export async function uploadRecipeImage(
   return heroPath;
 }
 
+/**
+ * Normalizes image URLs pulled from JSON-LD / Microdata before fetching.
+ * Handles the shapes we've seen from real recipe sites that would
+ * otherwise throw "Invalid URL" from `fetch()`:
+ *
+ *   - Protocol-relative (`//cdn.example.com/path`) → prepend `https:`
+ *     (observed on hungry-girl.com; CloudFront-backed recipe images are
+ *     often published this way so the CDN can serve over whichever
+ *     scheme the page was loaded with)
+ *   - Already-qualified URLs pass through untouched
+ *   - Anything that doesn't parse as a URL after normalization returns
+ *     null so the caller knows to skip the download
+ *
+ * Returns the normalized URL or null if it can't be resolved to a
+ * fetchable https/http URL.
+ */
+export function normalizeImageUrlForFetch(
+  rawImageUrl: string | null | undefined,
+): string | null {
+  if (!rawImageUrl) return null;
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed) return null;
+
+  // Protocol-relative: "//cdn.foo.com/..." → "https://cdn.foo.com/..."
+  const normalized = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed;
+
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadAndStoreFromUrl(
   userId: string,
   recipeId: string,
   imageUrl: string,
 ): Promise<string | null> {
+  const fetchUrl = normalizeImageUrlForFetch(imageUrl);
+  if (!fetchUrl) return null;
+
   try {
-    const response = await fetch(imageUrl);
+    const response = await fetch(fetchUrl);
     if (!response.ok) return null;
 
     const contentType = response.headers.get("content-type");
