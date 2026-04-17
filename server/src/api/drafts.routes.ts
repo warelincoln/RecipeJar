@@ -100,6 +100,25 @@ function deriveParseEventProps(
     .map((i) => i.code);
   const hasFlags = flagCodes.length > 0;
 
+  const prepTimeSource = candidate.metadata?.prepTimeSource ?? null;
+  const cookTimeSource = candidate.metadata?.cookTimeSource ?? null;
+  const totalTimeSource = candidate.metadata?.totalTimeSource ?? null;
+  const hadPrepTime = Boolean(candidate.metadata?.prepTime);
+  const hadCookTime = Boolean(candidate.metadata?.cookTime);
+  const hadTotalTime = Boolean(candidate.metadata?.totalTime);
+  const presentTimeCount =
+    Number(hadPrepTime) + Number(hadCookTime) + Number(hadTotalTime);
+  const timeCompleteness =
+    presentTimeCount === 3 ? "all" : presentTimeCount === 0 ? "none" : "partial";
+  const hasInferredTime =
+    prepTimeSource === "inferred" ||
+    cookTimeSource === "inferred" ||
+    totalTimeSource === "inferred";
+  const hasExplicitTime =
+    prepTimeSource === "explicit" ||
+    cookTimeSource === "explicit" ||
+    totalTimeSource === "explicit";
+
   return {
     draft_id: draft.id,
     source_type: sourceType,
@@ -113,9 +132,15 @@ function deriveParseEventProps(
     step_count: candidate.steps?.length ?? 0,
     had_title: Boolean(candidate.title && candidate.title.trim().length > 0),
     had_servings: candidate.servings != null,
-    had_prep_time: Boolean(candidate.metadata?.prepTime),
-    had_cook_time: Boolean(candidate.metadata?.cookTime),
-    had_total_time: Boolean(candidate.metadata?.totalTime),
+    had_prep_time: hadPrepTime,
+    had_cook_time: hadCookTime,
+    had_total_time: hadTotalTime,
+    prep_time_source: prepTimeSource,
+    cook_time_source: cookTimeSource,
+    total_time_source: totalTimeSource,
+    time_completeness: timeCompleteness,
+    has_inferred_time: hasInferredTime,
+    has_explicit_time: hasExplicitTime,
     save_state: validationResult?.saveState ?? null,
     has_blocking_issues: validationResult?.hasBlockingIssues ?? false,
     requires_retake: validationResult?.requiresRetake ?? false,
@@ -883,6 +908,17 @@ export async function draftsRoutes(app: FastifyInstance) {
           had_prep_time: prepTime.minutes != null,
           had_cook_time: cookTime.minutes != null,
           had_total_time: totalTime.minutes != null,
+          prep_time_source_final: prepTime.source,
+          cook_time_source_final: cookTime.source,
+          total_time_source_final: totalTime.source,
+          any_inferred_time_final:
+            prepTime.source === "inferred" ||
+            cookTime.source === "inferred" ||
+            totalTime.source === "inferred",
+          any_user_confirmed_time:
+            prepTime.source === "user_confirmed" ||
+            cookTime.source === "user_confirmed" ||
+            totalTime.source === "user_confirmed",
           hero_image_attached: heroImageAttached,
           hero_image_failure_reason: heroFailureReason,
           had_metadata_image_url:

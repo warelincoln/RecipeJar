@@ -34,6 +34,25 @@ export function buildImportEventProps(
     validation?.issues.filter((i) => i.severity === "FLAG").map((i) => i.code) ??
     [];
 
+  const prepTimeSource = candidate?.metadata?.prepTimeSource ?? null;
+  const cookTimeSource = candidate?.metadata?.cookTimeSource ?? null;
+  const totalTimeSource = candidate?.metadata?.totalTimeSource ?? null;
+  const hadPrepTime = Boolean(candidate?.metadata?.prepTime);
+  const hadCookTime = Boolean(candidate?.metadata?.cookTime);
+  const hadTotalTime = Boolean(candidate?.metadata?.totalTime);
+  const presentTimeCount =
+    Number(hadPrepTime) + Number(hadCookTime) + Number(hadTotalTime);
+  const timeCompleteness =
+    presentTimeCount === 3 ? "all" : presentTimeCount === 0 ? "none" : "partial";
+  const hasInferredTime =
+    prepTimeSource === "inferred" ||
+    cookTimeSource === "inferred" ||
+    totalTimeSource === "inferred";
+  const hasExplicitTime =
+    prepTimeSource === "explicit" ||
+    cookTimeSource === "explicit" ||
+    totalTimeSource === "explicit";
+
   const base: ImportEventProps = {
     source_type: context.sourceType,
     draft_id: context.draftId,
@@ -56,6 +75,15 @@ export function buildImportEventProps(
     flag_codes: flagCodes,
     first_flag_code: flagCodes[0] ?? null,
     has_flags: flagCodes.length > 0,
+    had_prep_time: hadPrepTime,
+    had_cook_time: hadCookTime,
+    had_total_time: hadTotalTime,
+    prep_time_source: prepTimeSource,
+    cook_time_source: cookTimeSource,
+    total_time_source: totalTimeSource,
+    time_completeness: timeCompleteness,
+    has_inferred_time: hasInferredTime,
+    has_explicit_time: hasExplicitTime,
   };
   return { ...base, ...(extras ?? {}) };
 }

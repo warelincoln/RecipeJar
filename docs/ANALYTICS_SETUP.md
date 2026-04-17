@@ -156,6 +156,61 @@ Symmetric with tile 3 (block codes). FLAGs are dismissible warnings — tracking
 - **Title:** `Which FLAG codes fire most`
 - **Why:** FLAGs like `MAJOR_OCR_ARTIFACT`, `DESCRIPTION_DETECTED`, or `MULTI_RECIPE_DETECTED` are signals that the parse succeeded but the content has a quirk. High frequency on one code tells you which quirks are worth handling automatically vs surfacing to the user.
 
+### Tile 10 — Time completeness by domain (SQL)
+
+Per-domain breakdown of how often we get all three times vs partial vs none, plus how often we're relying on AI inference. Call out domains where the source publishes times cleanly (mostly `explicit`) vs where Orzo is guessing (`inferred`).
+
+- **Insight type:** SQL
+- **Query:**
+
+```sql
+SELECT
+  properties.domain AS domain,
+  count() AS parses,
+  countIf(properties.time_completeness = 'all') AS all_times,
+  countIf(properties.time_completeness = 'partial') AS partial,
+  countIf(properties.time_completeness = 'none') AS none,
+  countIf(properties.has_inferred_time = true) AS any_inferred,
+  countIf(properties.has_explicit_time = true) AS any_explicit,
+  round(countIf(properties.has_explicit_time = true) / count() * 100, 1) AS explicit_pct
+FROM events
+WHERE event = 'server_parse_validated'
+  AND properties.source_type = 'url'
+  AND properties.domain IS NOT NULL
+  AND timestamp > now() - interval 14 day
+GROUP BY domain
+ORDER BY parses DESC
+LIMIT 25
+```
+
+- **Title:** `Time completeness & inference rate by domain`
+
+### Tile 11 — Inferred-time parses feed (SQL)
+
+Every parse where the TimesReviewBanner would have fired — shows which sites leave Orzo to guess.
+
+- **Insight type:** SQL
+- **Query:**
+
+```sql
+SELECT
+  timestamp,
+  properties.domain AS domain,
+  properties.url AS url,
+  properties.prep_time_source AS prep_src,
+  properties.cook_time_source AS cook_src,
+  properties.total_time_source AS total_src,
+  properties.extraction_method AS tier
+FROM events
+WHERE event = 'server_parse_validated'
+  AND properties.has_inferred_time = true
+  AND timestamp > now() - interval 14 day
+ORDER BY timestamp DESC
+LIMIT 50
+```
+
+- **Title:** `Parses where times were AI-inferred`
+
 ---
 
 ## Event reference
@@ -174,6 +229,15 @@ Quick glossary of everything that now flows into PostHog.
 | `server_hero_image_missing` | URL import saved without a hero image | `url`, `domain`, `recipe_id`, `extraction_method`, `reason` (`no_metadata_url`\|`download_failed`), `metadata_image_url`, `error_message` |
 
 `server_parse_validated` also now carries `first_flag_code` and `has_flags` (symmetric with the BLOCK side) so FLAG breakdowns work the same way as BLOCK breakdowns in the dashboard.
+
+**Time provenance properties** (on `server_parse_completed`, `server_parse_validated`, and — as `*_final` variants — on `server_recipe_saved`):
+
+- `prep_time_source` / `cook_time_source` / `total_time_source` — one of `"explicit" | "inferred" | null`. `"explicit"` means JSON-LD/Microdata literally stated the time; `"inferred"` means Vision or URL-AI estimated it; `null` means the time field wasn't populated at all.
+- `had_prep_time` / `had_cook_time` / `had_total_time` — boolean presence per field.
+- `time_completeness` — `"all" | "partial" | "none"`. Scorecard for "did we get every time."
+- `has_inferred_time` — any of the three is `"inferred"`. This is "the TimesReviewBanner fired" signal.
+- `has_explicit_time` — any of the three came from structured data.
+- On `server_recipe_saved`: `prep_time_source_final`, `cook_time_source_final`, `total_time_source_final` are the persisted source after the user had a chance to confirm via the banner (`"user_confirmed"` replaces `"inferred"` when the user accepted or edited). `any_inferred_time_final` / `any_user_confirmed_time` are the convenience booleans.
 
 ### Client-side (Track B — ships with Build 2)
 
