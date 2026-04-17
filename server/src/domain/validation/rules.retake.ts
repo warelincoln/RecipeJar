@@ -8,6 +8,14 @@ export function evaluateRetake(
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
+  // Retakes only apply to image-based imports. URL imports have sourcePages = [],
+  // and Array.every() returns true on an empty array, which was causing
+  // RETAKE_LIMIT_REACHED to false-fire on every URL import with low-confidence
+  // structure. Short-circuit when there are no pages to retake.
+  if (candidate.sourcePages.length === 0) {
+    return issues;
+  }
+
   if (candidate.parseSignals.lowConfidenceStructure) {
     const allPagesExhausted = candidate.sourcePages.every(
       (p) => (p.retakeCount ?? 0) >= MAX_RETAKES_PER_PAGE,
