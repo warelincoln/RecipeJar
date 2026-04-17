@@ -11,11 +11,11 @@ export function evaluateServings(
     {
       issueId: "servings-missing",
       code: "SERVINGS_MISSING",
-      severity: "BLOCK",
+      severity: "FLAG",
       message:
         "How many does this recipe serve? Add the number of servings to save.",
       fieldPath: "servings",
-      userDismissible: false,
+      userDismissible: true,
       userResolvable: true,
     },
   ];
