@@ -219,5 +219,6 @@ export function buildErrorCandidate(
     },
     ingredientSignals: [],
     stepSignals: [],
+    extractionMethod: "error",
   };
 }
