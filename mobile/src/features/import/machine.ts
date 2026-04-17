@@ -1,12 +1,62 @@
 import { setup, assign, fromPromise } from "xstate";
 import { api, type UrlParseRequest } from "../../services/api";
 import { analytics } from "../../services/analytics";
+import { extractDomain } from "../../utils/url";
 import type {
   ParsedRecipeCandidate,
   EditedRecipeCandidate,
   ValidationResult,
   DraftStatus,
 } from "@orzo/shared";
+
+type ImportEventValue = string | number | boolean | null | string[];
+type ImportEventProps = Record<string, ImportEventValue>;
+
+/**
+ * Shared properties for every `import_*` PostHog event fired from the state
+ * machine. Keeps URL, domain, extraction method, and issue codes on a single
+ * distinct_id so the dashboard's breakdowns stay consistent between
+ * client-side and server-side events.
+ */
+export function buildImportEventProps(
+  context: ImportContext,
+  extras?: ImportEventProps,
+): ImportEventProps {
+  const candidate = context.parsedCandidate;
+  const validation = context.validationResult;
+  const blockCodes =
+    validation?.issues.filter((i) => i.severity === "BLOCK").map((i) => i.code) ??
+    [];
+  const retakeCodes =
+    validation?.issues.filter((i) => i.severity === "RETAKE").map((i) => i.code) ??
+    [];
+  const flagCodes =
+    validation?.issues.filter((i) => i.severity === "FLAG").map((i) => i.code) ??
+    [];
+
+  const base: ImportEventProps = {
+    source_type: context.sourceType,
+    draft_id: context.draftId,
+    url: context.url,
+    domain: extractDomain(context.url),
+    acquisition_method: context.urlAcquisitionMethod ?? null,
+    extraction_method:
+      context.sourceType === "image"
+        ? "vision"
+        : (candidate?.extractionMethod ?? null),
+    page_count: context.capturedPages.length,
+    ingredient_count: candidate?.ingredients?.length ?? 0,
+    step_count: candidate?.steps?.length ?? 0,
+    save_state: validation?.saveState ?? null,
+    has_blocking_issues: validation?.hasBlockingIssues ?? false,
+    requires_retake: validation?.requiresRetake ?? false,
+    block_codes: blockCodes,
+    first_block_code: blockCodes[0] ?? null,
+    retake_codes: retakeCodes,
+    flag_codes: flagCodes,
+  };
+  return { ...base, ...(extras ?? {}) };
+}
 
 export interface CapturedPage {
   pageId: string;
@@ -32,6 +82,7 @@ export interface ImportContext {
   retakePageId: string | null;
   savedRecipeId: string | null;
   error: string | null;
+  parseStartedAt: number | null;
 }
 
 type ImportEvent =
@@ -193,9 +244,7 @@ export const importMachine = setup({
     ),
     saveDraft: fromPromise(
       async ({ input }: { input: { draftId: string } }) => {
-        const result = await api.drafts.save(input.draftId);
-        analytics.track("recipe_saved", { draftId: input.draftId });
-        return result;
+        return api.drafts.save(input.draftId);
       },
     ),
     resumeDraft: fromPromise(
@@ -231,6 +280,7 @@ export const importMachine = setup({
     retakePageId: null,
     savedRecipeId: null,
     error: null,
+    parseStartedAt: null,
   },
   states: {
     idle: {
@@ -238,15 +288,25 @@ export const importMachine = setup({
         NEW_IMAGE_IMPORT: { target: "capture" },
         NEW_URL_IMPORT: {
           target: "creatingUrlDraft",
-          actions: assign({
-            sourceType: () => "url" as const,
-            url: ({ event }) => event.url,
-            urlHtml: ({ event }) => event.urlHtml ?? null,
-            urlAcquisitionMethod: ({ event }) =>
-              event.urlAcquisitionMethod ?? (event.urlHtml ? "webview-html" : "server-fetch"),
-            urlCaptureFailureReason: ({ event }) =>
-              event.urlCaptureFailureReason ?? null,
-          }),
+          actions: [
+            assign({
+              sourceType: () => "url" as const,
+              url: ({ event }) => event.url,
+              urlHtml: ({ event }) => event.urlHtml ?? null,
+              urlAcquisitionMethod: ({ event }) =>
+                event.urlAcquisitionMethod ?? (event.urlHtml ? "webview-html" : "server-fetch"),
+              urlCaptureFailureReason: ({ event }) =>
+                event.urlCaptureFailureReason ?? null,
+            }),
+            ({ event }) => {
+              analytics.track("import_url_entered", {
+                source_type: "url",
+                url: event.url,
+                domain: extractDomain(event.url),
+                acquisition_method: event.urlAcquisitionMethod ?? (event.urlHtml ? "webview-html" : "server-fetch"),
+              });
+            },
+          ],
         },
         PHOTOS_SELECTED: {
           target: "uploading",
@@ -403,12 +463,25 @@ export const importMachine = setup({
     },
 
     parsing: {
+      entry: assign({ parseStartedAt: () => Date.now() }),
       after: {
         60000: {
           target: "timedOut",
-          actions: assign({
-            error: () => "This is taking longer than expected. Please try again.",
-          }),
+          actions: [
+            assign({
+              error: () => "This is taking longer than expected. Please try again.",
+            }),
+            ({ context }) => {
+              const durationMs =
+                context.parseStartedAt != null
+                  ? Date.now() - context.parseStartedAt
+                  : null;
+              analytics.track(
+                "import_timed_out",
+                buildImportEventProps(context, { parse_duration_ms: durationMs }),
+              );
+            },
+          ],
         },
       },
       invoke: {
@@ -423,34 +496,95 @@ export const importMachine = setup({
           {
             guard: ({ event }) => event.output.status === "NEEDS_RETAKE",
             target: "retakeRequired",
-            actions: assign({
-              parsedCandidate: ({ event }) => event.output.candidate,
-              validationResult: ({ event }) => event.output.validationResult,
-            }),
+            actions: [
+              assign({
+                parsedCandidate: ({ event }) => event.output.candidate,
+                validationResult: ({ event }) => event.output.validationResult,
+              }),
+              ({ context, event }) => {
+                const durationMs =
+                  context.parseStartedAt != null
+                    ? Date.now() - context.parseStartedAt
+                    : null;
+                const merged = {
+                  ...context,
+                  parsedCandidate: event.output.candidate,
+                  validationResult: event.output.validationResult,
+                };
+                const props = buildImportEventProps(merged, {
+                  parse_duration_ms: durationMs,
+                });
+                analytics.track("import_parsed", props);
+                analytics.track("import_retake_required", props);
+              },
+            ],
           },
           {
             target: "previewEdit",
-            actions: assign({
-              parsedCandidate: ({ event }) => event.output.candidate,
-              editedCandidate: ({ event }) => {
-                const c = event.output.candidate;
-                return {
-                  title: c.title ?? "",
-                  ingredients: c.ingredients,
-                  steps: c.steps,
-                  description: c.description,
-                  servings: c.servings ?? null,
+            actions: [
+              assign({
+                parsedCandidate: ({ event }) => event.output.candidate,
+                editedCandidate: ({ event }) => {
+                  const c = event.output.candidate;
+                  return {
+                    title: c.title ?? "",
+                    ingredients: c.ingredients,
+                    steps: c.steps,
+                    description: c.description,
+                    servings: c.servings ?? null,
+                  };
+                },
+                validationResult: ({ event }) => event.output.validationResult,
+              }),
+              ({ context, event }) => {
+                const durationMs =
+                  context.parseStartedAt != null
+                    ? Date.now() - context.parseStartedAt
+                    : null;
+                const merged = {
+                  ...context,
+                  parsedCandidate: event.output.candidate,
+                  validationResult: event.output.validationResult,
                 };
+                const props = buildImportEventProps(merged, {
+                  parse_duration_ms: durationMs,
+                });
+                analytics.track("import_parsed", props);
+                if (event.output.validationResult?.hasBlockingIssues) {
+                  analytics.track("import_blocked_shown", props);
+                }
               },
-              validationResult: ({ event }) => event.output.validationResult,
-            }),
+            ],
           },
         ],
         onError: {
           target: "idle",
-          actions: assign({
-            error: () => "Parsing failed. Please try again.",
-          }),
+          actions: [
+            assign({
+              error: () => "Parsing failed. Please try again.",
+            }),
+            ({ context, event }) => {
+              const durationMs =
+                context.parseStartedAt != null
+                  ? Date.now() - context.parseStartedAt
+                  : null;
+              const error = (event as { error?: unknown }).error;
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : typeof error === "string"
+                    ? error
+                    : "Unknown parse error";
+              analytics.track(
+                "import_failed",
+                buildImportEventProps(context, {
+                  parse_duration_ms: durationMs,
+                  error_message: message,
+                  error_stage: "parse",
+                }),
+              );
+            },
+          ],
         },
       },
     },
@@ -478,15 +612,31 @@ export const importMachine = setup({
       on: {
         RETAKE_PAGE: {
           target: "capture",
-          actions: assign({
-            capturedPages: () => [],
-            retakePageId: ({ event }) => event.pageId,
-          }),
+          actions: [
+            assign({
+              capturedPages: () => [],
+              retakePageId: ({ event }) => event.pageId,
+            }),
+            ({ context, event }) => {
+              analytics.track(
+                "import_retake_initiated",
+                buildImportEventProps(context, { page_id: event.pageId }),
+              );
+            },
+          ],
         },
         RETAKE_SUBMITTED: {
           target: "parsing",
         },
-        RETAKE_GO_HOME: { target: "idle" },
+        RETAKE_GO_HOME: {
+          target: "idle",
+          actions: ({ context }) => {
+            analytics.track(
+              "import_dismissed",
+              buildImportEventProps(context, { dismissed_from: "retakeRequired" }),
+            );
+          },
+        },
       },
     },
 
@@ -496,13 +646,38 @@ export const importMachine = setup({
         input: ({ context }) => ({ draftId: context.draftId! }),
         onDone: {
           target: "saved",
-          actions: assign({
-            savedRecipeId: ({ event }) => event.output.recipe.id,
-          }),
+          actions: [
+            assign({
+              savedRecipeId: ({ event }) => event.output.recipe.id,
+            }),
+            ({ context, event }) => {
+              analytics.track(
+                "import_saved",
+                buildImportEventProps(context, {
+                  recipe_id: event.output.recipe.id,
+                }),
+              );
+            },
+          ],
         },
         onError: {
           target: "previewEdit",
-          actions: assign({ error: () => "Save failed. Please try again." }),
+          actions: [
+            assign({ error: () => "Save failed. Please try again." }),
+            ({ context, event }) => {
+              const error = (event as { error?: unknown }).error;
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : typeof error === "string"
+                    ? error
+                    : "Unknown save error";
+              analytics.track(
+                "import_save_failed",
+                buildImportEventProps(context, { error_message: message }),
+              );
+            },
+          ],
         },
       },
     },

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMachine } from "@xstate/react";
-import { importMachine } from "../features/import/machine";
+import { importMachine, buildImportEventProps } from "../features/import/machine";
 import { CaptureView } from "../features/import/CaptureView";
 import { ReorderView } from "../features/import/ReorderView";
 import { ParsingView } from "../features/import/ParsingView";
@@ -188,6 +188,12 @@ export function ImportFlowScreen({ route, navigation }: Props) {
 
   const handleCancel = useCallback(() => {
     const cancelAction = async () => {
+      analytics.track(
+        "import_dismissed",
+        buildImportEventProps(state.context, {
+          dismissed_from: String(state.value),
+        }),
+      );
       if (fromHub && state.context.draftId) {
         try {
           await api.drafts.cancel(state.context.draftId);
@@ -205,7 +211,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
       { text: "Keep Going", style: "cancel" },
       { text: "Cancel Import", style: "destructive", onPress: cancelAction },
     ]);
-  }, [navigation, fromHub, state.context.draftId, hubEntry, removeEntry]);
+  }, [navigation, fromHub, state.context, state.value, hubEntry, removeEntry]);
 
   const handleEdit = useCallback(
     async (candidate: EditedRecipeCandidate) => {
@@ -443,7 +449,13 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           }
           parseRevealToken={parseRevealToken}
           onEdit={handleEdit}
-          onSave={() => send({ type: "ATTEMPT_SAVE" })}
+          onSave={() => {
+            analytics.track(
+              "import_save_attempted",
+              buildImportEventProps(state.context),
+            );
+            send({ type: "ATTEMPT_SAVE" });
+          }}
           onDismissWarning={handleDismissWarning}
           onUndismissWarning={handleUndismissWarning}
           onCancel={handleCancel}

@@ -10,6 +10,7 @@ import { collectionsRoutes } from "./api/collections.routes.js";
 import { accountRoutes } from "./api/account.routes.js";
 import { draftsRepository } from "./persistence/drafts.repository.js";
 import { logEvent } from "./observability/event-logger.js";
+import { shutdownAnalytics } from "./observability/analytics.js";
 
 const app = Fastify({
   logger: {
@@ -84,5 +85,23 @@ app.listen({ port, host: "0.0.0.0" }, async (err, address) => {
     app.log.warn({ err: startupErr }, "Startup draft cleanup failed (non-fatal)");
   }
 });
+
+async function gracefulShutdown(signal: NodeJS.Signals) {
+  app.log.info(`${signal} received — flushing analytics and closing server`);
+  try {
+    await shutdownAnalytics();
+  } catch (err) {
+    app.log.warn({ err }, "Analytics shutdown failed (non-fatal)");
+  }
+  try {
+    await app.close();
+  } catch (err) {
+    app.log.warn({ err }, "Fastify close failed");
+  }
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 
 export default app;

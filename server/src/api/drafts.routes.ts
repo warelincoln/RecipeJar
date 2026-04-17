@@ -19,6 +19,7 @@ import {
   type UrlAcquisitionMethod,
 } from "../parsing/url/url-parse.adapter.js";
 import { logEvent } from "../observability/event-logger.js";
+import { trackAnalytics, extractDomain } from "../observability/analytics.js";
 import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
 import { getSupabase } from "../services/supabase.js";
 import {
@@ -71,6 +72,62 @@ function draftRowToClientBody(
   return { ...draftRowToClientFields(row), pages, warningStates };
 }
 
+/**
+ * Rich properties for PostHog parse events. Shared between
+ * server_parse_completed and server_parse_validated so the event feed has
+ * consistent breakdowns (domain, extraction_method, save_state, etc.).
+ */
+function deriveParseEventProps(
+  draft: DraftRow,
+  candidate: ParsedRecipeCandidate,
+  validationResult: ValidationResult | null,
+  pageCount: number,
+  elapsedMs: number,
+  acquisitionMethod: UrlAcquisitionMethod | null,
+): Record<string, string | number | boolean | null | string[]> {
+  const sourceType = draft.sourceType;
+  const extractionMethod =
+    sourceType === "image" ? "vision" : (candidate.extractionMethod ?? "unknown");
+
+  const blockCodes = (validationResult?.issues ?? [])
+    .filter((i) => i.severity === "BLOCK")
+    .map((i) => i.code);
+  const retakeCodes = (validationResult?.issues ?? [])
+    .filter((i) => i.severity === "RETAKE")
+    .map((i) => i.code);
+  const flagCodes = (validationResult?.issues ?? [])
+    .filter((i) => i.severity === "FLAG")
+    .map((i) => i.code);
+
+  return {
+    draft_id: draft.id,
+    source_type: sourceType,
+    url: draft.originalUrl ?? null,
+    domain: extractDomain(draft.originalUrl),
+    acquisition_method: acquisitionMethod,
+    extraction_method: extractionMethod,
+    page_count: pageCount,
+    parse_duration_ms: elapsedMs,
+    ingredient_count: candidate.ingredients?.length ?? 0,
+    step_count: candidate.steps?.length ?? 0,
+    had_title: Boolean(candidate.title && candidate.title.trim().length > 0),
+    had_servings: candidate.servings != null,
+    had_prep_time: Boolean(candidate.metadata?.prepTime),
+    had_cook_time: Boolean(candidate.metadata?.cookTime),
+    had_total_time: Boolean(candidate.metadata?.totalTime),
+    save_state: validationResult?.saveState ?? null,
+    has_blocking_issues: validationResult?.hasBlockingIssues ?? false,
+    requires_retake: validationResult?.requiresRetake ?? false,
+    block_codes: blockCodes,
+    first_block_code: blockCodes[0] ?? null,
+    retake_codes: retakeCodes,
+    flag_codes: flagCodes,
+    block_count: blockCodes.length,
+    retake_count: retakeCodes.length,
+    flag_count: flagCodes.length,
+  };
+}
+
 async function runParseInBackground(
   draftId: string,
   draft: DraftRow,
@@ -120,6 +177,17 @@ async function runParseInBackground(
             draftId,
             reason: parseBody.captureFailureReason,
           });
+          trackAnalytics(
+            "server_url_capture_failed",
+            {
+              draft_id: draftId,
+              url: draft.originalUrl ?? null,
+              domain: extractDomain(draft.originalUrl),
+              acquisition_method: "server-fetch-fallback",
+              reason: parseBody.captureFailureReason,
+            },
+            { userId: draft.userId },
+          );
         }
 
         candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
@@ -189,15 +257,77 @@ async function runParseInBackground(
       issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG").length,
       issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE").length,
     });
+
+    const resolvedAcquisition: UrlAcquisitionMethod | null =
+      draft.sourceType === "url"
+        ? suppliedHtml
+          ? "webview-html"
+          : parseBody.acquisitionMethod === "server-fetch-fallback"
+            ? "server-fetch-fallback"
+            : "server-fetch"
+        : null;
+
+    const analyticsProps = deriveParseEventProps(
+      draft,
+      candidate,
+      validationResult,
+      pages.length,
+      elapsed_ms,
+      resolvedAcquisition,
+    );
+    trackAnalytics("server_parse_completed", analyticsProps, {
+      userId: draft.userId,
+    });
+    trackAnalytics("server_parse_validated", analyticsProps, {
+      userId: draft.userId,
+    });
   } catch (err) {
     const elapsed_ms = Date.now() - startTime;
     const errorMessage = err instanceof Error ? err.message : "Unknown parse error";
     console.error(`[parse] Background parse failed for draft ${draftId}:`, errorMessage);
     logEvent("parse_failed", { draftId, elapsed_ms, error: errorMessage });
+
+    const errorStage = classifyParseError(errorMessage);
+    trackAnalytics(
+      "server_parse_failed",
+      {
+        draft_id: draftId,
+        source_type: draft.sourceType,
+        url: draft.originalUrl ?? null,
+        domain: extractDomain(draft.originalUrl),
+        acquisition_method:
+          draft.sourceType === "url"
+            ? suppliedHtml
+              ? "webview-html"
+              : parseBody.acquisitionMethod === "server-fetch-fallback"
+                ? "server-fetch-fallback"
+                : "server-fetch"
+            : null,
+        parse_duration_ms: elapsed_ms,
+        error_message: errorMessage,
+        error_stage: errorStage,
+      },
+      { userId: draft.userId },
+    );
+
     await draftsRepository.setParseError(draftId, errorMessage, "PARSING");
   } finally {
     releaseParseLock();
   }
+}
+
+/**
+ * Best-effort classification of parse failures for the PostHog error_stage
+ * breakdown. Uses substring heuristics on the error message so new failure
+ * modes fall through to "unknown" rather than breaking the dashboard.
+ */
+function classifyParseError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("fetch") || m.includes("timeout") || m.includes("ssrf")) return "fetch";
+  if (m.includes("openai") || m.includes("vision")) return "vision";
+  if (m.includes("json") || m.includes("parse") || m.includes("extract")) return "extract";
+  if (m.includes("validate")) return "validate";
+  return "unknown";
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
@@ -679,6 +809,36 @@ export async function draftsRoutes(app: FastifyInstance) {
         saveState: saveDecision.saveState,
         warningsDismissed: dismissedIssueIds.length > 0,
       });
+
+      const hadUserEdits =
+        edited.title !== (parsedCandidate?.title ?? null) ||
+        edited.ingredients.length !== (parsedCandidate?.ingredients.length ?? 0) ||
+        edited.steps.length !== (parsedCandidate?.steps.length ?? 0);
+
+      trackAnalytics(
+        "server_recipe_saved",
+        {
+          draft_id: draftId,
+          recipe_id: recipe.id,
+          source_type: draft.sourceType,
+          url: draft.originalUrl ?? null,
+          domain: extractDomain(draft.originalUrl),
+          extraction_method:
+            draft.sourceType === "image"
+              ? "vision"
+              : (parsedCandidate?.extractionMethod ?? "unknown"),
+          save_state: saveDecision.saveState,
+          had_user_edits: hadUserEdits,
+          dismissed_issue_count: dismissedIssueIds.length,
+          ingredient_count: edited.ingredients.length,
+          step_count: edited.steps.length,
+          had_servings: baselineServings != null,
+          had_prep_time: prepTime.minutes != null,
+          had_cook_time: cookTime.minutes != null,
+          had_total_time: totalTime.minutes != null,
+        },
+        { userId: request.userId },
+      );
 
       return reply.status(201).send({ recipe: resolvedRecipe, saveDecision });
     },
