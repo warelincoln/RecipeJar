@@ -7,6 +7,7 @@ import {
 } from "../src/parsing/normalize.js";
 import { extractStructuredData, extractMicrodata } from "../src/parsing/url/url-structured.adapter.js";
 import { extractDomBoundary } from "../src/parsing/url/url-dom.adapter.js";
+import { enrichFromDom } from "../src/parsing/url/url-dom-enrichment.js";
 import { normalizeUrl } from "../src/parsing/url/url-fetch.service.js";
 import * as urlAiAdapter from "../src/parsing/url/url-ai.adapter.js";
 import { parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
@@ -632,5 +633,232 @@ describe("smartTruncate", () => {
     const result = smartTruncate(text, 5000);
     expect(result.length).toBe(5000);
     expect(result).toBe(text.slice(0, 5000));
+  });
+});
+
+describe("enrichFromDom", () => {
+  const baseStructured: RawExtractionResult = {
+    title: "Test Recipe",
+    ingredients: [{ text: "1 cup flour" }, { text: "2 eggs" }],
+    steps: [{ text: "Mix." }],
+    description: null,
+    signals: { structureSeparable: true, descriptionDetected: false },
+    ingredientSignals: [],
+    stepSignals: [],
+  };
+
+  it("fills yield from DOM when JSON-LD has image but no servings", () => {
+    const html = `
+      <html>
+      <head>
+        <meta property="og:image" content="https://example.com/hero.jpg">
+      </head>
+      <body>
+        <div class="wprm-recipe">
+          <span class="wprm-recipe-servings">4</span>
+        </div>
+      </body>
+      </html>
+    `;
+    const input: RawExtractionResult = {
+      ...baseStructured,
+      metadata: { imageUrl: "https://cdn.example.com/json-ld-image.jpg" },
+    };
+    const result = enrichFromDom(html, input);
+
+    expect(result.metadata?.imageUrl).toBe(
+      "https://cdn.example.com/json-ld-image.jpg",
+    );
+    expect(result.servings).toEqual({ min: 4, max: null });
+  });
+
+  it("is a no-op when JSON-LD already has both image and servings", () => {
+    const html = `
+      <html>
+      <head>
+        <meta property="og:image" content="https://example.com/og.jpg">
+      </head>
+      <body>
+        <span class="wprm-recipe-servings">12</span>
+      </body>
+      </html>
+    `;
+    const input: RawExtractionResult = {
+      ...baseStructured,
+      metadata: { imageUrl: "https://cdn.example.com/original.jpg" },
+      servings: { min: 6, max: null },
+    };
+    const result = enrichFromDom(html, input);
+
+    expect(result.metadata?.imageUrl).toBe(
+      "https://cdn.example.com/original.jpg",
+    );
+    expect(result.servings).toEqual({ min: 6, max: null });
+  });
+
+  it("fills both image and servings when JSON-LD has neither", () => {
+    const html = `
+      <html>
+      <head>
+        <meta property="og:image" content="https://example.com/og-hero.jpg">
+      </head>
+      <body>
+        <div itemscope itemtype="http://schema.org/Recipe">
+          <meta itemprop="recipeYield" content="Serves 6">
+        </div>
+      </body>
+      </html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+
+    expect(result.metadata?.imageUrl).toBe("https://example.com/og-hero.jpg");
+    expect(result.servings).toEqual({ min: 6, max: null });
+  });
+
+  it("prefers twitter:image when og:image is absent", () => {
+    const html = `
+      <html><head>
+        <meta name="twitter:image" content="https://example.com/twitter.jpg">
+      </head><body></body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.metadata?.imageUrl).toBe("https://example.com/twitter.jpg");
+  });
+
+  it("falls back to link[rel=image_src] when meta tags are missing", () => {
+    const html = `
+      <html><head>
+        <link rel="image_src" href="https://example.com/link.jpg">
+      </head><body></body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.metadata?.imageUrl).toBe("https://example.com/link.jpg");
+  });
+
+  it("reads yield from Tasty Recipes plugin markup", () => {
+    const html = `
+      <html><body>
+        <div class="tasty-recipes-yield-scale">
+          <span class="tasty-recipes-yield">Serves 8</span>
+        </div>
+      </body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.servings).toEqual({ min: 8, max: null });
+  });
+
+  it("extracts yield from text within recipe scope via regex", () => {
+    const html = `
+      <html><body>
+        <div class="recipe-card">
+          <h2>Pancakes</h2>
+          <p>Serves 4 people</p>
+        </div>
+      </body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.servings).toEqual({ min: 4, max: null });
+  });
+
+  it("captures a servings range like 6-8", () => {
+    const html = `
+      <html><body>
+        <div class="recipe-card">
+          <p>Makes 6-8 servings</p>
+        </div>
+      </body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.servings).toEqual({ min: 6, max: 8 });
+  });
+
+  it("rejects non-person yields like '24 cookies'", () => {
+    const html = `
+      <html><body>
+        <div class="recipe-card">
+          <p>Makes 24 cookies</p>
+        </div>
+      </body></html>
+    `;
+    const result = enrichFromDom(html, baseStructured);
+    expect(result.servings ?? null).toBeNull();
+  });
+
+  it("does not overwrite existing image even when og:image is present", () => {
+    const html = `
+      <html><head>
+        <meta property="og:image" content="https://example.com/og.jpg">
+      </head><body></body></html>
+    `;
+    const input: RawExtractionResult = {
+      ...baseStructured,
+      metadata: { imageUrl: "https://original.example.com/keep.jpg" },
+    };
+    const result = enrichFromDom(html, input);
+    expect(result.metadata?.imageUrl).toBe(
+      "https://original.example.com/keep.jpg",
+    );
+  });
+
+  it("preserves existing yield metadata when filling servings", () => {
+    const html = `
+      <html><body>
+        <span class="wprm-recipe-servings">5</span>
+      </body></html>
+    `;
+    const input: RawExtractionResult = {
+      ...baseStructured,
+      metadata: { yield: "4 servings" },
+    };
+    const result = enrichFromDom(html, input);
+    expect(result.metadata?.yield).toBe("4 servings");
+    expect(result.servings).toEqual({ min: 5, max: null });
+  });
+});
+
+describe("parseUrlFromHtml — DOM enrichment integration", () => {
+  it("fills missing image and servings on a BBC Good Food-style page", async () => {
+    const html = `
+      <html>
+      <head>
+        <meta property="og:image" content="https://images.example.com/recipe-hero.jpg">
+        <script type="application/ld+json">
+        {
+          "@type": "Recipe",
+          "name": "Beef Wellington",
+          "recipeIngredient": [
+            "1 kg beef fillet",
+            "500g puff pastry",
+            "2 eggs"
+          ],
+          "recipeInstructions": [
+            {"@type": "HowToStep", "text": "Sear the beef."},
+            {"@type": "HowToStep", "text": "Wrap in pastry and bake."}
+          ]
+        }
+        </script>
+      </head>
+      <body>
+        <div class="recipe-card">
+          <h1>Beef Wellington</h1>
+          <p class="recipe-meta">Serves 6</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const result = await parseUrlFromHtml(
+      "https://example.com/beef-wellington",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result.extractionMethod).toBe("json-ld");
+    expect(result.title).toBe("Beef Wellington");
+    expect(result.metadata?.imageUrl).toBe(
+      "https://images.example.com/recipe-hero.jpg",
+    );
+    expect(result.servings).toBe(6);
   });
 });

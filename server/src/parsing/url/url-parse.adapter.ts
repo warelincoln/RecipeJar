@@ -2,6 +2,7 @@ import type { SourcePage, ParsedRecipeCandidate } from "@orzo/shared";
 import { fetchUrl } from "./url-fetch.service.js";
 import { extractStructuredData, extractMicrodata } from "./url-structured.adapter.js";
 import { extractDomBoundary } from "./url-dom.adapter.js";
+import { enrichFromDom } from "./url-dom-enrichment.js";
 import { parseWithAI } from "./url-ai.adapter.js";
 import {
   normalizeToCandidate,
@@ -88,12 +89,16 @@ export async function parseUrlFromHtml(
   let fallbackServings: RawExtractionResult["servings"] | undefined;
 
   if (structured && passesQualityGate(structured)) {
+    const enriched = enrichFromDom(html, structured);
     logExtraction("json-ld", url, {
       acquisitionMethod,
-      ingredients: structured.ingredients?.length,
-      steps: structured.steps?.length,
+      ingredients: enriched.ingredients?.length,
+      steps: enriched.steps?.length,
+      enrichedImage:
+        !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
+      enrichedServings: !structured.servings && !!enriched.servings,
     });
-    const candidate = normalizeToCandidate(structured, "url", sourcePages);
+    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
     candidate.extractionMethod = "json-ld";
     return candidate;
   }
@@ -120,12 +125,16 @@ export async function parseUrlFromHtml(
 
   const microdata = extractMicrodata(html);
   if (microdata && passesQualityGate(microdata)) {
+    const enriched = enrichFromDom(html, microdata);
     logExtraction("microdata", url, {
       acquisitionMethod,
-      ingredients: microdata.ingredients?.length,
-      steps: microdata.steps?.length,
+      ingredients: enriched.ingredients?.length,
+      steps: enriched.steps?.length,
+      enrichedImage:
+        !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
+      enrichedServings: !microdata.servings && !!enriched.servings,
     });
-    const candidate = normalizeToCandidate(microdata, "url", sourcePages);
+    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
     candidate.extractionMethod = "microdata";
     return candidate;
   }
@@ -144,13 +153,17 @@ export async function parseUrlFromHtml(
       if (!aiResult.servings && fallbackServings) {
         aiResult.servings = fallbackServings;
       }
+      const enriched = enrichFromDom(html, aiResult);
       logExtraction("dom-ai", url, {
         acquisitionMethod,
-        ingredients: aiResult.ingredients?.length,
-        steps: aiResult.steps?.length,
-        titleFromFallback: !!(fallbackTitle && aiResult.title === fallbackTitle),
+        ingredients: enriched.ingredients?.length,
+        steps: enriched.steps?.length,
+        titleFromFallback: !!(fallbackTitle && enriched.title === fallbackTitle),
+        enrichedImage:
+          !aiResult.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
+        enrichedServings: !aiResult.servings && !!enriched.servings,
       });
-      const candidate = normalizeToCandidate(aiResult, "url", sourcePages);
+      const candidate = normalizeToCandidate(enriched, "url", sourcePages);
       candidate.extractionMethod = "dom-ai";
       return candidate;
     }
