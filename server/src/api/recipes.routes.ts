@@ -6,6 +6,7 @@ import { NOTE_MAX_LENGTH } from "@orzo/shared";
 import {
   deleteRecipeImage,
   resolveImageUrls,
+  resolveImageUrlsBatch,
   resolveSourcePageUrl,
   uploadRecipeImage,
 } from "../services/recipe-image.service.js";
@@ -63,10 +64,44 @@ async function enrichRecipeResponse<
   };
 }
 
+/**
+ * List-endpoint enricher. Batches signed-URL generation across all
+ * recipes in the list (`resolveImageUrlsBatch`) so the Supabase
+ * Storage load is O(1) round-trips rather than O(N) per-recipe. Source
+ * pages are not included in the list payload (the mobile home screen
+ * doesn't render them), so we don't sign those here — full source-
+ * context still flows through `enrichRecipeResponse` on the
+ * single-recipe endpoints.
+ */
+async function enrichRecipeListResponse<
+  T extends {
+    imageUrl?: string | null;
+    sourceType: string;
+    originalUrl: string | null;
+  },
+>(items: T[]) {
+  const heroPaths = items.map((r) => r.imageUrl ?? null);
+  const signed = await resolveImageUrlsBatch(heroPaths);
+  return items.map((recipe, i) => ({
+    ...recipe,
+    ...signed[i],
+    sourceContext: {
+      sourceType: recipe.sourceType as "image" | "url",
+      originalUrl: recipe.originalUrl,
+      pages: [] as {
+        id: string;
+        orderIndex: number;
+        imageUri: string | null;
+        extractedText: string | null;
+      }[],
+    },
+  }));
+}
+
 export async function recipesRoutes(app: FastifyInstance) {
   app.get("/recipes", async (request, reply) => {
     const recipes = await recipesRepository.list(request.userId);
-    return reply.send(await Promise.all(recipes.map(enrichRecipeResponse)));
+    return reply.send(await enrichRecipeListResponse(recipes));
   });
 
   app.get<{ Params: { id: string } }>(

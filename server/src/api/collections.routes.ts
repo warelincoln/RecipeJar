@@ -1,13 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { collectionsRepository } from "../persistence/collections.repository.js";
 import { recipesRepository } from "../persistence/recipes.repository.js";
-import { resolveImageUrls } from "../services/recipe-image.service.js";
+import { resolveImageUrlsBatch } from "../services/recipe-image.service.js";
 
-async function withImageUrls<T extends { imageUrl?: string | null }>(recipe: T) {
-  return {
+async function attachBatchImageUrls<T extends { imageUrl?: string | null }>(
+  recipes: T[],
+): Promise<T[]> {
+  const signed = await resolveImageUrlsBatch(
+    recipes.map((r) => r.imageUrl ?? null),
+  );
+  return recipes.map((recipe, i) => ({
     ...recipe,
-    ...(await resolveImageUrls(recipe.imageUrl ?? null)),
-  };
+    ...signed[i],
+  }));
 }
 
 export async function collectionsRoutes(app: FastifyInstance) {
@@ -33,7 +38,7 @@ export async function collectionsRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Collection not found" });
       }
       const recipes = await recipesRepository.listByCollection(request.params.id, request.userId);
-      return reply.send(await Promise.all(recipes.map(withImageUrls)));
+      return reply.send(await attachBatchImageUrls(recipes));
     },
   );
 

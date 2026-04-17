@@ -59,7 +59,14 @@ async function ensureRecipeImagesBucket(): Promise<void> {
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 
-export async function resolveImageUrls(imageUrl: string | null) {
+export interface ResolvedImageUrls {
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+}
+
+export async function resolveImageUrls(
+  imageUrl: string | null,
+): Promise<ResolvedImageUrls> {
   if (!imageUrl) {
     return { imageUrl: null, thumbnailUrl: null };
   }
@@ -81,6 +88,83 @@ export async function resolveImageUrls(imageUrl: string | null) {
     imageUrl: heroResult.data?.signedUrl ?? null,
     thumbnailUrl: thumbResult.data?.signedUrl ?? null,
   };
+}
+
+/**
+ * Batch signed-URL resolution for a list of recipes. Takes an array of
+ * hero-image paths (null-safe) and returns parallel signed URLs in the
+ * same order. Uses Supabase's `createSignedUrls` batch endpoint — one
+ * HTTP call per bucket regardless of input length — so the home-screen
+ * list endpoint's Supabase load is O(1) instead of O(N).
+ *
+ * Why this matters: previously `GET /recipes` called `resolveImageUrls`
+ * per recipe, each doing 2 `createSignedUrl` calls in parallel. With 50
+ * recipes that was 100 parallel HTTPS calls to Supabase, which
+ * throttled under load and drove home-screen latency to 20-30s.
+ */
+export async function resolveImageUrlsBatch(
+  heroPaths: readonly (string | null)[],
+): Promise<ResolvedImageUrls[]> {
+  const results: ResolvedImageUrls[] = heroPaths.map(() => ({
+    imageUrl: null,
+    thumbnailUrl: null,
+  }));
+
+  // Build a task list of non-null entries; null hero paths stay null in
+  // the output (recipe has no image yet).
+  const tasks: Array<{ idx: number; heroPath: string; thumbPath: string }> = [];
+  heroPaths.forEach((heroPath, idx) => {
+    if (!heroPath) return;
+    tasks.push({
+      idx,
+      heroPath,
+      thumbPath: heroPath.replace(/\/hero\.jpg$/, "/thumb.jpg"),
+    });
+  });
+
+  if (tasks.length === 0) return results;
+
+  const supabase = getSupabase();
+  const [heroResp, thumbResp] = await Promise.all([
+    supabase.storage
+      .from(RECIPE_IMAGES_BUCKET)
+      .createSignedUrls(
+        tasks.map((t) => t.heroPath),
+        SIGNED_URL_TTL_SECONDS,
+      ),
+    supabase.storage
+      .from(RECIPE_IMAGES_BUCKET)
+      .createSignedUrls(
+        tasks.map((t) => t.thumbPath),
+        SIGNED_URL_TTL_SECONDS,
+      ),
+  ]);
+
+  // Build path → signedUrl lookups so we're robust against any
+  // reordering by the Supabase API. Silently drop individual per-path
+  // errors — the mobile client tolerates null signed URLs on the list
+  // endpoint (FastImage shows a placeholder).
+  const heroMap = new Map<string, string>();
+  heroResp.data?.forEach((row) => {
+    if (row.path && row.signedUrl && !row.error) {
+      heroMap.set(row.path, row.signedUrl);
+    }
+  });
+  const thumbMap = new Map<string, string>();
+  thumbResp.data?.forEach((row) => {
+    if (row.path && row.signedUrl && !row.error) {
+      thumbMap.set(row.path, row.signedUrl);
+    }
+  });
+
+  for (const t of tasks) {
+    results[t.idx] = {
+      imageUrl: heroMap.get(t.heroPath) ?? null,
+      thumbnailUrl: thumbMap.get(t.thumbPath) ?? null,
+    };
+  }
+
+  return results;
 }
 
 /**
