@@ -332,7 +332,7 @@ export async function draftsRoutes(app: FastifyInstance) {
     {
       config: {
         rateLimit: {
-          max: 10,
+          max: 100,
           timeWindow: "1 hour",
           keyGenerator: (request: any) => request.userId || request.ip,
         },
