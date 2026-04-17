@@ -1,5 +1,104 @@
 # Orzo Changelog
 
+### 2026-04-16 (afternoon) — Bulk select mode + polish
+
+Second of two cross-cutting UX upgrades landed today. Long-press any recipe card on Home or inside a collection → iOS-Photos-style multi-select (checkmarks, no jiggle). Delete or move N recipes in a single server round-trip.
+
+**Shipped in this cycle (4 commits):**
+
+- **`750bf88` feat: bulk select mode on Home + Collection (delete / move / haptics)** — the core feature.
+- **`2a19180` feat: bulk-mode polish — inline new folder, correct delete copy, hide FAB, stronger haptics** — four on-device-feedback fixes applied after first pass.
+- **`51b2e04` fix(bulk): preserve the long-pressed card as selected on bulk-mode entry** — guards against `onPress` firing after `onLongPress` on some iOS devices, which was instantly deselecting the card that just entered bulk mode.
+
+**Mobile primitives (new):**
+
+- **`mobile/src/hooks/useBulkSelection.ts`** — reusable hook owning `bulkMode` flag + `selectedIds: Set<string>` + `enterBulk` / `toggle` / `selectAll` / `clear` / `exit`. Fires light haptics on entry and selection haptics on toggle. Shared by Home + Collection.
+- **`mobile/src/services/haptics.ts`** — wrapper around `react-native-haptic-feedback`. `tap()` = `impactMedium` (bulk-mode entry), `toggle()` = `impactLight` (selection toggle). Calibrated after feedback that the original `impactLight` / `selection` pair was imperceptible on-device. Errors swallowed — haptics are polish, not functional.
+- **`mobile/src/components/BulkActionsBar.tsx`** — floating bottom bar, `Animated.spring` slide-in/out, two actions with a configurable primary variant (`"add-to-collection"` on Home + All Recipes / `"remove-from-collection"` inside a specific collection) + Delete. Disables both actions when `count === 0`. Respects safe-area bottom inset.
+
+**Mobile screen updates:**
+
+- **`HomeScreen.tsx` + `CollectionScreen.tsx`:** long-press card → `bulk.enterBulk(item.id)`. Header swaps to `Cancel / "N selected" / Select All` when in bulk mode; title, search, collections row hide. Jar FAB + fan hidden in bulk mode (it was peeking out from behind the action bar and starting a new import mid-selection is a weird flow). Grid `contentContainerStyle.paddingBottom` increases to `96 + insets.bottom` so the bar doesn't truncate the last row. Primary action handler per screen: picker flow on Home / All Recipes, null-assign flow inside a collection.
+- **`RecipeCard.tsx`:** optional `bulkMode` + `selected` props. Renders a 26px checkmark circle top-right — filled `PRIMARY` with white check when selected, empty white outline over a 25%-opacity scrim when not.
+- **`RecipeQuickActionsSheet.tsx` → `RecipeDeleteConfirmSheet`:** optional `count?: number` prop. When `>1` copy becomes "Delete N recipes?" with plural details. Also fixed: when `count === 1` the sheet now receives the actual title of the single-selected recipe instead of an empty string.
+- **`ToastQueue.tsx` → `ToastItem`:** `onUndo` now optional. Undo button hidden when omitted. Bulk-operation toasts are informational-only since restoring N recipes from a deleted state isn't cheap.
+
+**Server bulk endpoints (new):**
+
+- **`POST /recipes/bulk-delete`** body `{ ids: string[] }` → `{ deletedCount: number }`. Single DB transaction. Silently filters `ids` to user-owned rows (`bulkDelete(userId, ids)` in `recipes.repository.ts`), mirrors the existing `delete()` app-level cascade (ingredients → steps → source_pages → recipe_collections → recipes), and returns the list of actually-deleted IDs so the route can trigger Supabase Storage hero-image cleanup for those only. Inherits the global 100/min rate limit.
+- **`PATCH /recipes/bulk-collection`** body `{ ids: string[], collectionId: string | null }` → `{ updatedCount: number }`. Validates collection ownership via `collectionsRepository.findById` before touching any rows. Single transaction clears existing assignments for the owned ids and optionally inserts new rows. `collectionId: null` clears in bulk.
+- Both endpoints return **JSON bodies (not 204)** — the mobile `request()` helper calls `.json()` on every response and would break on a 204.
+
+**Inline "+ New folder" in `CollectionPickerSheet.tsx`:**
+
+- New optional `onCreateNewCollection` callback. When provided, a terracotta `+ New folder` row renders at the top of the list. Tap closes the picker and fires the callback; parent screens open a `CreateCollectionSheet` and, on save, create the folder **and** assign the selection to it in one user action.
+- Zero-collection users see a picker with only the `+ New folder` row + subtitle "Start a new folder to organize your recipes." Replaces the old dead-end "No collections yet — create one from the home screen" alert.
+- Wired in both HomeScreen bulk flow and CollectionScreen bulk flow (the All Recipes variant).
+
+**Native dep:**
+
+- `react-native-haptic-feedback` v3.0.0 added. Requires `cd mobile/ios && pod install` + Xcode Debug rebuild on first pick-up. All other PR B code hot-reloads.
+
+**Dev environment side-fix:**
+
+- Dev Supabase project was missing the `recipe-pages` bucket (unlike `recipe-images`, there was no `ensureRecipeImagesBucket()` auto-create guard for it). Surfaced via photo upload failing during the earlier PR A testing. Created the bucket manually on dev; production project was already fine.
+
+**Edge-case fix (commit `51b2e04`):**
+
+On some iOS devices `onPress` fires briefly after `onLongPress` for the same gesture. In bulk-select mode this caused the freshly-selected card to be immediately toggled OFF the instant bulk mode appeared — users saw `"0 selected"` right after long-press. Fixed by recording the id + timestamp of the long-press in a ref, and swallowing any press that targets the same id within 600ms. Applied identically to HomeScreen and CollectionScreen.
+
+**Files modified:** 15 (mobile screens, components, store, API client, server routes, repo).  
+**Files created:** `mobile/src/components/BulkActionsBar.tsx`, `mobile/src/hooks/useBulkSelection.ts`, `mobile/src/services/haptics.ts`.  
+**Verification:** All tests pass. Full bulk flow tested end-to-end on physical iPhone (multi-select, delete, move, remove, inline new folder, haptics, grid padding, FAB hidden, press-after-longpress guard).
+
+---
+
+### 2026-04-16 (midday) — Recipe detail upgrades (PR A): source chip, prep/cook/total times with AI inference, servings quick chips
+
+Five cross-cutting recipe UX enhancements shipped in one commit (`5c04b97`). Moves Orzo from "parses a recipe" to "a usable everyday cookbook." Four land as code; the fifth (AI step/description summarization) stays as schema-only groundwork so we don't need a second migration when we build it.
+
+**Recipe detail screen (`mobile/src/screens/RecipeDetailScreen.tsx`):**
+
+- **Source provenance chip:** URL imports render a hostname chip with a `Globe` icon (tap → Safari). Photo imports render an "Imported from photo" pill + a horizontal thumbnail strip of source page images, each tappable to open the existing `FullScreenImageViewer`.
+- **Time chips row:** `"Xm prep · Ym cook · Zm total"` between description and rating. Hidden when all three are null. AI-inferred unconfirmed values render **italic with a `~` prefix**; explicit and user-confirmed values render clean.
+- **Derived total fallback:** when the source supplies prep+cook but no total (common JSON-LD gap, e.g. savoryonline), display `~Xm total` computed client-side from prep + cook.
+- **Servings quick chips:** ½ / 2× / 3× row above the existing stepper, with active-chip highlight. The slider was dropped after pushback — stepper + chips cover 95%+ of real cooking math without a native-pod dependency.
+
+**Recipe edit screen (`mobile/src/screens/RecipeEditScreen.tsx`):**
+
+- New "Times (minutes, optional)" section with three numeric inputs: Prep / Cook / Total.
+- **Auto-sum:** total auto-fills from prep + cook whenever total is empty, tracked via `totalIsAutoFilled` so manually entered totals are preserved ("manual total always wins"). Label reads "Total (auto)" while auto-filled, "Total" once the user overrides. If the user clears total, auto-sum resumes.
+
+**Import preview review banner (`mobile/src/features/import/PreviewEditView.tsx`):**
+
+- New **TimesReviewBanner** renders when at least one time was AI-inferred. Three editable fields pre-seeded with the estimates + an "Accept estimates" button. Editing a field or tapping Accept confirms the value; save persists `source = "user_confirmed"`. Explicit-only or null-only parses skip the banner entirely. Banner flips to "Times confirmed" state with a green border once everything is confirmed.
+
+**Shared types:**
+
+- New `TimeSource` type in `shared/src/types/recipe.types.ts`: `"explicit" | "inferred" | "user_confirmed"`.
+- `Recipe` extended with `prepTimeMinutes` / `cookTimeMinutes` / `totalTimeMinutes` / `prepTimeSource` / `cookTimeSource` / `totalTimeSource` / `descriptionSummary` (all nullable).
+- `RecipeStepEntry` extended with `summaryText: string | null` (Feature 5 groundwork).
+- `EditedRecipeCandidate` carries optional `prepTimeMinutes` / `cookTimeMinutes` / `totalTimeMinutes` for pre-save user overrides from the review banner.
+- `ParsedRecipeCandidate.metadata` extended with optional `prepTimeSource` / `cookTimeSource` / `totalTimeSource` (`"explicit" | "inferred"`).
+
+**Server:**
+
+- **Migration `0013_recipe_times_and_summary.sql`:** adds `prep_time_minutes`, `cook_time_minutes`, `total_time_minutes`, `description_summary` to `recipes`, and `summary_text` to `recipe_steps`. All nullable, additive, idempotent via `ADD COLUMN IF NOT EXISTS`.
+- **Migration `0014_recipe_time_sources.sql`:** adds `prep_time_source`, `cook_time_source`, `total_time_source` text columns to `recipes` (values: `"explicit" | "inferred" | "user_confirmed" | null`).
+- **Vision prompt (`server/src/parsing/image/image-parse.adapter.ts`) + URL-AI prompt (`server/src/parsing/url/url-ai.adapter.ts`)** now emit `{prepTime, prepTimeSource, cookTime, cookTimeSource, totalTime, totalTimeSource}`. The model is asked to label each time `"explicit"` if literally stated on the page, `"inferred"` if estimated, `null` if it can't tell. JSON-LD / Microdata extractions in `url-structured.adapter.ts` are auto-tagged `"explicit"` (structured data is always authored, never estimated).
+- **New utility `server/src/parsing/time.ts`:** `isoDurationToMinutes` — parses `PT1H30M`, `PT15M`, `PT45S`, etc. Null / malformed / sub-minute → `null`. 10-test Vitest suite at `server/tests/time.test.ts`.
+- **Save handler (`server/src/api/drafts.routes.ts`):** resolves each time in priority order — edited override (source `"user_confirmed"`) → parsed metadata (source `"explicit"` or `"inferred"` from parse) → null. Repo `update()` automatically flips source to `"user_confirmed"` whenever a time field is supplied via `PUT /recipes/:id` (reviewing in RecipeEditScreen implies user consent).
+- **Routes now return a proper `sourceContext` object.** Previously the shared `Recipe` type declared `sourceContext` but the server emitted the fields flat (`sourceType`, `originalUrl`, `sourcePages`) — latent dead code in the old detail screen's meta footer that no one noticed. Fixed via a new `enrichRecipeResponse` wrapper applied to every `/recipes` endpoint. New `resolveSourcePageUrl` helper produces signed URLs for the `recipe-pages` bucket so source page thumbnails display correctly.
+
+**Mobile:**
+
+- New utility `mobile/src/utils/time.ts`: `formatMinutes(n)` (e.g. `90 → "1h 30m"`), `hasAnyTime(...)`, `isoDurationToMinutes` (mirror of the server helper for pre-save banner use).
+- `mobile/src/services/api.ts` — `recipes.update()` body extended with the three time-minutes fields.
+
+**Files modified:** 23. **Files created:** 5 (`0013_*.sql`, `0014_*.sql`, `server/src/parsing/time.ts`, `server/tests/time.test.ts`, `mobile/src/utils/time.ts`).
+
+---
+
 ### 2026-04-14 — Mobile app terracotta palette migration
 
 The mobile app UI has been fully migrated from the MVP blue-forward palette to the canonical terracotta brand palette codified in `ROADMAP.md` → "Brand Identity & Color Scheme" (2026-04-10). The app icon, landing page, and emails were already on the new palette; this closes the gap so the mobile chrome, App Store listing, and every screen the user actually touches are visually unified.
