@@ -44,6 +44,60 @@ function logExtraction(
 }
 
 /**
+ * Fast-path extraction: JSON-LD + Microdata only, with DOM enrichment.
+ * Returns null if neither tier passes the quality gate (caller should then
+ * decide whether to fall back to the full AI cascade in `parseUrlFromHtml`).
+ *
+ * Cheap (~50-200ms) — never calls OpenAI, never fetches. Used by the
+ * synchronous fast path in `POST /drafts/:id/parse` so the HTTP response
+ * can carry the parsed candidate inline when structured data succeeds.
+ */
+export async function parseUrlStructuredOnly(
+  url: string,
+  html: string,
+  sourcePages: SourcePage[],
+  acquisitionMethod: UrlAcquisitionMethod = "webview-html",
+): Promise<ParsedRecipeCandidate | null> {
+  if (!html.trim()) return null;
+
+  const structured = extractStructuredData(html);
+  if (structured && passesQualityGate(structured)) {
+    const enriched = enrichFromDom(html, structured);
+    logExtraction("json-ld", url, {
+      acquisitionMethod,
+      ingredients: enriched.ingredients?.length,
+      steps: enriched.steps?.length,
+      enrichedImage:
+        !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
+      enrichedServings: !structured.servings && !!enriched.servings,
+      fastPath: true,
+    });
+    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    candidate.extractionMethod = "json-ld";
+    return candidate;
+  }
+
+  const microdata = extractMicrodata(html);
+  if (microdata && passesQualityGate(microdata)) {
+    const enriched = enrichFromDom(html, microdata);
+    logExtraction("microdata", url, {
+      acquisitionMethod,
+      ingredients: enriched.ingredients?.length,
+      steps: enriched.steps?.length,
+      enrichedImage:
+        !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
+      enrichedServings: !microdata.servings && !!enriched.servings,
+      fastPath: true,
+    });
+    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    candidate.extractionMethod = "microdata";
+    return candidate;
+  }
+
+  return null;
+}
+
+/**
  * URL extraction cascade:
  * 1. JSON-LD structured data (quality-gated)
  * 2. Microdata (itemprop attributes, quality-gated) — added later

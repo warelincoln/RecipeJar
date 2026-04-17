@@ -16,8 +16,10 @@ import { parseImages } from "../parsing/image/image-parse.adapter.js";
 import {
   parseUrl,
   parseUrlFromHtml,
+  parseUrlStructuredOnly,
   type UrlAcquisitionMethod,
 } from "../parsing/url/url-parse.adapter.js";
+import { fetchUrl } from "../parsing/url/url-fetch.service.js";
 import { logEvent } from "../observability/event-logger.js";
 import { trackAnalytics, extractDomain } from "../observability/analytics.js";
 import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
@@ -156,6 +158,113 @@ function deriveParseEventProps(
   };
 }
 
+/**
+ * Shared post-parse logic: validate → persist → emit analytics. Called by
+ * both the synchronous fast path and the background path so analytics
+ * emission, DB writes, and warning-state upserts stay identical across
+ * paths. Expects the caller to have already set the draft status to
+ * "PARSING" (both the sync and background paths do this). Returns null
+ * if the setParsedCandidate status guard rejected (draft was cancelled
+ * in flight).
+ */
+async function finalizeParseResult(params: {
+  draftId: string;
+  draft: DraftRow;
+  candidate: ParsedRecipeCandidate;
+  pageCount: number;
+  startTime: number;
+  resolvedAcquisition: UrlAcquisitionMethod | null;
+}): Promise<{
+  candidate: ParsedRecipeCandidate;
+  validationResult: ValidationResult;
+  nextStatus: DraftStatus;
+} | null> {
+  const { draftId, draft, candidate, pageCount, startTime, resolvedAcquisition } =
+    params;
+
+  const validationResult = validateRecipe(candidate);
+  const nextStatus: DraftStatus = validationResult.requiresRetake
+    ? "NEEDS_RETAKE"
+    : "PARSED";
+
+  const updated = await draftsRepository.setParsedCandidate(
+    draftId,
+    candidate,
+    validationResult,
+    nextStatus,
+    "PARSING",
+  );
+
+  if (!updated) {
+    console.warn(
+      `[parse] Draft ${draftId} was cancelled during parse, skipping result write`,
+    );
+    return null;
+  }
+
+  const flags = validationResult.issues.filter((i) => i.severity === "FLAG");
+  if (flags.length > 0) {
+    await draftsRepository.upsertWarningStates(
+      draftId,
+      flags.map((f) => ({
+        issueId: f.issueId,
+        code: f.code,
+        fieldPath: f.fieldPath,
+      })),
+    );
+  }
+
+  const elapsed_ms = Date.now() - startTime;
+  logEvent("parse_completed", {
+    draftId,
+    sourceType: draft.sourceType,
+    pageCount,
+    elapsed_ms,
+  });
+  logEvent("validation_completed", {
+    draftId,
+    issueCountBlock: validationResult.issues.filter((i) => i.severity === "BLOCK")
+      .length,
+    issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG")
+      .length,
+    issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE")
+      .length,
+  });
+
+  const analyticsProps = deriveParseEventProps(
+    draft,
+    candidate,
+    validationResult,
+    pageCount,
+    elapsed_ms,
+    resolvedAcquisition,
+  );
+  trackAnalytics("server_parse_completed", analyticsProps, {
+    userId: draft.userId,
+  });
+  trackAnalytics("server_parse_validated", analyticsProps, {
+    userId: draft.userId,
+  });
+
+  return { candidate, validationResult, nextStatus };
+}
+
+function resolveUrlAcquisition(
+  suppliedHtml: string,
+  preFetchedHtml: string | null,
+  parseBody: { acquisitionMethod?: UrlAcquisitionMethod },
+): UrlAcquisitionMethod {
+  if (suppliedHtml) return "webview-html";
+  if (preFetchedHtml) {
+    return parseBody.acquisitionMethod === "server-fetch-fallback"
+      ? "server-fetch-fallback"
+      : "server-fetch";
+  }
+  return parseBody.acquisitionMethod === "server-fetch-fallback"
+    ? "server-fetch-fallback"
+    : "server-fetch";
+}
+
 async function runParseInBackground(
   draftId: string,
   draft: DraftRow,
@@ -166,6 +275,7 @@ async function runParseInBackground(
     captureFailureReason?: string;
   },
   startTime: number,
+  preFetchedHtml: string | null = null,
 ) {
   try {
     await acquireParseLock();
@@ -189,6 +299,20 @@ async function runParseInBackground(
           suppliedHtml,
           sourcePages,
           "webview-html",
+        );
+      } else if (preFetchedHtml) {
+        // Sync fast-path already fetched the HTML but structured data
+        // didn't pass the quality gate — reuse the HTML instead of paying
+        // the network cost a second time.
+        const acquisitionMethod: UrlAcquisitionMethod =
+          parseBody.acquisitionMethod === "server-fetch-fallback"
+            ? "server-fetch-fallback"
+            : "server-fetch";
+        candidate = await parseUrlFromHtml(
+          draft.originalUrl,
+          preFetchedHtml,
+          sourcePages,
+          acquisitionMethod,
         );
       } else {
         const acquisitionMethod: UrlAcquisitionMethod =
@@ -236,78 +360,25 @@ async function runParseInBackground(
       candidate = await parseImages(imageDataUrls, sourcePages);
     }
 
+    const resolvedAcquisition: UrlAcquisitionMethod | null =
+      draft.sourceType === "url"
+        ? resolveUrlAcquisition(suppliedHtml, preFetchedHtml, parseBody)
+        : null;
+
     if (draft.sourceType === "url" && draft.originalUrl) {
       logEvent("url_parse_source_selected", {
         draftId,
-        acquisitionMethod: suppliedHtml
-          ? "webview-html"
-          : parseBody.acquisitionMethod === "server-fetch-fallback"
-            ? "server-fetch-fallback"
-            : "server-fetch",
+        acquisitionMethod: resolvedAcquisition,
       });
     }
 
-    const validationResult = validateRecipe(candidate);
-    const nextStatus = validationResult.requiresRetake ? "NEEDS_RETAKE" : "PARSED";
-
-    const updated = await draftsRepository.setParsedCandidate(
+    await finalizeParseResult({
       draftId,
-      candidate,
-      validationResult,
-      nextStatus,
-      "PARSING",
-    );
-
-    if (!updated) {
-      console.warn(`[parse] Draft ${draftId} was cancelled during parse, skipping result write`);
-      return;
-    }
-
-    const flags = validationResult.issues.filter(
-      (i) => i.severity === "FLAG",
-    );
-    if (flags.length > 0) {
-      await draftsRepository.upsertWarningStates(
-        draftId,
-        flags.map((f) => ({
-          issueId: f.issueId,
-          code: f.code,
-          fieldPath: f.fieldPath,
-        })),
-      );
-    }
-
-    const elapsed_ms = Date.now() - startTime;
-    logEvent("parse_completed", { draftId, sourceType: draft.sourceType, pageCount: pages.length, elapsed_ms });
-    logEvent("validation_completed", {
-      draftId,
-      issueCountBlock: validationResult.issues.filter((i) => i.severity === "BLOCK").length,
-      issueCountFlag: validationResult.issues.filter((i) => i.severity === "FLAG").length,
-      issueCountRetake: validationResult.issues.filter((i) => i.severity === "RETAKE").length,
-    });
-
-    const resolvedAcquisition: UrlAcquisitionMethod | null =
-      draft.sourceType === "url"
-        ? suppliedHtml
-          ? "webview-html"
-          : parseBody.acquisitionMethod === "server-fetch-fallback"
-            ? "server-fetch-fallback"
-            : "server-fetch"
-        : null;
-
-    const analyticsProps = deriveParseEventProps(
       draft,
       candidate,
-      validationResult,
-      pages.length,
-      elapsed_ms,
+      pageCount: pages.length,
+      startTime,
       resolvedAcquisition,
-    );
-    trackAnalytics("server_parse_completed", analyticsProps, {
-      userId: draft.userId,
-    });
-    trackAnalytics("server_parse_validated", analyticsProps, {
-      userId: draft.userId,
     });
   } catch (err) {
     const elapsed_ms = Date.now() - startTime;
@@ -325,11 +396,7 @@ async function runParseInBackground(
         domain: extractDomain(draft.originalUrl),
         acquisition_method:
           draft.sourceType === "url"
-            ? suppliedHtml
-              ? "webview-html"
-              : parseBody.acquisitionMethod === "server-fetch-fallback"
-                ? "server-fetch-fallback"
-                : "server-fetch"
+            ? resolveUrlAcquisition(suppliedHtml, preFetchedHtml, parseBody)
             : null,
         parse_duration_ms: elapsed_ms,
         error_message: errorMessage,
@@ -356,6 +423,26 @@ function classifyParseError(message: string): string {
   if (m.includes("json") || m.includes("parse") || m.includes("extract")) return "extract";
   if (m.includes("validate")) return "validate";
   return "unknown";
+}
+
+/**
+ * Hard cap on the sync fast path's network fetch. Shorter than `fetchUrl`'s
+ * own 15s cap — we don't want to block the HTTP response when the source
+ * site is slow. On timeout we fall through to the background path which
+ * still has the full 60s parse budget.
+ */
+const SYNC_FETCH_TIMEOUT_MS = 4000;
+
+async function fetchWithTimeout(url: string, ms: number): Promise<string> {
+  return Promise.race([
+    fetchUrl(url),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`sync fetch timeout after ${ms}ms`)),
+        ms,
+      ),
+    ),
+  ]);
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
@@ -528,8 +615,116 @@ export async function draftsRoutes(app: FastifyInstance) {
 
       const startTime = Date.now();
 
-      runParseInBackground(draftId, draft, suppliedHtml, parseBody, startTime);
+      // --- Synchronous fast path (URL imports only) ---
+      //
+      // When structured data (JSON-LD or Microdata) is published by the
+      // source and passes our quality gate, we can parse, validate, and
+      // return the candidate inline — no background job, no polling.
+      // Mobile's xstate actor already skips its poll loop when the POST
+      // response has `status !== "PARSING"`, so this drops perceived
+      // latency by ~3s (the client-side `POLL_INTERVAL`) on the common
+      // happy path. Falls through to the background path when:
+      //   - source is an image (vision is always slow)
+      //   - HTML fetch times out (4s cap)
+      //   - neither JSON-LD nor Microdata passes the quality gate
+      //   - any unexpected error in the sync path
+      if (draft.sourceType === "url" && draft.originalUrl) {
+        let html: string | null = suppliedHtml || null;
+        if (!html) {
+          try {
+            html = await fetchWithTimeout(
+              draft.originalUrl,
+              SYNC_FETCH_TIMEOUT_MS,
+            );
+          } catch (err) {
+            console.log(
+              JSON.stringify({
+                timestamp: new Date().toISOString(),
+                event: "sync_parse_fetch_failed",
+                draftId,
+                reason: err instanceof Error ? err.message : "unknown",
+              }),
+            );
+            html = null;
+          }
+        }
 
+        if (html) {
+          try {
+            const pages = await draftsRepository.getPages(draftId);
+            const sourcePages: SourcePage[] = pages.map((p) => ({
+              id: p.id,
+              orderIndex: p.orderIndex,
+              sourceType: "url",
+              retakeCount: p.retakeCount,
+              imageUri: p.imageUri,
+              extractedText: p.ocrText,
+            }));
+            const resolvedAcquisition = resolveUrlAcquisition(
+              suppliedHtml,
+              suppliedHtml ? null : html,
+              parseBody,
+            );
+            const candidate = await parseUrlStructuredOnly(
+              draft.originalUrl,
+              html,
+              sourcePages,
+              resolvedAcquisition,
+            );
+            if (candidate) {
+              logEvent("url_parse_source_selected", {
+                draftId,
+                acquisitionMethod: resolvedAcquisition,
+                fastPath: true,
+              });
+              const result = await finalizeParseResult({
+                draftId,
+                draft,
+                candidate,
+                pageCount: pages.length,
+                startTime,
+                resolvedAcquisition,
+              });
+              if (result) {
+                return reply.status(200).send({
+                  status: result.nextStatus,
+                  candidate: result.candidate,
+                  validationResult: result.validationResult,
+                });
+              }
+              // result === null means the draft was cancelled in flight;
+              // fall through to background so the existing cancellation
+              // handling runs.
+            }
+          } catch (err) {
+            // Any unexpected error in the sync path — log and fall
+            // through. Do NOT surface to the client; background path
+            // will retry and own the final error reporting.
+            console.warn(
+              `[parse] sync fast path threw for draft ${draftId}, falling back to background:`,
+              err,
+            );
+          }
+        }
+
+        // Sync path didn't produce a candidate. Hand off to the
+        // background job with the HTML we've already fetched (if any) so
+        // we don't pay the network cost twice.
+        const preFetchedHtml = !suppliedHtml && html ? html : null;
+        runParseInBackground(
+          draftId,
+          draft,
+          suppliedHtml,
+          parseBody,
+          startTime,
+          preFetchedHtml,
+        );
+        return reply.status(202).send({ status: "PARSING" });
+      }
+
+      // Image imports always go async — vision parses are measured in
+      // seconds and don't belong on the HTTP response path.
+      runParseInBackground(draftId, draft, suppliedHtml, parseBody, startTime);
       return reply.status(202).send({ status: "PARSING" });
     },
   );

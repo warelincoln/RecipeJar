@@ -77,6 +77,11 @@ vi.mock("../src/parsing/image/image-parse.adapter.js", () => ({
 vi.mock("../src/parsing/url/url-parse.adapter.js", () => ({
   parseUrl: vi.fn(),
   parseUrlFromHtml: vi.fn(),
+  parseUrlStructuredOnly: vi.fn(),
+}));
+
+vi.mock("../src/parsing/url/url-fetch.service.js", () => ({
+  fetchUrl: vi.fn(),
 }));
 
 vi.mock("../src/observability/event-logger.js", () => ({
@@ -101,7 +106,12 @@ import { draftsRepository } from "../src/persistence/drafts.repository.js";
 import { recipesRepository } from "../src/persistence/recipes.repository.js";
 import { recipeNotesRepository } from "../src/persistence/recipe-notes.repository.js";
 import { parseImages } from "../src/parsing/image/image-parse.adapter.js";
-import { parseUrl, parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
+import {
+  parseUrl,
+  parseUrlFromHtml,
+  parseUrlStructuredOnly,
+} from "../src/parsing/url/url-parse.adapter.js";
+import { fetchUrl } from "../src/parsing/url/url-fetch.service.js";
 import type { ParsedRecipeCandidate } from "@orzo/shared";
 
 const draftRepo = vi.mocked(draftsRepository);
@@ -110,6 +120,8 @@ const notesRepo = vi.mocked(recipeNotesRepository);
 const mockParseImages = vi.mocked(parseImages);
 const mockParseUrl = vi.mocked(parseUrl);
 const mockParseUrlFromHtml = vi.mocked(parseUrlFromHtml);
+const mockParseUrlStructuredOnly = vi.mocked(parseUrlStructuredOnly);
+const mockFetchUrl = vi.mocked(fetchUrl);
 
 function cleanCandidate(): ParsedRecipeCandidate {
   return {
@@ -262,18 +274,20 @@ describe("API Integration", () => {
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
 
+      // Image parses always go async — vision calls take seconds and can't
+      // block the HTTP response. POST returns 202 immediately; the
+      // background job runs the Vision call and the client polls
+      // GET /drafts/:id to see the final state. (We don't assert on the
+      // background job here because it relies on Supabase storage mocks
+      // that aren't set up for this test — the async handoff is the
+      // contract we care about at this layer.)
       const res = await app.inject({ method: "POST", url: "/drafts/d1/parse" });
 
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.status).toBe("PARSED");
-      expect(body.candidate.title).toBe("Classic Pancakes");
-      expect(body.validationResult).toBeDefined();
-      expect(body.validationResult.saveState).toBe("SAVE_CLEAN");
-      expect(mockParseImages).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(202);
+      expect(res.json().status).toBe("PARSING");
     });
 
-    it("parses URL draft using URL parser cascade", async () => {
+    it("parses URL draft using sync fast path when JSON-LD succeeds", async () => {
       const candidate = cleanCandidate();
       candidate.sourceType = "url";
 
@@ -282,25 +296,31 @@ describe("API Integration", () => {
         status: "READY_FOR_PARSE",
         sourceType: "url",
         originalUrl: "https://example.com/recipe",
+        userId: "u1",
       } as never);
       draftRepo.updateStatus.mockResolvedValue({} as never);
       draftRepo.getPages.mockResolvedValue([] as never);
-      mockParseUrl.mockResolvedValue(candidate);
+      mockFetchUrl.mockResolvedValue("<html>...</html>");
+      mockParseUrlStructuredOnly.mockResolvedValue(candidate);
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
 
       const res = await app.inject({ method: "POST", url: "/drafts/d2/parse" });
 
       expect(res.statusCode).toBe(200);
+      expect(res.json().status).toBe("PARSED");
       expect(res.json().candidate.title).toBe("Classic Pancakes");
-      expect(mockParseUrl).toHaveBeenCalledWith(
+      expect(mockParseUrlStructuredOnly).toHaveBeenCalledWith(
         "https://example.com/recipe",
+        "<html>...</html>",
         expect.any(Array),
         "server-fetch",
       );
+      expect(mockParseUrl).not.toHaveBeenCalled();
+      expect(mockParseUrlFromHtml).not.toHaveBeenCalled();
     });
 
-    it("parses URL draft with browser-supplied HTML when provided", async () => {
+    it("falls back to background parseUrl when sync structured extraction fails", async () => {
       const candidate = cleanCandidate();
       candidate.sourceType = "url";
 
@@ -309,10 +329,47 @@ describe("API Integration", () => {
         status: "READY_FOR_PARSE",
         sourceType: "url",
         originalUrl: "https://example.com/recipe",
+        userId: "u1",
       } as never);
       draftRepo.updateStatus.mockResolvedValue({} as never);
       draftRepo.getPages.mockResolvedValue([] as never);
+      mockFetchUrl.mockResolvedValue("<html>no structured data</html>");
+      mockParseUrlStructuredOnly.mockResolvedValue(null);
       mockParseUrlFromHtml.mockResolvedValue(candidate);
+      draftRepo.setParsedCandidate.mockResolvedValue({} as never);
+      draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
+
+      const res = await app.inject({ method: "POST", url: "/drafts/d2/parse" });
+
+      expect(res.statusCode).toBe(202);
+      expect(res.json().status).toBe("PARSING");
+
+      // Background should use the HTML we already fetched (no refetch) via
+      // parseUrlFromHtml, not parseUrl (which would trigger a second fetch).
+      await new Promise((r) => setImmediate(r));
+      expect(mockParseUrlFromHtml).toHaveBeenCalledWith(
+        "https://example.com/recipe",
+        "<html>no structured data</html>",
+        expect.any(Array),
+        "server-fetch",
+      );
+      expect(mockParseUrl).not.toHaveBeenCalled();
+    });
+
+    it("parses URL draft with browser-supplied HTML via sync fast path", async () => {
+      const candidate = cleanCandidate();
+      candidate.sourceType = "url";
+
+      draftRepo.findById.mockResolvedValue({
+        id: "d2",
+        status: "READY_FOR_PARSE",
+        sourceType: "url",
+        originalUrl: "https://example.com/recipe",
+        userId: "u1",
+      } as never);
+      draftRepo.updateStatus.mockResolvedValue({} as never);
+      draftRepo.getPages.mockResolvedValue([] as never);
+      mockParseUrlStructuredOnly.mockResolvedValue(candidate);
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
 
@@ -326,13 +383,16 @@ describe("API Integration", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(mockParseUrlFromHtml).toHaveBeenCalledWith(
+      expect(res.json().status).toBe("PARSED");
+      expect(mockParseUrlStructuredOnly).toHaveBeenCalledWith(
         "https://example.com/recipe",
         "<html><body>Recipe</body></html>",
         expect.any(Array),
         "webview-html",
       );
+      expect(mockFetchUrl).not.toHaveBeenCalled();
       expect(mockParseUrl).not.toHaveBeenCalled();
+      expect(mockParseUrlFromHtml).not.toHaveBeenCalled();
     });
 
     it("marks technical HTML capture fallback separately from normal server fetch", async () => {
@@ -344,10 +404,12 @@ describe("API Integration", () => {
         status: "READY_FOR_PARSE",
         sourceType: "url",
         originalUrl: "https://example.com/recipe",
+        userId: "u1",
       } as never);
       draftRepo.updateStatus.mockResolvedValue({} as never);
       draftRepo.getPages.mockResolvedValue([] as never);
-      mockParseUrl.mockResolvedValue(candidate);
+      mockFetchUrl.mockResolvedValue("<html>fallback</html>");
+      mockParseUrlStructuredOnly.mockResolvedValue(candidate);
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
 
@@ -361,8 +423,9 @@ describe("API Integration", () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(mockParseUrl).toHaveBeenCalledWith(
+      expect(mockParseUrlStructuredOnly).toHaveBeenCalledWith(
         "https://example.com/recipe",
+        "<html>fallback</html>",
         expect.any(Array),
         "server-fetch-fallback",
       );
@@ -405,9 +468,15 @@ describe("API Integration", () => {
         status: "READY_FOR_PARSE",
         sourceType: "url",
         originalUrl: "https://example.com/recipe",
+        userId: "u1",
       } as never);
       draftRepo.updateStatus.mockResolvedValue({} as never);
       draftRepo.getPages.mockResolvedValue([] as never);
+      // Sync structured-only fails — no JSON-LD / Microdata in the weak
+      // page. Falls through to background, which should use the
+      // already-supplied webview HTML via parseUrlFromHtml (NOT re-fetch
+      // server-side via parseUrl).
+      mockParseUrlStructuredOnly.mockResolvedValue(null);
       mockParseUrlFromHtml.mockResolvedValue(weakCandidate);
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
@@ -421,9 +490,18 @@ describe("API Integration", () => {
         },
       });
 
-      expect(res.statusCode).toBe(200);
-      expect(mockParseUrlFromHtml).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(202);
+      expect(res.json().status).toBe("PARSING");
+
+      await new Promise((r) => setImmediate(r));
+      expect(mockParseUrlFromHtml).toHaveBeenCalledWith(
+        "https://example.com/recipe",
+        "<html><body>Not really a recipe</body></html>",
+        expect.any(Array),
+        "webview-html",
+      );
       expect(mockParseUrl).not.toHaveBeenCalled();
+      expect(mockFetchUrl).not.toHaveBeenCalled();
     });
 
     it("returns 404 for missing draft", async () => {
@@ -929,9 +1007,13 @@ describe("API Integration", () => {
       draftRepo.setParsedCandidate.mockResolvedValue({} as never);
       draftRepo.upsertWarningStates.mockResolvedValue(undefined as never);
 
+      // Image parses are async (vision takes seconds); POST returns 202
+      // and the client normally polls until PARSED. For this test we
+      // just confirm the handshake and then drive the edit+save steps
+      // against a mocked "PARSED" draft state.
       const parseRes = await app.inject({ method: "POST", url: "/drafts/d1/parse" });
-      expect(parseRes.statusCode).toBe(200);
-      expect(parseRes.json().status).toBe("PARSED");
+      expect(parseRes.statusCode).toBe(202);
+      expect(parseRes.json().status).toBe("PARSING");
 
       // Step 2: edit
       draftRepo.findById.mockResolvedValueOnce({

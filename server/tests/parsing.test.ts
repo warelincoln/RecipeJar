@@ -10,7 +10,10 @@ import { extractDomBoundary } from "../src/parsing/url/url-dom.adapter.js";
 import { enrichFromDom } from "../src/parsing/url/url-dom-enrichment.js";
 import { normalizeUrl } from "../src/parsing/url/url-fetch.service.js";
 import * as urlAiAdapter from "../src/parsing/url/url-ai.adapter.js";
-import { parseUrlFromHtml } from "../src/parsing/url/url-parse.adapter.js";
+import {
+  parseUrlFromHtml,
+  parseUrlStructuredOnly,
+} from "../src/parsing/url/url-parse.adapter.js";
 import { validateRecipe } from "../src/domain/validation/validation.engine.js";
 import type { SourcePage } from "@orzo/shared";
 
@@ -335,6 +338,107 @@ describe("parseUrlFromHtml", () => {
     expect(result.title).toBe("DOM AI Chili");
     expect(result.extractionMethod).toBe("dom-ai");
     expect(urlAiAdapter.parseWithAI).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseUrlStructuredOnly (sync fast path)", () => {
+  it("returns a JSON-LD candidate when structured data passes the quality gate", async () => {
+    const html = `
+      <html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Fast Pancakes",
+        "recipeIngredient": ["2 cups flour", "1 cup milk"],
+        "recipeInstructions": [{"text": "Mix the batter."}]
+      }
+      </script>
+      </head><body></body></html>
+    `;
+
+    const result = await parseUrlStructuredOnly(
+      "https://example.com/pancakes",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("Fast Pancakes");
+    expect(result?.extractionMethod).toBe("json-ld");
+  });
+
+  it("returns a Microdata candidate when only Microdata is present", async () => {
+    const html = `
+      <html><body itemscope itemtype="https://schema.org/Recipe">
+        <h1 itemprop="name">Microdata Soup</h1>
+        <ul>
+          <li itemprop="recipeIngredient">2 cups stock</li>
+          <li itemprop="recipeIngredient">1 tsp salt</li>
+        </ul>
+        <div itemprop="recipeInstructions">
+          <p itemprop="text">Simmer everything together.</p>
+        </div>
+      </body></html>
+    `;
+
+    const result = await parseUrlStructuredOnly(
+      "https://example.com/soup",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.extractionMethod).toBe("microdata");
+  });
+
+  it("returns null when neither JSON-LD nor Microdata passes the quality gate — caller should fall back to the full cascade", async () => {
+    const html = `
+      <html><body>
+        <h1>A Recipe Somewhere</h1>
+        <p>This page has prose but no structured markup.</p>
+      </body></html>
+    `;
+
+    const result = await parseUrlStructuredOnly(
+      "https://example.com/nothing",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null for empty HTML", async () => {
+    const result = await parseUrlStructuredOnly(
+      "https://example.com/empty",
+      "",
+      [],
+      "webview-html",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("never invokes the AI fallback (hot-path guarantee)", async () => {
+    const aiSpy = vi.spyOn(urlAiAdapter, "parseWithAI");
+    const html = `
+      <html><body>
+        <h1>Minimal Page</h1>
+        <p>Not a recipe at all.</p>
+      </body></html>
+    `;
+
+    const result = await parseUrlStructuredOnly(
+      "https://example.com/minimal",
+      html,
+      [],
+      "webview-html",
+    );
+
+    expect(result).toBeNull();
+    expect(aiSpy).not.toHaveBeenCalled();
   });
 });
 
