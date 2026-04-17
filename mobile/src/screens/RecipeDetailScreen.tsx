@@ -13,6 +13,7 @@ import {
 import FastImage from "react-native-fast-image";
 import { Clock, Globe, Camera } from "lucide-react-native";
 import { api } from "../services/api";
+import { analytics } from "../services/analytics";
 import { useRecipesStore } from "../stores/recipes.store";
 import { useCollectionsStore } from "../stores/collections.store";
 import { RecipeRatingInput } from "../components/RecipeRatingInput";
@@ -115,6 +116,10 @@ export function RecipeDetailScreen({ route, navigation }: Props) {
       .then((next) => {
         setRecipe(next);
         setHeroLoaded(false);
+        analytics.track("recipe_viewed", {
+          recipeId: next.id,
+          hasHeroImage: Boolean(next.imageUrl),
+        });
         if (next.baselineServings != null) {
           setDisplayServingsText(String(next.baselineServings));
         }

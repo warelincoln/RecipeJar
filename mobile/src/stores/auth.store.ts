@@ -1,6 +1,21 @@
 import { create } from "zustand";
 import type { Session, User, AuthChangeEvent } from "@supabase/supabase-js";
 import { supabase } from "../services/supabase";
+import { analytics } from "../services/analytics";
+import { Sentry } from "../config/sentry";
+
+function identifyUser(session: Session): void {
+  const userId = session.user?.id;
+  const email = session.user?.email ?? null;
+  if (!userId) return;
+  analytics.identify(userId, email ? { email } : undefined);
+  Sentry.setUser({ id: userId, email: email ?? undefined });
+}
+
+function clearIdentity(): void {
+  analytics.reset();
+  Sentry.setUser(null);
+}
 
 interface AuthState {
   session: Session | null;
@@ -40,6 +55,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         );
         const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
         const needsMfa = hasVerifiedTotp && aalData?.currentLevel !== "aal2";
+        identifyUser(data.session);
         set({
           session: data.session,
           user: data.session.user,
@@ -62,6 +78,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             (f) => f.factor_type === "totp" && f.status === "verified",
           );
 
+          identifyUser(session);
           set({
             session,
             user: session.user,
@@ -82,6 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
           }, 0);
         } else {
+          clearIdentity();
           set({
             session: null,
             user: null,

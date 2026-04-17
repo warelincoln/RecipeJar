@@ -10,6 +10,11 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+# VisionCamera enables CLLocation APIs by default, which causes Apple static analyzer
+# to require NSLocationWhenInUseUsageDescription (ITMS-90683) even though Orzo does not
+# use location. Disable the location feature since the app does not need it.
+$VCEnableLocation = false
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green

@@ -12,6 +12,7 @@ import { SavedView } from "../features/import/SavedView";
 import { UrlInputView } from "../features/import/UrlInputView";
 import { enqueueImport } from "../features/import/enqueueImport";
 import { api } from "../services/api";
+import { analytics } from "../services/analytics";
 import { useImportQueueStore } from "../stores/importQueue.store";
 import { useRecipesStore } from "../stores/recipes.store";
 import type { EditedRecipeCandidate } from "@orzo/shared";
@@ -114,6 +115,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     if (mode === "image" && photoUri) {
       lastBootKeyRef.current = bootKey;
       setIsConcurrentFlow(true);
+      analytics.track("import_started", { source: "photos" });
       enqueueImport({
         pages: [{ uri: photoUri, mimeType: photoMimeType, fileName: photoFileName }],
       })
@@ -262,6 +264,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
   const handleConcurrentCaptureDone = useCallback(
     (pages: { uri: string; mimeType?: string; fileName?: string }[]) => {
       setIsConcurrentFlow(true);
+      analytics.track("import_started", { source: "camera" });
       enqueueImport({ pages })
         .then((localId) => setEnqueuedLocalId(localId))
         .catch(() => navigation.navigate("Home", {}));

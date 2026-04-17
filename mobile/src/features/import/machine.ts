@@ -1,5 +1,6 @@
 import { setup, assign, fromPromise } from "xstate";
 import { api, type UrlParseRequest } from "../../services/api";
+import { analytics } from "../../services/analytics";
 import type {
   ParsedRecipeCandidate,
   EditedRecipeCandidate,
@@ -192,7 +193,9 @@ export const importMachine = setup({
     ),
     saveDraft: fromPromise(
       async ({ input }: { input: { draftId: string } }) => {
-        return api.drafts.save(input.draftId);
+        const result = await api.drafts.save(input.draftId);
+        analytics.track("recipe_saved", { draftId: input.draftId });
+        return result;
       },
     ),
     resumeDraft: fromPromise(

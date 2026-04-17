@@ -35,13 +35,11 @@
 	<key>OrzoDevPackagerHost</key>
 	<string>192.168.146.215</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Orzo connects to the Metro bundler on your Mac during development.</string>
+	<string>Orzo uses your local network to connect to the development server during internal testing. Release builds do not use the local network.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Orzo needs camera access to photograph cookbook pages</string>
+	<string>Orzo uses your camera to photograph cookbook pages so they can be imported as structured recipes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Orzo needs photo library access to select recipe images</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Orzo uses your photo library so you can import recipe images and set recipe cover photos.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -55,6 +53,10 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>

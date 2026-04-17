@@ -37,6 +37,9 @@ import { useAuthStore } from "./src/stores/auth.store";
 import { reconcileQueue } from "./src/stores/importQueue.store";
 import { supabase } from "./src/services/supabase";
 import type { RootStackParamList, AuthStackParamList } from "./src/navigation/types";
+import { initSentry, Sentry } from "./src/config/sentry";
+
+initSentry();
 
 const AppStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStackNav = createNativeStackNavigator<AuthStackParamList>();
@@ -109,7 +112,7 @@ function AppStackScreens() {
   );
 }
 
-export default function App() {
+function App() {
   const { isLoading, isAuthenticated, pendingPasswordReset, needsMfaVerify, initialize } =
     useAuthStore();
   const [showOnboarding, setShowOnboarding] = React.useState(false);
@@ -179,6 +182,8 @@ export default function App() {
     </GestureHandlerRootView>
   );
 }
+
+export default Sentry.wrap(App);
 
 const splashStyles = StyleSheet.create({
   container: {
