@@ -59,6 +59,60 @@ async function ensureRecipeImagesBucket(): Promise<void> {
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 
+// Reuse signed URLs within their validity window so FastImage on the
+// mobile client sees the same URL string between requests and serves
+// images from its own cache instead of re-downloading on every home-
+// screen visit. Without this, `createSignedUrls` returns a fresh
+// `?token=...` each call and every list render flickers the images.
+const SIGNED_URL_CACHE_BUFFER_MS = 5 * 60 * 1000;
+const SIGNED_URL_CACHE_MAX_SIZE = 50_000;
+
+interface CachedSignedUrl {
+  signedUrl: string;
+  expiresAt: number;
+}
+
+const signedUrlCache = new Map<string, CachedSignedUrl>();
+
+function getCachedSignedUrl(path: string): string | null {
+  const entry = signedUrlCache.get(path);
+  if (!entry) return null;
+  if (entry.expiresAt - Date.now() <= SIGNED_URL_CACHE_BUFFER_MS) {
+    return null;
+  }
+  return entry.signedUrl;
+}
+
+function setCachedSignedUrl(path: string, signedUrl: string): void {
+  signedUrlCache.set(path, {
+    signedUrl,
+    expiresAt: Date.now() + SIGNED_URL_TTL_SECONDS * 1000,
+  });
+  if (signedUrlCache.size > SIGNED_URL_CACHE_MAX_SIZE) {
+    evictSignedUrlCache();
+  }
+}
+
+function evictSignedUrlCache(): void {
+  const now = Date.now();
+  for (const [path, entry] of signedUrlCache) {
+    if (entry.expiresAt < now) signedUrlCache.delete(path);
+  }
+  if (signedUrlCache.size <= SIGNED_URL_CACHE_MAX_SIZE) return;
+  const toDrop = signedUrlCache.size - SIGNED_URL_CACHE_MAX_SIZE;
+  const iter = signedUrlCache.keys();
+  for (let i = 0; i < toDrop; i++) {
+    const next = iter.next();
+    if (next.done) break;
+    signedUrlCache.delete(next.value);
+  }
+}
+
+/** Test-only: reset the module-level signed-URL cache between tests. */
+export function __clearSignedUrlCacheForTests(): void {
+  signedUrlCache.clear();
+}
+
 export interface ResolvedImageUrls {
   imageUrl: string | null;
   thumbnailUrl: string | null;
@@ -73,21 +127,28 @@ export async function resolveImageUrls(
 
   const heroPath = imageUrl;
   const thumbPath = imageUrl.replace(/\/hero\.jpg$/, "/thumb.jpg");
-  const supabase = getSupabase();
 
-  const [heroResult, thumbResult] = await Promise.all([
-    supabase.storage
-      .from(RECIPE_IMAGES_BUCKET)
-      .createSignedUrl(heroPath, SIGNED_URL_TTL_SECONDS),
-    supabase.storage
-      .from(RECIPE_IMAGES_BUCKET)
-      .createSignedUrl(thumbPath, SIGNED_URL_TTL_SECONDS),
+  const [heroSigned, thumbSigned] = await Promise.all([
+    signWithCache(heroPath),
+    signWithCache(thumbPath),
   ]);
 
   return {
-    imageUrl: heroResult.data?.signedUrl ?? null,
-    thumbnailUrl: thumbResult.data?.signedUrl ?? null,
+    imageUrl: heroSigned,
+    thumbnailUrl: thumbSigned,
   };
+}
+
+async function signWithCache(path: string): Promise<string | null> {
+  const cached = getCachedSignedUrl(path);
+  if (cached) return cached;
+
+  const { data, error } = await getSupabase()
+    .storage.from(RECIPE_IMAGES_BUCKET)
+    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+  if (error || !data?.signedUrl) return null;
+  setCachedSignedUrl(path, data.signedUrl);
+  return data.signedUrl;
 }
 
 /**
@@ -124,36 +185,52 @@ export async function resolveImageUrlsBatch(
 
   if (tasks.length === 0) return results;
 
+  // Check the module-level cache first so we only pay the Supabase
+  // sign cost for paths whose previous signatures are missing or
+  // about to expire. Same rationale as resolveImageUrls — this is what
+  // lets FastImage treat repeat home-screen visits as cache hits.
+  const heroMap = new Map<string, string>();
+  const thumbMap = new Map<string, string>();
+  const heroToSign: string[] = [];
+  const thumbToSign: string[] = [];
+  for (const t of tasks) {
+    const cachedHero = getCachedSignedUrl(t.heroPath);
+    if (cachedHero) heroMap.set(t.heroPath, cachedHero);
+    else heroToSign.push(t.heroPath);
+
+    const cachedThumb = getCachedSignedUrl(t.thumbPath);
+    if (cachedThumb) thumbMap.set(t.thumbPath, cachedThumb);
+    else thumbToSign.push(t.thumbPath);
+  }
+
   const supabase = getSupabase();
   const [heroResp, thumbResp] = await Promise.all([
-    supabase.storage
-      .from(RECIPE_IMAGES_BUCKET)
-      .createSignedUrls(
-        tasks.map((t) => t.heroPath),
-        SIGNED_URL_TTL_SECONDS,
-      ),
-    supabase.storage
-      .from(RECIPE_IMAGES_BUCKET)
-      .createSignedUrls(
-        tasks.map((t) => t.thumbPath),
-        SIGNED_URL_TTL_SECONDS,
-      ),
+    heroToSign.length > 0
+      ? supabase.storage
+          .from(RECIPE_IMAGES_BUCKET)
+          .createSignedUrls(heroToSign, SIGNED_URL_TTL_SECONDS)
+      : null,
+    thumbToSign.length > 0
+      ? supabase.storage
+          .from(RECIPE_IMAGES_BUCKET)
+          .createSignedUrls(thumbToSign, SIGNED_URL_TTL_SECONDS)
+      : null,
   ]);
 
   // Build path → signedUrl lookups so we're robust against any
   // reordering by the Supabase API. Silently drop individual per-path
   // errors — the mobile client tolerates null signed URLs on the list
   // endpoint (FastImage shows a placeholder).
-  const heroMap = new Map<string, string>();
-  heroResp.data?.forEach((row) => {
+  heroResp?.data?.forEach((row) => {
     if (row.path && row.signedUrl && !row.error) {
       heroMap.set(row.path, row.signedUrl);
+      setCachedSignedUrl(row.path, row.signedUrl);
     }
   });
-  const thumbMap = new Map<string, string>();
-  thumbResp.data?.forEach((row) => {
+  thumbResp?.data?.forEach((row) => {
     if (row.path && row.signedUrl && !row.error) {
       thumbMap.set(row.path, row.signedUrl);
+      setCachedSignedUrl(row.path, row.signedUrl);
     }
   });
 
