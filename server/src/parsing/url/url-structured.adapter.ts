@@ -192,9 +192,13 @@ function extractMetadata(
     imageUrl?: string;
   } = {};
 
-  if (typeof obj.recipeYield === "string") meta.yield = obj.recipeYield;
-  else if (Array.isArray(obj.recipeYield) && typeof obj.recipeYield[0] === "string")
-    meta.yield = obj.recipeYield[0];
+  // Accept either `recipeYield` (canonical schema.org) or `yield` (shorter
+  // alias used by some CMSes, e.g. pbs.org/food). Prefer recipeYield.
+  const rawYield = obj.recipeYield ?? obj.yield;
+  if (typeof rawYield === "string") meta.yield = rawYield;
+  else if (typeof rawYield === "number") meta.yield = String(rawYield);
+  else if (Array.isArray(rawYield) && typeof rawYield[0] === "string")
+    meta.yield = rawYield[0];
 
   // JSON-LD / Microdata times are always "explicit" — they were authored
   // into the page's structured data, not estimated by us.

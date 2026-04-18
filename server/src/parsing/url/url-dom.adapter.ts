@@ -12,7 +12,10 @@ export function extractDomBoundary(html: string): string | null {
   $("script, style, nav, footer, header, aside, iframe, noscript").remove();
   $('[class*="ad-"], [class*="advertisement"], [id*="ad-"], [class*="sidebar"]').remove();
   $('[class*="comment"], [class*="social"], [class*="share"], [class*="related"]').remove();
-  $('[class*="print"], [class*="jump-to"], [class*="save-recipe"], button, [class*="rating"], [class*="review"]').remove();
+  // Narrow print-control match: `[class*="print"]` over-matches Tailwind
+  // `print:*` variants and layout wrappers like `.article-print` on pbs.org,
+  // which wrap the recipe itself. Keep specific button/link patterns only.
+  $('[class*="print-button"], [class*="print-recipe"], [class*="print-btn"], [class*="btn-print"], [class*="jump-to"], [class*="save-recipe"], button, [class*="rating"], [class*="review"]').remove();
 
   const recipeSelectors = [
     '[itemtype*="schema.org/Recipe"]',
@@ -31,6 +34,8 @@ export function extractDomBoundary(html: string): string | null {
     '[class*="cooked-recipe"]',
     ".recipe",
     "#recipe",
+    "#recipeBody",
+    "article#recipeBody",
     '[data-recipe]',
   ];
 
@@ -113,7 +118,24 @@ export function extractDomBoundary(html: string): string | null {
     return cleanText(mainContent);
   }
 
+  // Last-resort body fallback for flat-layout sites (e.g. m.joyofbaking.com)
+  // that have no recipe wrapper, no <main>, and no <article>, but do contain
+  // recipe content at body level with section headings. Only kick in when
+  // the body text has strong recipe markers — otherwise we'd feed arbitrary
+  // blog-post prose to the AI.
+  const bodyText = extractStructuredText($, $("body"));
+  if (bodyText.length > 100 && hasRecipeKeywords(bodyText)) {
+    return cleanText(bodyText);
+  }
+
   return null;
+}
+
+const INGREDIENT_MARKER = /\b(ingredients?)\s*:?/i;
+const INSTRUCTION_MARKER = /\b(instructions?|directions?|method|preparation|steps)\s*:?/i;
+
+function hasRecipeKeywords(text: string): boolean {
+  return INGREDIENT_MARKER.test(text) && INSTRUCTION_MARKER.test(text);
 }
 
 /**
