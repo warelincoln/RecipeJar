@@ -1,6 +1,7 @@
 import { setup, assign, fromPromise } from "xstate";
 import { api, type UrlParseRequest } from "../../services/api";
 import { analytics } from "../../services/analytics";
+import { useRecipesStore } from "../../stores/recipes.store";
 import { extractDomain } from "../../utils/url";
 import type {
   ParsedRecipeCandidate,
@@ -680,6 +681,15 @@ export const importMachine = setup({
             assign({
               savedRecipeId: ({ event }) => event.output.recipe.id,
             }),
+            // Optimistic insert: push the saved recipe directly into
+            // the Zustand store so HomeScreen/CollectionScreen render
+            // it within the same React tick as the state transition.
+            // HomeScreen's focus-triggered fetchRecipes() still runs on
+            // return from the import flow as a stale-while-revalidate
+            // — this just removes the wait between save and first paint.
+            ({ event }) => {
+              useRecipesStore.getState().addRecipe(event.output.recipe);
+            },
             ({ context, event }) => {
               analytics.track(
                 "import_saved",

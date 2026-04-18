@@ -7,6 +7,10 @@ interface RecipesState {
   loading: boolean;
   error: string | null;
   fetchRecipes: () => Promise<void>;
+  /** Optimistically prepend a recipe to the list after save.
+   *  Avoids the post-save refetch round-trip so the home screen
+   *  renders the new recipe within a single React tick. */
+  addRecipe: (recipe: Recipe) => void;
   deleteRecipe: (id: string) => Promise<void>;
   /** Delete N recipes in one server call. Optimistically removes from
    *  local state before awaiting; server rejection is a rare edge case. */
@@ -37,6 +41,20 @@ export const useRecipesStore = create<RecipesState>((set) => ({
         loading: false,
       });
     }
+  },
+
+  addRecipe(recipe: Recipe) {
+    set((state) => {
+      // De-dupe: if the caller happens to re-save an existing id, swap
+      // the row in place instead of doubling it.
+      const existing = state.recipes.findIndex((r) => r.id === recipe.id);
+      if (existing >= 0) {
+        const next = state.recipes.slice();
+        next[existing] = recipe;
+        return { recipes: next };
+      }
+      return { recipes: [recipe, ...state.recipes] };
+    });
   },
 
   async deleteRecipe(id: string) {

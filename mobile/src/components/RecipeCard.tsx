@@ -21,6 +21,28 @@ function imageUriWithVersion(
   return `${url}${sep}v=${v}`;
 }
 
+/**
+ * Stable FastImage disk-cache key derived from the Supabase Storage
+ * path (pathname, minus the `?token=…&expires=…` query that changes on
+ * every server-side sign) plus `updatedAt` so a hero replacement still
+ * invalidates cache cleanly. Belt + suspenders to the server-side
+ * signed-URL cache (`server/src/services/recipe-image.service.ts`):
+ * even if the server cache busts between requests, FastImage still
+ * hits the same disk entry and the card renders without flicker.
+ */
+function stableCacheKey(
+  url: string | null | undefined,
+  updatedAt: string | undefined,
+): string | undefined {
+  if (!url) return undefined;
+  try {
+    const { pathname } = new URL(url);
+    return `${pathname}#${updatedAt ?? "0"}`;
+  } catch {
+    return undefined;
+  }
+}
+
 interface RecipeCardProps {
   recipe: Recipe;
   width: number;
@@ -51,7 +73,9 @@ export function RecipeCard({
   const imageSource = useMemo(() => {
     const raw = recipe.thumbnailUrl ?? recipe.imageUrl;
     const uri = imageUriWithVersion(raw, recipe.updatedAt);
-    return uri ? { uri } : null;
+    if (!uri) return null;
+    const cacheKey = stableCacheKey(raw, recipe.updatedAt);
+    return cacheKey ? { uri, cacheKey } : { uri };
   }, [recipe.imageUrl, recipe.thumbnailUrl, recipe.updatedAt]);
 
   useEffect(() => {
