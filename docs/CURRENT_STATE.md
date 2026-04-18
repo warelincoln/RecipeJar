@@ -77,15 +77,36 @@
 - Virtual "All Recipes" collection, uncategorized recipe handling
 - Client-side search (case-insensitive title matching, per-collection or global)
 
-**Observability:**
+**Observability (deepened 2026-04-17):**
 
-- Structured JSON event logging (lifecycle, parsing, editing, URL-specific, startup events)
+- Structured JSON event logging on server (lifecycle, parsing, editing, URL-specific, startup events)
 - Server health endpoint (`GET /health`)
+- Sentry crash reporting (mobile: `@sentry/react-native` 8.8.0, gated off in `__DEV__`)
+- **PostHog event pipeline (client + server)** — 22 mobile events (import state-machine transitions) + 7 server event families (parse completed/validated/failed, url capture failed, recipe saved, hero image missing). Every event carries URL, domain, extraction method, duration, issue codes, and save-state context. Kill switch via env var (server) and feature flag (client). Full taxonomy + dashboard spec in [`ANALYTICS_SETUP.md`](ANALYTICS_SETUP.md).
+- **"Orzo — Import Health" PostHog dashboard** (11 tiles): live failure feed, top failing domains, top BLOCK codes, extraction-tier funnel, photo vs URL failure trend, hero-miss feed, hero-attach rate by domain, FLAG code breakdown, time-completeness by domain, inferred-time parses feed. Queryable via PostHog MCP.
 
-**Testing:**
+**URL import performance (overhauled 2026-04-17):**
 
-- 127 server tests (Vitest): validation, save-decision, parsing, API integration, state machine
-- 21 iOS UI tests (XCUITest on physical iPhone 16): 19 passing, 2 state-dependent
+- **Synchronous fast path** — JSON-LD + Microdata parsed inline in `POST /drafts/:id/parse` when structured data passes the quality gate. Returns 200 with candidate + validationResult in the body; mobile xstate actor skips the 3-second poll loop. Typical BBC Good Food / Serious Eats import: ~1s end-to-end (was ~4-5s).
+- **DOM enrichment** — successful JSON-LD/Microdata/dom-ai parses top up missing `metadata.imageUrl` (og:image, twitter:image, link rel=image_src) and `servings` (WPRM, Tasty, itemprop="recipeYield", regex yield patterns). Never overwrites.
+- **Cluster D parsing fixes** — `#recipeBody` DOM boundary selector for pbs.org, `yield` accepted as `recipeYield` alias, narrowed `[class*="print"]` cleanup (was eating Tailwind `print:*` utilities), keyword-gated body-text fallback for flat-layout sites (m.joyofbaking.com). Gourmet Magazine documented as Ghost-CMS paywall in [`PARSING_KNOWN_LIMITATIONS.md`](PARSING_KNOWN_LIMITATIONS.md).
+- **Protocol-relative image URL normalization** — `normalizeImageUrlForFetch()` prepends `https:` to `//cdn.example.com/...`-style URLs before fetching hero images. Fixes hungry-girl.com CloudFront pattern.
+
+**Home-screen performance (overhauled 2026-04-17):**
+
+- **Batch signed URL generation** on `GET /recipes` + `GET /collections/:id/recipes` via Supabase `createSignedUrls([paths], ttl)` — one HTTP call per bucket regardless of recipe count. 70-recipe cold load: ~1s (was 20-30s variable).
+- **Server-side signed URL cache** — in-memory `Map<path, {signedUrl, expiresAt}>` returns the same signed URL for ~55 min per path. FastImage sees stable URLs across refetches → no image flicker on home-screen return visits. Wrapped around both `resolveImageUrls` and `resolveImageUrlsBatch`.
+- **FastImage `cacheKey` on RecipeCard** — belt-and-suspenders. Key derived from the signed URL's pathname plus `recipe.updatedAt` makes disk cache invariant to server cache busts (Railway restart, TTL miss). Cache still invalidates cleanly when a recipe's hero is replaced.
+- **Optimistic insert after save** — new `addRecipe()` action on the Zustand recipes store; xstate `saving → saved` transition prepends the saved recipe directly. Home/Collection screens render the new card in the same React tick as the transition, no wait for refetch. HomeScreen's focus-triggered `fetchRecipes()` still runs as stale-while-revalidate insurance.
+
+**Validation (refined 2026-04-17):**
+
+- `SERVINGS_MISSING` severity downgraded from BLOCK to FLAG — users can save recipes without known servings, receive a dismissible warning chip instead. Mobile display copy updated to match.
+
+**Testing (2026-04-17):**
+
+- 178 server tests (Vitest), 2 pre-existing unrelated failures: notes-spy assertions + `machine.test.ts` SyntaxError. New tests: parse structured-only + fast-path integration (10), DOM enrichment (5), signed URL cache (5), protocol-relative URL normalization (8), parsing domain fixtures for pbs/joyofbaking/gourmetmagazine (~12).
+- 21 iOS UI tests (XCUITest on physical iPhone 16): 19 passing, 2 state-dependent — unchanged.
 
 **Tech stack:**
 

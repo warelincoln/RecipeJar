@@ -1,5 +1,72 @@
 # Orzo Changelog
 
+### 2026-04-17 — Observability + URL import overhaul + home-screen perf
+
+A long day of work on top of the TestFlight build. Two full PostHog-driven observability layers, a full rethink of the URL import pipeline, a home-screen performance fix, and a cluster of small mobile polish items. Net result: URL imports dropped from ~4-5s to ~1s on the happy path, home-screen load dropped from "2-30s-depending-on-Supabase-mood" to consistent sub-second, image flicker on return visits eliminated, 4 previously-failing reputable sites (PBS, Joy of Baking) rescued, and every interesting import outcome now lands in PostHog with rich properties.
+
+**Shipped in this cycle (17 commits on master, including 2 PR merges):**
+
+#### Observability layer (PostHog, both client + server)
+
+- **`2d110c5` feat(observability): rich PostHog events for URL + photo import failures** — added `posthog-node` to the server, wired a `trackAnalytics()` sidecar alongside the existing `logEvent()` sites in `drafts.routes.ts`. Every parse now emits `server_parse_completed`, `server_parse_validated`, `server_parse_failed`, `server_url_capture_failed`, and `server_recipe_saved` with URL, domain, extraction method, issue codes, parse duration, and save state. Mobile `analytics.ts` taxonomy expanded from 12 to 22 events with instrumentation at every xstate transition boundary in the import machine. Feature-flag gate (`analytics_firehose_enabled`) for remote kill without redeploy.
+- **`3408d15` fix(parsing): tag buildErrorCandidate with extractionMethod "error"** — error-path parses were showing up as `extraction_method: "unknown"` in PostHog; now distinctly tagged so the tier-funnel tile counts them correctly.
+- **`6fec459` feat(observability): hero-image-missing event + FLAG-level analytics** — distinct `server_hero_image_missing` event separating `no_metadata_url` (source didn't publish) from `download_failed` (we fetched but failed). `server_recipe_saved` carries `hero_image_attached`, `hero_image_failure_reason`, `had_metadata_image_url`. `server_parse_validated` carries `first_flag_code` + `has_flags` symmetric with the BLOCK side.
+- **`9751ecc` feat(observability): time-source provenance on parse + save events** — per-time `prep/cook/total_time_source` (`"explicit" | "inferred" | null`), `time_completeness` scorecard, `has_inferred_time` / `has_explicit_time` booleans, plus `*_final` variants on `server_recipe_saved` that include `"user_confirmed"` when the TimesReviewBanner was accepted.
+- Railway env vars configured: `POSTHOG_API_KEY_SERVER`, `POSTHOG_HOST`, `ANALYTICS_FIREHOSE_ENABLED`. Server-side SDK gated off in non-production + killable via env flip without redeploy.
+- PostHog dashboard **"Orzo — Import Health"** built in the UI with 9 tiles: live failure feed, top failing domains, top block codes, extraction-tier funnel, photo vs URL failure trend, SERVINGS_MISSING feed, hero-miss feed, hero attachment rate by domain, FLAG code breakdown, time-completeness by domain, inferred-time parses feed. Full spec in `docs/ANALYTICS_SETUP.md`.
+
+#### URL import pipeline (Path 1)
+
+- **`c603129` perf(parsing): synchronous fast path for JSON-LD + Microdata URL imports** — the biggest perceived-latency win of the day. `POST /drafts/:id/parse` used to always return 202 and kick off a background job the mobile client would poll every 3 seconds. Now runs JSON-LD + Microdata **inline** (new `parseUrlStructuredOnly()` helper, ~50-200ms). On success, returns 200 with the full candidate + validation result inline, mobile's xstate actor returns directly without polling. Only falls through to 202 + background when the AI tier is actually needed. Extracted shared `finalizeParseResult()` helper so validation, DB writes, and analytics emission are identical across sync + background paths. Fetch timeout capped at 4s on the sync path with graceful fall-through to the 60s-budget background. 4s RTT + 3s poll wait cut; mobile required zero changes (the poll-guard check was already in place).
+- **`3814c62` feat(parsing): DOM fallback for missing JSON-LD image + servings** — adds `enrichFromDom()` that tops up a successful JSON-LD/Microdata extraction from `<meta property="og:image">`, `<meta name="twitter:image">`, `<link rel="image_src">`, plus WPRM, Tasty, `itemprop="recipeYield"`, and regex yield patterns for sites that publish structured data but omit image / recipeYield (BBC Good Food, America's Test Kitchen, Washington Post, Pioneer Woman, etc). Never overwrites values the structured data already provides.
+- **`d48aacf` fix(images): normalize protocol-relative URLs before downloading hero** — Cluster A. hungry-girl.com publishes `metadata.imageUrl: "//d2gtpjxvvd720b.cloudfront.net/..."` (protocol-relative). Node's `fetch()` throws "Invalid URL" on those. Added `normalizeImageUrlForFetch()` that prepends `https:` to protocol-relative URLs and returns null for data URLs / non-http schemes / document-relative paths. 8 unit tests.
+- **PR #2 — Cluster D (`cdbd04c` + `ca51a6c`)**: 4 URL imports from reputable sites were falling through to the error tier. Root causes fixed:
+  - **pbs.org**: Recipe lives under JSON-LD `@graph` with ingredients but no `recipeInstructions`, so it fails the quality gate. The real content is in `<article id="recipeBody">` which wasn't in our boundary selector set. pbs.org also authors `yield` (schema.org alias) instead of `recipeYield`.
+  - **Blanket `[class*="print"]` removal was nuking Tailwind utilities.** `print:break-after-avoid-page` on pbs.org's ingredient/step elements was matching our print-button cleanup, deleting the recipe before selectors could find it. Narrowed to specific button patterns.
+  - **m.joyofbaking.com** — decades-old HTML, no JSON-LD, no Microdata, no `<main>` / `<article>`, no recipe wrapper. Added a keyword-gated body-text fallback that only activates when the DOM contains both an ingredient marker and an instruction marker.
+  - **gourmetmagazine.net** — Ghost CMS paywall. Documented as a known limitation in `docs/PARSING_KNOWN_LIMITATIONS.md` with fixture test confirming we still return a clean error candidate without invoking the AI.
+- Real HTML fixtures saved under `server/tests/fixtures/` + per-domain tests in `server/tests/parsing-domain-fixtures.test.ts`.
+
+#### Home-screen + list-endpoint performance
+
+- **`bb5d20b` perf(recipes): batch signed-URL generation for list endpoints** — the home-screen load was scaling linearly with recipe count and sometimes hitting 20-30s. Root cause: `GET /recipes` called `resolveImageUrls` per recipe, each doing 2 parallel `createSignedUrl` calls. 50 recipes = 100 parallel HTTPS calls to Supabase Storage, which queues under concurrency. Added `resolveImageUrlsBatch()` using Supabase's `createSignedUrls` batch endpoint — a single HTTP call returns every signed URL for an input array. Applied to `GET /recipes` + `GET /collections/:id/recipes`. Supabase round-trips dropped from 2 × N per request to exactly 2 per request.
+- **PR #1 — `89e47a3` perf(recipes): cache signed URLs server-side to stop image flicker** — after the batch fix, home-screen load was fast but images re-downloaded on every focus because each `GET /recipes` generated fresh signed URLs with new `?token=…&expires=…` query strings. FastImage treated the new URL as a different image. Added in-memory `Map<path, {signedUrl, expiresAt}>` cache in `recipe-image.service.ts`. Same signed URL returned for up to 55 minutes per path; Supabase signing only paid for paths missing or near-expiry. 5 cache unit tests.
+
+#### Validation + mobile polish
+
+- **`7733165` fix(validation): SERVINGS_MISSING is a FLAG, not a BLOCK** — missing servings was preventing saves entirely; now surfaces as a dismissible warning. Severity flipped, `userDismissible` set to true.
+- **`a6e475d` polish(mobile): Build 2 pack — servings copy, FastImage cacheKey, optimistic save insert** — three small mobile-side improvements landed together:
+  - Updated SERVINGS_MISSING display copy to match the FLAG behavior ("Add it now or skip — you can save either way.")
+  - FastImage `cacheKey` on RecipeCard derived from the signed URL's pathname plus `updatedAt`. Complements the server-side cache: even if the server cache busts (Railway restart, TTL miss), the mobile disk cache still matches on the stable pathname and no re-download happens.
+  - New `addRecipe()` action on the Zustand recipes store. xstate `saving → saved` transition prepends the saved recipe directly into the store; Home/Collection screens render the new card in the same React tick, no wait for refetch. HomeScreen's focus-triggered `fetchRecipes()` still runs as stale-while-revalidate insurance.
+
+#### Cluster B closed as working-as-designed
+
+- "totalTime only" sites (Betty Crocker, Bon Appétit, Pillsbury, Southern Living, Washington Post) publish `totalTime` but not prep/cook separately. Inspected `RecipeDetailScreen`'s time chip row — it already filters null prep/cook entries and renders totalTime-only recipes as a clean `45m total` chip. No code change needed; the PostHog `time_completeness = partial` label was an analytics observation, not a UX gap.
+
+#### Verification (end-to-end, production + Orzo Dev)
+
+Tests 1-15 passed end-to-end across both production Orzo (TestFlight) and Orzo Dev (local). Key measurements:
+
+- BBC Good Food + Serious Eats URL imports: **~1s** (was ~4-5s)
+- Home screen cold load with 70 recipes: **~1s** (was 20-30s variable)
+- Home → detail → home: **no image flicker** (was visible reload every time)
+- PBS + m.joyofbaking.com: **import successfully** (was STRUCTURE_NOT_SEPARABLE fail)
+- hungry-girl.com: **hero image attaches** on save (was silently missing)
+- Photo vision imports: still slow (~40s), unchanged — future optimization
+
+#### Deferred / follow-up items (not in this cycle)
+
+- **NYT / PBS hero image via WebView HTML capture** — server-fetched HTML sometimes misses og:image (bot-served degraded page). Routing these through the in-app WebView's HTML capture would get real browser output.
+- **dom-ai tier latency (~10-24s)** — model swap to gpt-4o-mini or tighter DOM boundary would halve it.
+- **Photo vision latency (~40s)** — biggest UX cliff remaining. Needs model swap and/or the shell-insert pattern from Path 3.
+- **Preview hero image** — import preview doesn't render `metadata.imageUrl` until after save. Small polish.
+- **Cluster C — JSON-LD-with-no-times async AI inference** — blocked on Path 3 (async enrichment + detail-screen update mechanism).
+- **Path 3 itself** — architectural lift that would unlock photo vision speedup and Cluster C in one move.
+- **Build 2 TestFlight archive** — the three mobile items in `a6e475d` (+ any of the deferred Build 2 items when ready) need to be archived via Xcode Release scheme and uploaded for production testers to pick up.
+
+---
+
 ### 2026-04-16 (evening) — Phase 0.2: First TestFlight build LIVE
 
 Orzo's first internal TestFlight build is installed on a real tester's iPhone. The stack from code to end-user finally connects end-to-end: Xcode archive → App Store Connect → TestFlight on a real device. All 8 Steps of Phase 0.2 landed in a single session.
