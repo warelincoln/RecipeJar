@@ -172,11 +172,23 @@ async function callIngredients(
       type: "json_schema",
       json_schema: ingredientsSchema,
     },
-    max_completion_tokens: 1500,
+    // Bumped from 1500 after eval showed truncation on a recipe with 13+
+    // ingredients + signals + metadata. 2500 is still well under the per-call
+    // response budget and covers the fattest recipes we've seen.
+    max_completion_tokens: 2500,
     temperature: 0.1,
   });
 
-  const content = response.choices[0]?.message?.content;
+  const choice = response.choices[0];
+  if (choice?.finish_reason === "length") {
+    // Truncation mid-JSON guarantees JSON.parse will throw. Surface a clear
+    // error instead of "Unexpected end of JSON input" so future triage is
+    // obvious.
+    throw new Error(
+      "Call A truncated (finish_reason=length). Raise max_completion_tokens.",
+    );
+  }
+  const content = choice?.message?.content;
   if (!content) {
     throw new Error("Call A returned empty content");
   }
@@ -205,11 +217,22 @@ async function callSteps(
       type: "json_schema",
       json_schema: stepsSchema,
     },
-    max_completion_tokens: 1200,
+    // Bumped from 1200 after eval showed truncation on recipes with 6+
+    // dense multi-action steps (takikomi-gohan, mochi-waffles). Step text
+    // is bounded by the ≤40-words rule but stepSignals/description can add
+    // another ~300 tokens. 2000 leaves headroom without overpaying on
+    // typical recipes.
+    max_completion_tokens: 2000,
     temperature: 0.1,
   });
 
-  const content = response.choices[0]?.message?.content;
+  const choice = response.choices[0];
+  if (choice?.finish_reason === "length") {
+    throw new Error(
+      "Call B truncated (finish_reason=length). Raise max_completion_tokens.",
+    );
+  }
+  const content = choice?.message?.content;
   if (!content) {
     throw new Error("Call B returned empty content");
   }

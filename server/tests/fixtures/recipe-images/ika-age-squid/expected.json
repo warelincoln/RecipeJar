@@ -1,0 +1,16 @@
+{
+  "title": "Ika-Age",
+  "servings": 4,
+  "ingredients": [
+    { "amount": 2, "unit": "tablespoon", "name": "yuzu kosho" },
+    { "amount": 0.25, "unit": "cup", "name": "soy sauce" },
+    { "amount": 0.25, "unit": "cup", "name": "sake" },
+    { "amount": 1, "unit": "teaspoon", "name": "ginger" },
+    { "amount": 1, "unit": "pound", "name": "squid" },
+    { "amount": 1, "unit": "cup", "name": "flour" },
+    { "amount": 1, "unit": "tablespoon", "name": "scallion" }
+  ],
+  "stepCount": 6,
+  "requiredStepNumerics": ["30 seconds", "15 minutes", "350", "1 minute"],
+  "requiredStepTools": ["skillet", "bowl"]
+}

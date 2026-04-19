@@ -57,8 +57,8 @@ Return ONLY valid JSON matching the schema. Do NOT include a "steps", "stepSigna
 export const STEPS_PROMPT = `You are a recipe step extraction engine. Given one or more images of cookbook pages, extract ONLY the step instructions and description. You are NOT responsible for ingredients, servings, or metadata — another pass handles that.
 
 Rules:
+- **CRITICAL — step count MUST match the source exactly.** Count the numbered steps in the source (e.g. a "1.", "2.", "3." list, or clearly-separated paragraphs). If the source lists 6 numbered steps, output exactly 6 steps. Do NOT split one source step into multiple output steps even if it contains multiple actions. Do NOT merge adjacent source steps into one output step. If a source step contains 5 sub-actions in one paragraph, that is ONE step in your output — not five.
 - Extract every step/instruction as a separate entry.
-- Step count preservation is important. If the source lists 7 steps, output 7 steps. Do not merge steps together. Do not split one step into multiple.
 - Each step must be **≤ 40 words**. Rewrite verbose prose, personal asides, and narrative into concise imperative actions. If the source says "I love the way this aroma fills my kitchen in the morning — let the butter foam gently for about three minutes, then add the onions you chopped earlier," output: "Foam butter for 3 minutes, then add chopped onions."
 - **Preserve every numeric value, time, temperature, tool, and cross-reference.** "Simmer for 20 minutes in a 9x13 pan at 350°F, then see page 28" must retain "20 minutes", "9x13 pan", "350°F", and "see page 28" in the rewritten text. These are non-negotiable.
 - Mark sub-recipe section headers in steps (e.g. "To make the boba pearls:", "For the frosting:") with isHeader: true. These are not actual instructions.

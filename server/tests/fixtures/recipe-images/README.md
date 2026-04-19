@@ -15,8 +15,14 @@ fraction regression (⅓ misread as ½, etc.) must block the PR.
 ## How to add a fixture
 
 1. Create a new directory: `server/tests/fixtures/recipe-images/<slug>/`
-2. Drop an image at `<slug>/image.jpg` (or `.png`). Real cookbook pages or magazine
-   clippings work best. Screenshots of recipe websites also OK.
+2. Drop an image at `<slug>/image.<ext>` where `<ext>` is one of `jpg`, `jpeg`,
+   `png`, `webp`, `heic`, or `HEIC`. Raw iPhone photos (HEIC) work directly —
+   on macOS the loader shells out to `sips` to decode HEIC before handing to
+   sharp, since sharp's npm prebuilds drop libheif on macOS. Running this
+   eval on non-macOS would need a drop-in HEIC decoder (e.g. `heic-convert`)
+   but evals are local-dev-only today, not a CI concern. Real cookbook
+   pages or magazine clippings work best. Screenshots of recipe websites
+   also OK.
 3. Create `<slug>/expected.json` with the ground-truth shape below. Values are
    case-insensitive match where applicable.
 4. Commit both. CI will skip evals unless `RUN_LLM_EVALS=1` is set, so committing

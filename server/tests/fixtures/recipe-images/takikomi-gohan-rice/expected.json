@@ -1,0 +1,20 @@
+{
+  "servings": 4,
+  "ingredients": [
+    { "amount": 2.25, "unit": "cup", "name": "rice" },
+    { "amount": 4, "unit": null, "name": "shiitake" },
+    { "amount": 1, "unit": "tablespoon", "name": "arame" },
+    { "amount": 2, "unit": "piece", "name": "abura-age" },
+    { "amount": 2, "unit": "tablespoon", "name": "sesame oil" },
+    { "amount": 2, "unit": null, "name": "chicken thighs" },
+    { "amount": 2, "unit": "ounce", "name": "burdock" },
+    { "amount": 2, "unit": "ounce", "name": "carrot" },
+    { "amount": 4, "unit": "tablespoon", "name": "shoyu tare" },
+    { "amount": 2, "unit": "tablespoon", "name": "sake" },
+    { "amount": 2, "unit": "tablespoon", "name": "mirin" },
+    { "amount": 0.5, "unit": "teaspoon", "name": "sea salt" }
+  ],
+  "stepCount": 6,
+  "requiredStepNumerics": ["30 minutes", "1 hour", "18 minutes"],
+  "requiredStepTools": ["pot"]
+}

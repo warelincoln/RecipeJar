@@ -1,0 +1,19 @@
+{
+  "title": "Nagoya Tebasaki",
+  "servings": 4,
+  "ingredients": [
+    { "amount": 16, "unit": null, "name": "chicken wings" },
+    { "amount": 1, "unit": "teaspoon", "name": "tobanjan" },
+    { "amount": 2, "unit": "teaspoon", "name": "garlic" },
+    { "amount": 2, "unit": "tablespoon", "name": "sugar" },
+    { "amount": 2, "unit": "tablespoon", "name": "miso" },
+    { "amount": 2, "unit": "tablespoon", "name": "soy sauce" },
+    { "amount": 0.25, "unit": "cup", "name": "sake" },
+    { "amount": 0.25, "unit": "cup", "name": "mirin" },
+    { "amount": 0.25, "unit": "cup", "name": "katakuriko" },
+    { "amount": 1, "unit": "tablespoon", "name": "sesame seed" }
+  ],
+  "stepCount": 7,
+  "requiredStepNumerics": ["350", "7 minutes", "1 minute"],
+  "requiredStepTools": ["saucepan", "skillet"]
+}
