@@ -230,7 +230,13 @@ async function callSteps(
     // another ~300 tokens. 2000 leaves headroom without overpaying on
     // typical recipes.
     max_completion_tokens: 2000,
-    temperature: 0.1,
+    // temperature=0 (deterministic) — same reasoning as Call A. Production
+    // test surfaced Call B flipping "1 3/4 tsp" → "1 1/4 tsp" in a step
+    // rewrite. Numeric fidelity in steps matters: if the step says "season
+    // with 1 3/4 tsp salt" the user cooks with the wrong amount. "Creative
+    // concision variety" is not a feature — we want the model to pick the
+    // same rewrite every time for the same source, and drop the flip risk.
+    temperature: 0,
   });
 
   const choice = response.choices[0];
