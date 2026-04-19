@@ -15,7 +15,9 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
     case "INGREDIENTS_MISSING":
       return "We couldn't find ingredient lines—add a few so you can save.";
     case "STEPS_MISSING":
-      return "We couldn't find steps—add them so you can save.";
+      return "No step instructions yet. Save ingredients-only or add steps below.";
+    case "STEPS_EXTRACTION_FAILED":
+      return "We couldn't read the step instructions from this photo. Edit them below, retake the page, or save ingredients-only.";
     case "INGREDIENT_MERGED":
       return "This line may combine two ingredients—split it if that looks right.";
     case "INGREDIENT_NAME_MISSING":

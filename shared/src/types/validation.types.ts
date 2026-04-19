@@ -21,7 +21,8 @@ export type ValidationIssueCode =
   | "MAJOR_OCR_ARTIFACT"
   | "DESCRIPTION_DETECTED"
   | "MULTI_RECIPE_DETECTED"
-  | "SERVINGS_MISSING";
+  | "SERVINGS_MISSING"
+  | "STEPS_EXTRACTION_FAILED";
 
 export interface ValidationIssue {
   issueId: string;

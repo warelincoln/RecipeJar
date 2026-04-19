@@ -29,36 +29,6 @@ export async function optimizeForUpload(buffer: Buffer): Promise<Buffer> {
 }
 
 /**
- * Light optimization for OCR: auto-orient and resize only.
- * No grayscale/CLAHE/sharpen — neural vision models (OpenAI) perform best
- * on clean, natural color images rather than classically preprocessed ones.
- */
-export async function optimizeForOcr(buffer: Buffer): Promise<Buffer> {
-  try {
-    const start = Date.now();
-    const original = buffer.length;
-    const optimized = await sharp(buffer)
-      .rotate()
-      .resize({
-        width: 3072,
-        height: 3072,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .jpeg({ quality: 90 })
-      .toBuffer();
-
-    console.log(
-      `[image-optimizer] ocr: ${(original / 1024).toFixed(0)}KB → ${(optimized.length / 1024).toFixed(0)}KB (${Date.now() - start}ms)`,
-    );
-    return optimized;
-  } catch (err) {
-    console.warn("[image-optimizer] optimizeForOcr failed, using original buffer:", err);
-    return buffer;
-  }
-}
-
-/**
  * Optimization for recipe hero images displayed in detail view.
  * Targets moderate resolution for visual quality and bandwidth control.
  */

@@ -90,7 +90,6 @@ vi.mock("../src/observability/event-logger.js", () => ({
 
 vi.mock("../src/parsing/image/image-optimizer.js", () => ({
   optimizeForUpload: vi.fn((buf: Buffer) => Promise.resolve(buf)),
-  optimizeForOcr: vi.fn((buf: Buffer) => Promise.resolve(buf)),
   optimizeForHero: vi.fn((buf: Buffer) => Promise.resolve(buf)),
   optimizeForThumbnail: vi.fn((buf: Buffer) => Promise.resolve(buf)),
 }));

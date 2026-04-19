@@ -162,7 +162,12 @@ const PARSE_TERMINAL_STATUSES = new Set([
   "SAVED",
 ]);
 
-const POLL_INTERVAL = 3000;
+// Drop from 3000ms. With parse p95 target ~12s post-refactor, a 750ms
+// poll keeps the tail wait under 1s instead of up to 3s. The server
+// exempts GET /drafts/:id from the global 100-req/min rate limit (see
+// server/src/app.ts), so the faster poll can't trip users into 429s
+// even with 3 concurrent imports running.
+const POLL_INTERVAL = 750;
 
 type ServerDraftPageRow = {
   id: string;
@@ -212,11 +217,17 @@ export const importMachine = setup({
         input: { pages: { imageUri: string; orderIndex: number; mimeType?: string; fileName?: string }[] };
       }) => {
         const draft = await api.drafts.create();
-        const uploadedPages = [];
-        for (const page of input.pages) {
-          const uploaded = await api.drafts.addPage(draft.id, page.imageUri, page.mimeType, page.fileName);
-          uploadedPages.push(uploaded);
-        }
+        // Parallelize page uploads. Single-image imports (the shipped
+        // reality per docs/STATUS.md:220) see no behavior change since
+        // there's only one page; multi-image imports (planned) will see
+        // upload time drop from N×T to ~T. The /pages POST does its own
+        // sharp optimization per page, so concurrent uploads hit Sharp's
+        // thread pool which Node handles naturally.
+        const uploadedPages = await Promise.all(
+          input.pages.map((page) =>
+            api.drafts.addPage(draft.id, page.imageUri, page.mimeType, page.fileName),
+          ),
+        );
         return { draftId: draft.id, pages: uploadedPages };
       },
     ),

@@ -33,15 +33,26 @@ export function evaluateRequiredFields(
     });
   }
 
-  if (candidate.steps.length === 0) {
+  // Ingredient-only recipes are a legitimate use case — lots of people
+  // screenshot just the ingredient list. Downgraded from BLOCK to FLAG so
+  // the recipe saves without forcing the user to invent steps. If the
+  // extractionError flag is set ("we couldn't read the steps"), rules.steps.ts
+  // emits a more-specific STEPS_EXTRACTION_FAILED instead — skip this rule
+  // then to avoid double-flagging the same empty-steps condition with two
+  // different messages.
+  if (
+    candidate.steps.length === 0 &&
+    candidate.extractionError !== "steps_failed"
+  ) {
     issues.push({
       issueId: "steps-missing",
       code: "STEPS_MISSING",
-      severity: "BLOCK",
-      message: "We couldn't find steps—add them so you can save.",
+      severity: "FLAG",
+      message:
+        "No step instructions yet. You can save ingredients-only or add steps below.",
       fieldPath: "steps",
-      userDismissible: false,
-      userResolvable: false,
+      userDismissible: true,
+      userResolvable: true,
     });
   }
 

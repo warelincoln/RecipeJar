@@ -45,6 +45,22 @@ export interface ParsedRecipeCandidate {
 
   extractionMethod?: "json-ld" | "microdata" | "dom-ai" | "error";
 
+  /**
+   * Set by the image parse adapter when one leg of the split-call
+   * architecture fails but the other produced usable data. Today only
+   * "steps_failed" is emitted — Call A (ingredients/title/servings/metadata)
+   * succeeded but Call B (steps/description) failed or returned invalid JSON.
+   * The validation engine reads this field and emits STEPS_EXTRACTION_FAILED
+   * as a FLAG so the mobile client can render a "couldn't read the steps"
+   * warning banner in the preview/edit view and let the user edit manually.
+   *
+   * Kept optional so existing fixtures and the URL parse path don't need
+   * to set it. Ingredients-leg failure is still a total failure (no recipe
+   * without ingredients), so "ingredients_failed" is reserved for future use
+   * but not surfaced today.
+   */
+  extractionError?: "steps_failed" | "ingredients_failed" | null;
+
   metadata?: {
     yield?: string;
     prepTime?: string;

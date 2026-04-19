@@ -107,14 +107,60 @@ describe("validateRecipe", () => {
     expect(issue!.severity).toBe("BLOCK");
   });
 
-  it("missing steps -> BLOCK", () => {
+  // Ingredient-only recipes are allowed — users often screenshot just the
+  // ingredient list and want to save that. STEPS_MISSING downgraded from
+  // BLOCK to FLAG (and the save stays CLEAN, not NO_SAVE).
+  it("missing steps -> FLAG (ingredient-only recipe is allowed)", () => {
     const result = validateRecipe(
       makeCandidate({ steps: [], stepSignals: [] }),
     );
     const issue = result.issues.find((i) => i.code === "STEPS_MISSING");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
-    expect(result.saveState).toBe("NO_SAVE");
+    expect(issue!.severity).toBe("FLAG");
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.saveState).toBe("SAVE_CLEAN");
+  });
+
+  it("extractionError 'steps_failed' with empty steps -> STEPS_EXTRACTION_FAILED FLAG, no double-flag with STEPS_MISSING", () => {
+    const result = validateRecipe(
+      makeCandidate({
+        steps: [],
+        stepSignals: [],
+        extractionError: "steps_failed",
+      }),
+    );
+    const extractionFailedIssue = result.issues.find(
+      (i) => i.code === "STEPS_EXTRACTION_FAILED",
+    );
+    const stepsMissingIssue = result.issues.find(
+      (i) => i.code === "STEPS_MISSING",
+    );
+    expect(extractionFailedIssue).toBeDefined();
+    expect(extractionFailedIssue!.severity).toBe("FLAG");
+    expect(stepsMissingIssue).toBeUndefined();
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.saveState).toBe("SAVE_CLEAN");
+  });
+
+  it("extractionError 'steps_failed' after user adds steps -> STEPS_EXTRACTION_FAILED cleared", () => {
+    const result = validateRecipe(
+      makeCandidate({
+        steps: [
+          {
+            id: "s1",
+            text: "User-added step",
+            orderIndex: 0,
+            isHeader: false,
+          },
+        ],
+        stepSignals: [],
+        extractionError: "steps_failed",
+      }),
+    );
+    const extractionFailedIssue = result.issues.find(
+      (i) => i.code === "STEPS_EXTRACTION_FAILED",
+    );
+    expect(extractionFailedIssue).toBeUndefined();
   });
 
   it("merged ingredient lines -> FLAG", () => {
