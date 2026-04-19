@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import * as Sentry from "@sentry/node";
 import { draftsRepository } from "../persistence/drafts.repository.js";
 import { validateRecipe } from "../domain/validation/validation.engine.js";
 import { decideSave } from "../domain/save-decision.js";
@@ -280,106 +281,169 @@ async function runParseInBackground(
   try {
     await acquireParseLock();
 
-    const pages = await draftsRepository.getPages(draftId);
-    const sourcePages: SourcePage[] = pages.map((p) => ({
-      id: p.id,
-      orderIndex: p.orderIndex,
-      sourceType: draft.sourceType as "image" | "url",
-      retakeCount: p.retakeCount,
-      imageUri: p.imageUri,
-      extractedText: p.ocrText,
-    }));
+    // runParseInBackground runs AFTER the POST /drafts/:id/parse response
+    // returned 202, so the HTTP request's trace has already finished. If we
+    // just call startSpan here, children inherit the finished parent's
+    // sampled=false decision and nothing lands. startNewTrace detaches us
+    // from that dead parent and makes a fresh root trace so the sampling
+    // decision is made against tracesSampleRate from scratch.
+    await Sentry.startNewTrace(() =>
+      Sentry.startSpan(
+        {
+          name: "parse.background",
+          op: "parse",
+          attributes: {
+            "parse.draft_id": draftId,
+            "parse.source_type": draft.sourceType,
+          },
+        },
+        async () => {
+        const pages = await draftsRepository.getPages(draftId);
+        const sourcePages: SourcePage[] = pages.map((p) => ({
+          id: p.id,
+          orderIndex: p.orderIndex,
+          sourceType: draft.sourceType as "image" | "url",
+          retakeCount: p.retakeCount,
+          imageUri: p.imageUri,
+          extractedText: p.ocrText,
+        }));
 
-    let candidate: ParsedRecipeCandidate;
+        let candidate: ParsedRecipeCandidate;
 
-    if (draft.sourceType === "url" && draft.originalUrl) {
-      if (suppliedHtml) {
-        candidate = await parseUrlFromHtml(
-          draft.originalUrl,
-          suppliedHtml,
-          sourcePages,
-          "webview-html",
-        );
-      } else if (preFetchedHtml) {
-        // Sync fast-path already fetched the HTML but structured data
-        // didn't pass the quality gate — reuse the HTML instead of paying
-        // the network cost a second time.
-        const acquisitionMethod: UrlAcquisitionMethod =
-          parseBody.acquisitionMethod === "server-fetch-fallback"
-            ? "server-fetch-fallback"
-            : "server-fetch";
-        candidate = await parseUrlFromHtml(
-          draft.originalUrl,
-          preFetchedHtml,
-          sourcePages,
-          acquisitionMethod,
-        );
-      } else {
-        const acquisitionMethod: UrlAcquisitionMethod =
-          parseBody.acquisitionMethod === "server-fetch-fallback"
-            ? "server-fetch-fallback"
-            : "server-fetch";
+        if (draft.sourceType === "url" && draft.originalUrl) {
+          if (suppliedHtml) {
+            candidate = await parseUrlFromHtml(
+              draft.originalUrl,
+              suppliedHtml,
+              sourcePages,
+              "webview-html",
+            );
+          } else if (preFetchedHtml) {
+            // Sync fast-path already fetched the HTML but structured data
+            // didn't pass the quality gate — reuse the HTML instead of paying
+            // the network cost a second time.
+            const acquisitionMethod: UrlAcquisitionMethod =
+              parseBody.acquisitionMethod === "server-fetch-fallback"
+                ? "server-fetch-fallback"
+                : "server-fetch";
+            candidate = await parseUrlFromHtml(
+              draft.originalUrl,
+              preFetchedHtml,
+              sourcePages,
+              acquisitionMethod,
+            );
+          } else {
+            const acquisitionMethod: UrlAcquisitionMethod =
+              parseBody.acquisitionMethod === "server-fetch-fallback"
+                ? "server-fetch-fallback"
+                : "server-fetch";
 
-        if (
-          acquisitionMethod === "server-fetch-fallback" &&
-          typeof parseBody.captureFailureReason === "string" &&
-          URL_PARSE_CAPTURE_FAILURE_REASONS.has(parseBody.captureFailureReason)
-        ) {
-          logEvent("url_parse_capture_failed", {
-            draftId,
-            reason: parseBody.captureFailureReason,
-          });
-          trackAnalytics(
-            "server_url_capture_failed",
+            if (
+              acquisitionMethod === "server-fetch-fallback" &&
+              typeof parseBody.captureFailureReason === "string" &&
+              URL_PARSE_CAPTURE_FAILURE_REASONS.has(parseBody.captureFailureReason)
+            ) {
+              logEvent("url_parse_capture_failed", {
+                draftId,
+                reason: parseBody.captureFailureReason,
+              });
+              trackAnalytics(
+                "server_url_capture_failed",
+                {
+                  draft_id: draftId,
+                  url: draft.originalUrl ?? null,
+                  domain: extractDomain(draft.originalUrl),
+                  acquisition_method: "server-fetch-fallback",
+                  reason: parseBody.captureFailureReason,
+                },
+                { userId: draft.userId },
+              );
+            }
+
+            candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
+          }
+        } else {
+          const imageDataUrls = await Promise.all(
+            pages.map((page, index) =>
+              Sentry.startSpan(
+                {
+                  name: "supabase.download",
+                  op: "http.client",
+                  attributes: {
+                    "page.index": index,
+                    "page.id": page.id,
+                  },
+                },
+                async () => {
+                  const { data, error } = await getSupabase().storage
+                    .from(RECIPE_PAGES_BUCKET)
+                    .download(page.imageUri);
+                  if (error || !data)
+                    throw new Error(error?.message ?? "Download returned no data");
+                  const rawBuffer = Buffer.from(await data.arrayBuffer());
+                  const optimized = await Sentry.startSpan(
+                    {
+                      name: "image.optimize",
+                      op: "image.process",
+                      attributes: { "page.index": index },
+                    },
+                    () => optimizeForOcr(rawBuffer),
+                  );
+                  const b64 = optimized.toString("base64");
+                  return `data:image/jpeg;base64,${b64}`;
+                },
+              ),
+            ),
+          );
+          // Span name deliberately "openai.vision.monolithic" during PR 1.
+          // PR 2 splits this into openai.vision.ingredients + openai.vision.steps.
+          candidate = await Sentry.startSpan(
             {
-              draft_id: draftId,
-              url: draft.originalUrl ?? null,
-              domain: extractDomain(draft.originalUrl),
-              acquisition_method: "server-fetch-fallback",
-              reason: parseBody.captureFailureReason,
+              name: "openai.vision.monolithic",
+              op: "ai.chat_completions",
+              attributes: {
+                "ai.page_count": pages.length,
+                "ai.model": "gpt-5.4",
+              },
             },
-            { userId: draft.userId },
+            () => parseImages(imageDataUrls, sourcePages),
           );
         }
 
-        candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
-      }
-    } else {
-      const imageDataUrls = await Promise.all(
-        pages.map(async (page) => {
-          const { data, error } = await getSupabase().storage
-            .from(RECIPE_PAGES_BUCKET)
-            .download(page.imageUri);
-          if (error || !data) throw new Error(error?.message ?? "Download returned no data");
-          const rawBuffer = Buffer.from(await data.arrayBuffer());
-          const optimized = await optimizeForOcr(rawBuffer);
-          const b64 = optimized.toString("base64");
-          return `data:image/jpeg;base64,${b64}`;
-        }),
-      );
-      candidate = await parseImages(imageDataUrls, sourcePages);
-    }
+        const resolvedAcquisition: UrlAcquisitionMethod | null =
+          draft.sourceType === "url"
+            ? resolveUrlAcquisition(suppliedHtml, preFetchedHtml, parseBody)
+            : null;
 
-    const resolvedAcquisition: UrlAcquisitionMethod | null =
-      draft.sourceType === "url"
-        ? resolveUrlAcquisition(suppliedHtml, preFetchedHtml, parseBody)
-        : null;
+        if (draft.sourceType === "url" && draft.originalUrl) {
+          logEvent("url_parse_source_selected", {
+            draftId,
+            acquisitionMethod: resolvedAcquisition,
+          });
+        }
 
-    if (draft.sourceType === "url" && draft.originalUrl) {
-      logEvent("url_parse_source_selected", {
-        draftId,
-        acquisitionMethod: resolvedAcquisition,
-      });
-    }
-
-    await finalizeParseResult({
-      draftId,
-      draft,
-      candidate,
-      pageCount: pages.length,
-      startTime,
-      resolvedAcquisition,
-    });
+        await Sentry.startSpan(
+          {
+            name: "parse.finalize",
+            op: "function",
+            attributes: {
+              "parse.draft_id": draftId,
+              "parse.page_count": pages.length,
+            },
+          },
+          () =>
+            finalizeParseResult({
+              draftId,
+              draft,
+              candidate,
+              pageCount: pages.length,
+              startTime,
+              resolvedAcquisition,
+            }),
+        );
+      },
+    ),
+    );
   } catch (err) {
     const elapsed_ms = Date.now() - startTime;
     const errorMessage = err instanceof Error ? err.message : "Unknown parse error";
