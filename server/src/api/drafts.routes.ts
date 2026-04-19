@@ -23,7 +23,7 @@ import {
 import { fetchUrl } from "../parsing/url/url-fetch.service.js";
 import { logEvent } from "../observability/event-logger.js";
 import { trackAnalytics, extractDomain } from "../observability/analytics.js";
-import { optimizeForUpload, optimizeForOcr } from "../parsing/image/image-optimizer.js";
+import { optimizeForUpload } from "../parsing/image/image-optimizer.js";
 import { getSupabase } from "../services/supabase.js";
 import {
   copyFromDraftPage,
@@ -363,6 +363,13 @@ async function runParseInBackground(
             candidate = await parseUrl(draft.originalUrl, sourcePages, acquisitionMethod);
           }
         } else {
+          // Download each page's already-optimized buffer from Supabase and
+          // base64-encode it for OpenAI vision input. We intentionally DO
+          // NOT run `optimizeForOcr` here — the buffer we uploaded via
+          // `optimizeForUpload` (3072px @ 85% JPEG) is already the right
+          // shape for the LLM. The old double-encode was ~300-500ms of
+          // pure waste per page. If quality ever suffers at q85, raise
+          // `optimizeForUpload` to q90 instead of re-encoding on read.
           const imageDataUrls = await Promise.all(
             pages.map((page, index) =>
               Sentry.startSpan(
@@ -381,29 +388,26 @@ async function runParseInBackground(
                   if (error || !data)
                     throw new Error(error?.message ?? "Download returned no data");
                   const rawBuffer = Buffer.from(await data.arrayBuffer());
-                  const optimized = await Sentry.startSpan(
-                    {
-                      name: "image.optimize",
-                      op: "image.process",
-                      attributes: { "page.index": index },
-                    },
-                    () => optimizeForOcr(rawBuffer),
-                  );
-                  const b64 = optimized.toString("base64");
+                  const b64 = rawBuffer.toString("base64");
                   return `data:image/jpeg;base64,${b64}`;
                 },
               ),
             ),
           );
-          // Span name deliberately "openai.vision.monolithic" during PR 1.
-          // PR 2 splits this into openai.vision.ingredients + openai.vision.steps.
+          // parseImages internally fans out into two parallel OpenAI calls
+          // (see image-parse.adapter.ts). Sentry's async-context tracking
+          // auto-instruments each OpenAI request as its own span via the
+          // @sentry/instrumentation-openai integration, so we don't need
+          // to manually wrap the two calls here — the adapter span tree
+          // is: parse.image-adapter → (openai A || openai B).
           candidate = await Sentry.startSpan(
             {
-              name: "openai.vision.monolithic",
-              op: "ai.chat_completions",
+              name: "parse.image-adapter",
+              op: "parse.images",
               attributes: {
                 "ai.page_count": pages.length,
-                "ai.model": "gpt-5.4",
+                "ai.model.ingredients": "gpt-5.4",
+                "ai.model.steps": "gpt-4o",
               },
             },
             () => parseImages(imageDataUrls, sourcePages),

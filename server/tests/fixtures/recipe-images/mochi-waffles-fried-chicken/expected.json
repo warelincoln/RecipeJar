@@ -1,0 +1,14 @@
+{
+  "servings": 2,
+  "ingredients": [
+    { "amount": 0.5, "unit": "cup", "name": "shoyu tare" },
+    { "amount": 1, "unit": "tablespoon", "name": "ginger juice" },
+    { "amount": 0.25, "unit": "teaspoon", "name": "black pepper" },
+    { "amount": 4, "unit": null, "name": "chicken thighs" },
+    { "amount": 3, "unit": "cup", "name": "grapeseed" },
+    { "amount": 0.5, "unit": "cup", "name": "rice flour" }
+  ],
+  "stepCount": 7,
+  "requiredStepNumerics": ["10 minutes", "325", "350", "3 minutes", "5 minutes", "2 minutes"],
+  "requiredStepTools": ["bowl", "rack", "pot", "waffle maker"]
+}

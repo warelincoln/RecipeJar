@@ -24,6 +24,8 @@ import {
 } from "./recipeParseReveal";
 import { useRecipeParseReveal } from "./useRecipeParseReveal";
 import { displayMessageForIssue } from "./issueDisplayMessage";
+import { isFractionalAmount } from "../../utils/fractions";
+import { hasSeenFractionTip, markFractionTipSeen } from "../../utils/fractionTip";
 import { ShimmerPlaceholder } from "../../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../../components/RecipeImagePlaceholder";
 import {
@@ -106,6 +108,32 @@ export function PreviewEditView({
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
   const [heroLoaded, setHeroLoaded] = useState(false);
+
+  // First-run fraction-verification tip. Shown once, ever — the first time
+  // a user lands on a preview that contains any fractional ingredient. The
+  // tip nudges them to double-check fractions (½ vs ⅓ etc.) before cooking,
+  // which is the known residual failure mode of LLM vision on similar
+  // glyphs even at temperature=0. Dismissed state persists in AsyncStorage.
+  const hasAnyFractionalIngredient = ingredients.some(
+    (ing) => !ing.isHeader && isFractionalAmount(ing.amount),
+  );
+  const [showFractionTip, setShowFractionTip] = useState(false);
+  useEffect(() => {
+    if (!hasAnyFractionalIngredient) return;
+    let cancelled = false;
+    (async () => {
+      const seen = await hasSeenFractionTip();
+      if (!cancelled && !seen) setShowFractionTip(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasAnyFractionalIngredient]);
+
+  const dismissFractionTip = useCallback(() => {
+    setShowFractionTip(false);
+    void markFractionTipSeen();
+  }, []);
 
   // Times review banner state --------------------------------------------
   // Derive the banner's "seed" values from the candidate's user overrides
@@ -474,43 +502,65 @@ export function PreviewEditView({
       <Text style={styles.sectionTitle}>
         Ingredients ({ingredients.length})
       </Text>
-      {ingredients.map((ing, i) => (
-        <View key={ing.id}>
-          {ing.isHeader ? (
-            <Text style={styles.ingredientHeader}>
-              {isRevealing ? ingredientRevealText(i) : ing.text}
-            </Text>
-          ) : isRevealing ? (
-            <Text
-              style={[
-                styles.input,
-                styles.inputLikeText,
-                issuesByField(`ingredients[${i}]`).length > 0 &&
-                  !isFieldDismissed(`ingredients[${i}]`) &&
-                  styles.inputError,
-              ]}
-            >
-              {ingredientRevealText(i)}
-            </Text>
-          ) : (
-            <TextInput
-              style={[
-                styles.input,
-                issuesByField(`ingredients[${i}]`).length > 0 &&
-                  !isFieldDismissed(`ingredients[${i}]`) &&
-                  styles.inputError,
-              ]}
-              value={ing.text}
-              onChangeText={(t) => handleIngredientChange(i, t)}
-            />
-          )}
-          {issuesByField(`ingredients[${i}]`).map((issue) => (
-            <Text key={issue.issueId} style={styles.issueText}>
-              {displayMessageForIssue(issue)}
-            </Text>
-          ))}
+      {showFractionTip && (
+        <View style={styles.fractionTipBanner}>
+          <Text style={styles.fractionTipText}>
+            Double-check fractions before cooking — AI isn&apos;t always perfect
+            on ½ vs ⅓. Flagged amounts have a peach tint below.
+          </Text>
+          <TouchableOpacity
+            style={styles.fractionTipDismiss}
+            onPress={dismissFractionTip}
+            accessibilityRole="button"
+            accessibilityLabel="dismiss-fraction-tip"
+          >
+            <Text style={styles.fractionTipDismissText}>Got it</Text>
+          </TouchableOpacity>
         </View>
-      ))}
+      )}
+      {ingredients.map((ing, i) => {
+        const isFractional =
+          !ing.isHeader && isFractionalAmount(ing.amount);
+        return (
+          <View key={ing.id}>
+            {ing.isHeader ? (
+              <Text style={styles.ingredientHeader}>
+                {isRevealing ? ingredientRevealText(i) : ing.text}
+              </Text>
+            ) : isRevealing ? (
+              <Text
+                style={[
+                  styles.input,
+                  styles.inputLikeText,
+                  isFractional && styles.inputFractional,
+                  issuesByField(`ingredients[${i}]`).length > 0 &&
+                    !isFieldDismissed(`ingredients[${i}]`) &&
+                    styles.inputError,
+                ]}
+              >
+                {ingredientRevealText(i)}
+              </Text>
+            ) : (
+              <TextInput
+                style={[
+                  styles.input,
+                  isFractional && styles.inputFractional,
+                  issuesByField(`ingredients[${i}]`).length > 0 &&
+                    !isFieldDismissed(`ingredients[${i}]`) &&
+                    styles.inputError,
+                ]}
+                value={ing.text}
+                onChangeText={(t) => handleIngredientChange(i, t)}
+              />
+            )}
+            {issuesByField(`ingredients[${i}]`).map((issue) => (
+              <Text key={issue.issueId} style={styles.issueText}>
+                {displayMessageForIssue(issue)}
+              </Text>
+            ))}
+          </View>
+        );
+      })}
       <TouchableOpacity
         style={[styles.addButton, isRevealing && styles.addButtonDisabled]}
         onPress={handleAddIngredient}
@@ -789,6 +839,40 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1, borderColor: DIVIDER, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 4,
+  },
+  // Subtle peach tint signals "this line has a fractional amount — give
+  // it a glance before cooking." Matches the existing tinted-surface
+  // language used for feature cards / selected states. Intentionally
+  // softer than inputError (used for validation failures).
+  inputFractional: {
+    backgroundColor: LIGHT_PEACH,
+    borderColor: LIGHT_PEACH,
+  },
+  fractionTipBanner: {
+    backgroundColor: LIGHT_PEACH,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  fractionTipText: {
+    flex: 1,
+    fontSize: 13,
+    color: TEXT_PRIMARY,
+    lineHeight: 18,
+  },
+  fractionTipDismiss: {
+    backgroundColor: PRIMARY,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  fractionTipDismissText: {
+    color: WHITE,
+    fontSize: 12,
+    fontWeight: "600",
   },
   servingsInput: {
     width: 100,

@@ -1,0 +1,17 @@
+{
+  "title": "Rose Water Baklava",
+  "ingredients": [
+    { "amount": 0.5, "unit": "lb", "name": "walnuts" },
+    { "amount": 0.5, "unit": "lb", "name": "pecans" },
+    { "amount": 1, "unit": "tsp", "name": "cinnamon" },
+    { "amount": 0.25, "unit": "tsp", "name": "nutmeg" },
+    { "amount": 1.25, "unit": "cup", "name": "butter" },
+    { "amount": 0.75, "unit": "cup", "name": "water" },
+    { "amount": 0.75, "unit": "cup", "name": "sugar" },
+    { "amount": 1.5, "unit": "tsp", "name": "rose water" },
+    { "amount": 0.75, "unit": "cup", "name": "honey" }
+  ],
+  "stepCount": 8,
+  "requiredStepNumerics": ["325", "1 hour"],
+  "requiredStepTools": ["oven", "pan", "processor"]
+}

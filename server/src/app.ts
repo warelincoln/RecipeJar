@@ -52,11 +52,23 @@ Sentry.setupFastifyErrorHandler(app);
 
 registerAuth(app);
 
+// Paths exempt from the global 100-req/min rate limit. `/health` is a
+// common-case liveness probe with no abuse surface. GET /drafts/:draftId
+// is the poll endpoint used during parse; with 3 concurrent imports and
+// the new 750ms poll interval, a user can burn ~40 polls/min on polling
+// alone, which would trip the global limit. The parse mutation endpoints
+// (POST/PATCH on /drafts) stay rate-limited at their existing per-route
+// caps (see drafts.routes.ts).
+const RATE_LIMIT_ALLOWLIST = /^\/health$|^\/drafts\/[^/]+$/;
+
 app.register(rateLimit, {
   max: 100,
   timeWindow: "1 minute",
   keyGenerator: (request) => request.userId || request.ip,
-  allowList: (request) => request.url.split("?")[0] === "/health",
+  allowList: (request) => {
+    if (request.method !== "GET") return false;
+    return RATE_LIMIT_ALLOWLIST.test(request.url.split("?")[0]);
+  },
   onExceeded: (request) => {
     logEvent("rate_limit_exceeded", { userId: request.userId });
   },

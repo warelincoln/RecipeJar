@@ -5,165 +5,283 @@ import {
   buildErrorCandidate,
   type RawExtractionResult,
 } from "../normalize.js";
+import { INGREDIENTS_PROMPT, STEPS_PROMPT } from "./prompts.js";
+import { ingredientsSchema, stepsSchema } from "./schemas.js";
 
-const SYSTEM_PROMPT = `You are a recipe extraction engine. Given one or more images of cookbook pages, extract the recipe content as structured JSON.
-
-Rules:
-- Extract the recipe title exactly as written.
-- Extract the number of servings the recipe makes. If a range is given (e.g. "serves 6-8"), return min and max. If a single number (e.g. "serves 4"), return min only. If not visible, set servings to null.
-- Extract every ingredient line as a separate entry. Preserve ingredient headers like "For the sauce:" with isHeader: true.
-- For each non-header ingredient, decompose into structured fields: amount (numeric, e.g. 1.5), amountMax (numeric, only for ranges like "1-2"), unit (e.g. "cup", "tbsp", "oz"), and name (the ingredient itself, e.g. "all-purpose flour"). Keep the full original text in the "text" field.
-- If an ingredient has no measurable amount (e.g. "salt and pepper to taste", "oil for frying"), set amount, amountMax, and unit to null.
-- Extract every step/instruction as a separate entry. Preserve inline step notes.
-- Mark sub-recipe section headers in steps (e.g. "To make the boba pearls:", "For the frosting:") with isHeader: true. These are not actual instructions.
-- Strip original step numbers from the beginning of extracted step text. The app adds its own numbering.
-- Preserve original wording. Only fix obvious OCR errors.
-- Pay close attention to fractions in quantities (e.g. ⅓, ¼, ⅔, ¾). Distinguish carefully between visually similar fractions like ⅓ vs ½. When uncertain, zoom in mentally and prefer the fraction that matches the surrounding characters' style.
-- Convert fractions to decimals in the amount field (e.g. ½ → 0.5, ⅓ → 0.333, ¼ → 0.25). Keep the original text with fractions in the "text" field.
-- Do NOT rewrite, standardize units, or infer missing values in the "text" field.
-- Do NOT include stories, ads, or non-recipe content.
-- Cross-references like "See page 28" should be preserved as-is.
-- If you detect a description paragraph before the recipe, include it separately.
-- If multiple distinct recipes are visible, extract only the most prominent or primary recipe. Do not merge content from adjacent recipes.
-- Extract prep time, cook time, and total time with a two-tier strategy:
-  1. If a time is EXPLICITLY stated on the page (e.g. "Prep: 15 minutes", "Bake: 30 minutes", "Total time: 1 hour 30 minutes"), return the value with source "explicit".
-  2. If a time is NOT explicitly stated, you MAY estimate it based on recipe content — number of ingredients, complexity of prep (chopping, marinating), cooking methods (simmering, baking), and any explicit durations mentioned inside steps ("simmer for 20 minutes"). If you estimate, return the value with source "inferred". Only estimate when you have meaningful signal; if you truly cannot tell, return null and omit the source.
-  3. Be honest about which is which — users see a review banner for inferred times and will correct or accept them. Inflating inferred times erodes trust.
-  Report times as ISO 8601 duration strings: "PT15M" for 15 minutes, "PT1H30M" for 1 hour 30 minutes, "PT2H" for 2 hours.
-
-For each ingredient, report signal hints:
-- mergedWhenSeparable: true if the line contains multiple ingredients that should be separate entries
-- missingName: true if quantity exists but no ingredient name
-- missingQuantityOrUnit: true if the ingredient lacks a numeric quantity or unit
-- minorOcrArtifact: true if there's a small OCR error that doesn't change meaning
-- majorOcrArtifact: true if there's a significant OCR error that affects meaning
-
-For each step, report signal hints:
-- mergedWhenSeparable: true if the text contains multiple steps that should be separate
-- minorOcrArtifact / majorOcrArtifact: same as ingredients
-
-Also report top-level signal hints:
-- structureSeparable: false if you cannot distinguish ingredients from steps
-- lowConfidenceStructure: true if you're uncertain about the extraction structure
-- poorImageQuality: true if image quality significantly hampers reading
-- multiRecipeDetected: true if multiple distinct recipes are visible
-- confirmedOmission: true if you can see content was cut off by image framing
-- suspectedOmission: true if ingredient/step lists seem incomplete
-- descriptionDetected: true if a description paragraph was found
-
-Return ONLY valid JSON matching this schema:
-{
-  "title": string | null,
-  "servings": { "min": number, "max": number | null } | null,
-  "ingredients": [{ "text": string, "isHeader": boolean, "amount": number | null, "amountMax": number | null, "unit": string | null, "name": string | null }],
-  "steps": [{ "text": string, "isHeader": boolean }],
-  "description": string | null,
-  "metadata": {
-    "prepTime": string | null,
-    "prepTimeSource": "explicit" | "inferred" | null,
-    "cookTime": string | null,
-    "cookTimeSource": "explicit" | "inferred" | null,
-    "totalTime": string | null,
-    "totalTimeSource": "explicit" | "inferred" | null
-  },
-  "signals": {
-    "structureSeparable": boolean,
-    "lowConfidenceStructure": boolean,
-    "poorImageQuality": boolean,
-    "multiRecipeDetected": boolean,
-    "confirmedOmission": boolean,
-    "suspectedOmission": boolean,
-    "descriptionDetected": boolean
-  },
-  "ingredientSignals": [{ "index": number, "text": string, "mergedWhenSeparable": boolean, "missingName": boolean, "missingQuantityOrUnit": boolean, "minorOcrArtifact": boolean, "majorOcrArtifact": boolean }],
-  "stepSignals": [{ "index": number, "text": string, "mergedWhenSeparable": boolean, "minorOcrArtifact": boolean, "majorOcrArtifact": boolean }]
-}`;
-
-const SIMPLIFIED_PROMPT = `Extract the recipe from these images as JSON with fields: title (string|null), servings ({min: number, max: number|null}|null), ingredients (array of {text, isHeader, amount: number|null, amountMax: number|null, unit: string|null, name: string|null}), steps (array of {text, isHeader}), description (string|null), metadata ({prepTime: string|null, prepTimeSource: "explicit"|"inferred"|null, cookTime: string|null, cookTimeSource: "explicit"|"inferred"|null, totalTime: string|null, totalTimeSource: "explicit"|"inferred"|null}). For each ingredient, "text" is the full original line; amount/unit/name decompose it for scaling. Convert fractions to decimals in amount. Mark sub-recipe section headers (e.g. "To make the sauce:") with isHeader: true. Strip original step numbers from text. Preserve original wording. For metadata times: use source "explicit" when literally stated on the page, "inferred" when you're estimating from recipe content, and null when you truly cannot tell. Use ISO 8601 ("PT15M", "PT1H30M"). Return ONLY valid JSON.`;
+/*
+ * IMAGE PARSE — SPLIT-CALL ARCHITECTURE
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *                parseImages(imageUrls, sourcePages)
+ *                              │
+ *         base64-encoded URLs → imageContent[] (built once)
+ *                              │
+ *                ┌─────────────┴─────────────┐
+ *                ▼                           ▼
+ *        callIngredients              callSteps
+ *          gpt-5.4                      gpt-4o
+ *          detail:high                  detail:high
+ *          max_tokens:1500              max_tokens:1200
+ *          strict ingredientsSchema     strict stepsSchema
+ *          owns: title, servings,       owns: steps, description,
+ *            ingredients[], metadata,     stepSignals[],
+ *            parseSignals.* (minus         parseSignals.descriptionDetected
+ *            descriptionDetected),
+ *            ingredientSignals
+ *                │                           │
+ *                │  Promise.allSettled       │
+ *                └─────────────┬─────────────┘
+ *                              ▼
+ *                        merge + normalize
+ *                              │
+ *              ┌───────────────┼───────────────┐
+ *              ▼               ▼               ▼
+ *         A rejected      A ok, B rejected   both ok
+ *         (or 0 ings)     partial recipe:    full recipe
+ *              │          extractionError:
+ *              ▼          "steps_failed"
+ *      buildErrorCandidate       │
+ *      (existing retake UI)      ▼
+ *                         merged candidate with
+ *                         empty steps + flag
+ *                         (validation engine
+ *                          emits STEPS_EXTRACTION_FAILED
+ *                          at FLAG severity → warning
+ *                          banner in PreviewEditView)
+ *
+ * WHY SPLIT:
+ *   - Output token generation dominated latency in the monolithic call.
+ *     Verbose cookbook pages produced 2-3K output tokens at ~50 tok/s,
+ *     giving 30-60s on steps prose alone. Splitting lets us (a) run both
+ *     calls in parallel so total = max(A, B) not A+B, and (b) swap the
+ *     steps call to a faster model + concision prompt without risking
+ *     fraction fidelity, which is the hard quality bar.
+ *
+ * WHY extractionError INSTEAD OF THROWING ON B FAILURE:
+ *   - If A produced ingredients, we have a real partial recipe. Forcing
+ *     the user to retake just to get steps is worse UX than showing the
+ *     extracted ingredients with a "steps couldn't be read — edit manually
+ *     or retake" banner. The adapter sets the flag; rules.steps.ts emits
+ *     the FLAG; the existing warning-banner UI renders it.
+ */
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   maxRetries: 2,
 });
 
+type ImageContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
+
 export async function parseImages(
   imageUrls: string[],
   sourcePages: SourcePage[],
 ): Promise<ParsedRecipeCandidate> {
+  // Build the imageContent array ONCE and share it across both calls.
+  // Avoids duplicating N object allocations per parse for multi-page imports.
+  const imageContent: ImageContentPart[] = imageUrls.map((url) => ({
+    type: "image_url" as const,
+    image_url: { url, detail: "high" as const },
+  }));
 
-  const imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] =
-    imageUrls.map((url) => ({
-      type: "image_url" as const,
-      image_url: { url, detail: "high" as const },
-    }));
+  // allSettled so one leg's rejection doesn't cancel the other. We decide
+  // total vs partial failure based on which legs settled which way.
+  const [ingredientsResult, stepsResult] = await Promise.allSettled([
+    callIngredients(imageContent),
+    callSteps(imageContent),
+  ]);
 
-  try {
-    const raw = await callVisionApi(openai, SYSTEM_PROMPT, imageContent);
-    if (raw) {
-      return normalizeToCandidate(raw, "image", sourcePages);
-    }
-    console.error("[image-parse] Primary prompt returned null result");
-  } catch (err) {
-    console.error("[image-parse] Primary prompt failed:", (err as Error).message);
+  // Call A (ingredients) is the hard floor. No recipe without ingredients.
+  if (ingredientsResult.status === "rejected") {
+    console.error(
+      "[image-parse] Call A (ingredients) failed:",
+      formatError(ingredientsResult.reason),
+    );
+    return buildErrorCandidate("image", sourcePages);
   }
 
-  try {
-    const raw = await callVisionApi(openai, SIMPLIFIED_PROMPT, imageContent);
-    if (raw) {
-      return normalizeToCandidate(raw, "image", sourcePages);
-    }
-    console.error("[image-parse] Simplified prompt returned null result");
-  } catch (err) {
-    console.error("[image-parse] Simplified prompt failed:", (err as Error).message);
+  // Semantic gate: strict JSON schema guarantees structure, not correctness.
+  // An empty ingredients array means the model produced valid JSON but the
+  // recipe is useless. Mirror the URL path's isValidAIResponse check.
+  if (ingredientsResult.value.ingredients.length === 0) {
+    console.error("[image-parse] Call A returned zero ingredients");
+    return buildErrorCandidate("image", sourcePages);
   }
 
-  console.error("[image-parse] Both attempts failed, returning error candidate. Image URLs:", imageUrls);
+  // Call B (steps) failed but Call A succeeded → partial success.
+  // Surface title + ingredients with an extractionError flag that
+  // rules.steps.ts will convert into a user-visible FLAG warning.
+  if (stepsResult.status === "rejected") {
+    console.error(
+      "[image-parse] Call B (steps) failed, surfacing partial candidate:",
+      formatError(stepsResult.reason),
+    );
+    const merged = mergeRaw(ingredientsResult.value, null);
+    const candidate = normalizeToCandidate(merged, "image", sourcePages);
+    return { ...candidate, extractionError: "steps_failed" };
+  }
 
-  return buildErrorCandidate("image", sourcePages);
+  // Happy path.
+  const merged = mergeRaw(ingredientsResult.value, stepsResult.value);
+  return normalizeToCandidate(merged, "image", sourcePages);
 }
 
-async function callVisionApi(
-  openai: OpenAI,
-  systemPrompt: string,
-  imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[],
-): Promise<RawExtractionResult | null> {
+/** Result shape from Call A (ingredients). Mirrors the ingredientsSchema keys. */
+interface IngredientsResult {
+  title: string | null;
+  servings: { min: number; max: number | null } | null;
+  ingredients: NonNullable<RawExtractionResult["ingredients"]>;
+  metadata: NonNullable<RawExtractionResult["metadata"]>;
+  signals: {
+    structureSeparable: boolean;
+    lowConfidenceStructure: boolean;
+    poorImageQuality: boolean;
+    multiRecipeDetected: boolean;
+    confirmedOmission: boolean;
+    suspectedOmission: boolean;
+  };
+  ingredientSignals: NonNullable<RawExtractionResult["ingredientSignals"]>;
+}
+
+/** Result shape from Call B (steps). Mirrors the stepsSchema keys. */
+interface StepsResult {
+  steps: NonNullable<RawExtractionResult["steps"]>;
+  description: string | null;
+  descriptionDetected: boolean;
+  stepSignals: NonNullable<RawExtractionResult["stepSignals"]>;
+}
+
+async function callIngredients(
+  imageContent: ImageContentPart[],
+): Promise<IngredientsResult> {
   const response = await openai.chat.completions.create({
     model: "gpt-5.4",
     messages: [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: INGREDIENTS_PROMPT },
       {
         role: "user",
         content: [
-          { type: "text", text: "Extract the recipe from these images:" },
+          {
+            type: "text",
+            text: "Extract the recipe's ingredients, title, servings, metadata, and page-level signals from these images:",
+          },
           ...imageContent,
         ],
       },
     ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 4096,
-    temperature: 0.1,
+    response_format: {
+      type: "json_schema",
+      json_schema: ingredientsSchema,
+    },
+    // Bumped from 1500 after eval showed truncation on a recipe with 13+
+    // ingredients + signals + metadata. 2500 is still well under the per-call
+    // response budget and covers the fattest recipes we've seen.
+    max_completion_tokens: 2500,
+    // temperature=0 (deterministic) not 0.1. Production testing surfaced
+    // non-deterministic Unicode-fraction misreads on a 2/4 import sample
+    // (e.g. ⅔ read as ½, or ⅓ as ¼). Fraction accuracy on scalable amounts
+    // is the hard ship bar — we'd rather the model lock onto the same
+    // reading every time than occasionally flip on visually-similar glyphs.
+    // Call B (steps) stays at 0.1 because step prose rewriting benefits
+    // from some sampling variety.
+    temperature: 0,
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) return null;
-
-  return safeParseJson(content);
+  const choice = response.choices[0];
+  if (choice?.finish_reason === "length") {
+    // Truncation mid-JSON guarantees JSON.parse will throw. Surface a clear
+    // error instead of "Unexpected end of JSON input" so future triage is
+    // obvious.
+    throw new Error(
+      "Call A truncated (finish_reason=length). Raise max_completion_tokens.",
+    );
+  }
+  const content = choice?.message?.content;
+  if (!content) {
+    throw new Error("Call A returned empty content");
+  }
+  return JSON.parse(content) as IngredientsResult;
 }
 
-function safeParseJson(text: string): RawExtractionResult | null {
-  try {
-    const parsed = JSON.parse(text);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    return parsed as RawExtractionResult;
-  } catch {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]) as RawExtractionResult;
-      } catch {
-        return null;
-      }
-    }
-    return null;
+async function callSteps(
+  imageContent: ImageContentPart[],
+): Promise<StepsResult> {
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: STEPS_PROMPT },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Extract the recipe's step instructions and description from these images:",
+          },
+          ...imageContent,
+        ],
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: stepsSchema,
+    },
+    // Bumped from 1200 after eval showed truncation on recipes with 6+
+    // dense multi-action steps (takikomi-gohan, mochi-waffles). Step text
+    // is bounded by the ≤40-words rule but stepSignals/description can add
+    // another ~300 tokens. 2000 leaves headroom without overpaying on
+    // typical recipes.
+    max_completion_tokens: 2000,
+    // temperature=0 (deterministic) — same reasoning as Call A. Production
+    // test surfaced Call B flipping "1 3/4 tsp" → "1 1/4 tsp" in a step
+    // rewrite. Numeric fidelity in steps matters: if the step says "season
+    // with 1 3/4 tsp salt" the user cooks with the wrong amount. "Creative
+    // concision variety" is not a feature — we want the model to pick the
+    // same rewrite every time for the same source, and drop the flip risk.
+    temperature: 0,
+  });
+
+  const choice = response.choices[0];
+  if (choice?.finish_reason === "length") {
+    throw new Error(
+      "Call B truncated (finish_reason=length). Raise max_completion_tokens.",
+    );
   }
+  const content = choice?.message?.content;
+  if (!content) {
+    throw new Error("Call B returned empty content");
+  }
+  return JSON.parse(content) as StepsResult;
+}
+
+/**
+ * Combine Call A + Call B into a single RawExtractionResult that
+ * normalizeToCandidate can process. Call B nullable so we can also build
+ * a partial result for the Call-B-failed path.
+ */
+function mergeRaw(
+  a: IngredientsResult,
+  b: StepsResult | null,
+): RawExtractionResult {
+  return {
+    // Call A owns these
+    title: a.title,
+    servings: a.servings,
+    ingredients: a.ingredients,
+    metadata: a.metadata,
+    ingredientSignals: a.ingredientSignals,
+    // Call B owns these; defaults when B failed so normalize still sees valid shape
+    steps: b?.steps ?? [],
+    description: b?.description ?? null,
+    stepSignals: b?.stepSignals ?? [],
+    // signals is mostly A's, but descriptionDetected is B's
+    signals: {
+      ...a.signals,
+      descriptionDetected: b?.descriptionDetected ?? false,
+    },
+  };
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "Unknown error";
 }
