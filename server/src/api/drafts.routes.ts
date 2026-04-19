@@ -281,19 +281,23 @@ async function runParseInBackground(
   try {
     await acquireParseLock();
 
-    // Top-level parse span. Sub-spans for download/optimize/LLM/finalize
-    // nest underneath via Sentry's async-context tracking so the dashboard
-    // shows the full stage breakdown under one transaction.
-    await Sentry.startSpan(
-      {
-        name: "parse.background",
-        op: "parse",
-        attributes: {
-          "parse.draft_id": draftId,
-          "parse.source_type": draft.sourceType,
+    // runParseInBackground runs AFTER the POST /drafts/:id/parse response
+    // returned 202, so the HTTP request's trace has already finished. If we
+    // just call startSpan here, children inherit the finished parent's
+    // sampled=false decision and nothing lands. startNewTrace detaches us
+    // from that dead parent and makes a fresh root trace so the sampling
+    // decision is made against tracesSampleRate from scratch.
+    await Sentry.startNewTrace(() =>
+      Sentry.startSpan(
+        {
+          name: "parse.background",
+          op: "parse",
+          attributes: {
+            "parse.draft_id": draftId,
+            "parse.source_type": draft.sourceType,
+          },
         },
-      },
-      async () => {
+        async () => {
         const pages = await draftsRepository.getPages(draftId);
         const sourcePages: SourcePage[] = pages.map((p) => ({
           id: p.id,
@@ -438,6 +442,7 @@ async function runParseInBackground(
             }),
         );
       },
+    ),
     );
   } catch (err) {
     const elapsed_ms = Date.now() - startTime;
