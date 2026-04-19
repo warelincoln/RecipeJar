@@ -176,7 +176,14 @@ async function callIngredients(
     // ingredients + signals + metadata. 2500 is still well under the per-call
     // response budget and covers the fattest recipes we've seen.
     max_completion_tokens: 2500,
-    temperature: 0.1,
+    // temperature=0 (deterministic) not 0.1. Production testing surfaced
+    // non-deterministic Unicode-fraction misreads on a 2/4 import sample
+    // (e.g. ⅔ read as ½, or ⅓ as ¼). Fraction accuracy on scalable amounts
+    // is the hard ship bar — we'd rather the model lock onto the same
+    // reading every time than occasionally flip on visually-similar glyphs.
+    // Call B (steps) stays at 0.1 because step prose rewriting benefits
+    // from some sampling variety.
+    temperature: 0,
   });
 
   const choice = response.choices[0];
