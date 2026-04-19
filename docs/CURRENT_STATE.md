@@ -103,10 +103,51 @@
 
 - `SERVINGS_MISSING` severity downgraded from BLOCK to FLAG — users can save recipes without known servings, receive a dismissible warning chip instead. Mobile display copy updated to match.
 
-**Testing (2026-04-17):**
+**Image parse split-call architecture (shipped 2026-04-19, PR #3 + PR #5):**
 
-- 178 server tests (Vitest), 2 pre-existing unrelated failures: notes-spy assertions + `machine.test.ts` SyntaxError. New tests: parse structured-only + fast-path integration (10), DOM enrichment (5), signed URL cache (5), protocol-relative URL normalization (8), parsing domain fixtures for pbs/joyofbaking/gourmetmagazine (~12).
-- 21 iOS UI tests (XCUITest on physical iPhone 16): 19 passing, 2 state-dependent — unchanged.
+- `parseImages()` in `server/src/parsing/image/image-parse.adapter.ts` splits into two parallel OpenAI calls:
+  - **Call A** (ingredients/title/servings/metadata): `gpt-5.4` + `detail:"high"` + 3072px + `temperature: 0` + strict JSON schema (`server/src/parsing/image/schemas.ts:ingredientsSchema`). Owns fraction accuracy.
+  - **Call B** (steps/description/stepSignals/descriptionDetected): `gpt-4o` + `detail:"high"` + 3072px + `temperature: 0` + strict JSON schema (`schemas.ts:stepsSchema`). Concision rule: "≤ 40 words per step, preserve every numeric/time/temperature/tool/cross-reference."
+  - `Promise.allSettled` → total latency = `max(A, B)` instead of `A + B-on-failure`. Dual-prompt fallback deleted.
+- **Partial-success flow**: Call A fails → `buildErrorCandidate`. Call B fails → candidate saves with `extractionError: "steps_failed"`; new rule in `rules.steps.ts` emits `STEPS_EXTRACTION_FAILED` FLAG; existing warning banner UI renders "We couldn't read the step instructions..." Save stays allowed.
+- **Semantic gate on Call A** — `ingredients.length >= 1` check mirrors `url-ai.adapter.ts:isValidAIResponse`. Empty ingredients → error candidate.
+- **Base64 dedup** — `imageContent` array built once in `parseImages` and shared across both helper calls.
+- Prompts in `server/src/parsing/image/prompts.ts` (`INGREDIENTS_PROMPT`, `STEPS_PROMPT`). Schemas in `schemas.ts`.
+- **Removed `optimizeForOcr`** — redundant re-encode at 3072 @ q90 after upload buffer was already 3072 @ q85. ~300-500ms per page saved.
+- **Parse semaphore 2 → 3** — matches README's documented "3 image-based recipes concurrently" contract. Each parse fires 2 parallel OpenAI calls; server-wide max is ~6 simultaneous requests, well under 500 RPM Tier 1 cap.
+- **Mobile poll interval 3000ms → 750ms** in `mobile/src/features/import/machine.ts`. Tail poll wait cut from avg 1.5s to ~0.4s.
+- **Rate-limit allowlist for `GET /drafts/:draftId`** in `server/src/app.ts` — prevents 3-concurrent-imports-at-750ms from tripping the global 100/min limit.
+- **`Promise.all` in uploadDraft actor** — load-bearing for future multi-image import, no-op for single-image today.
+
+**Ingredient-only recipes save (shipped 2026-04-19, product decision):**
+
+- `STEPS_MISSING` downgraded from BLOCK to FLAG with friendly copy ("No step instructions yet. Save ingredients-only or add steps below"). Users routinely screenshot just the ingredient list; forcing them to invent steps was bad UX.
+- Mutually exclusive with `STEPS_EXTRACTION_FAILED` (same FLAG bucket, different message) so no double-flag.
+
+**Fraction verification UX (shipped 2026-04-19):**
+
+- Ingredients with non-integer `amount` values render in `PreviewEditView` with a subtle `LIGHT_PEACH` tint (matches existing tinted-surface language for feature cards / selected states). Implementation in `mobile/src/utils/fractions.ts`.
+- One-time banner on first fraction-containing parse: "Double-check fractions before cooking — AI isn't always perfect on ½ vs ⅓." Dismissal persists under `fraction_verification_tip_seen_v1` AsyncStorage key (`mobile/src/utils/fractionTip.ts`).
+- Compensates for the residual ~10% deterministic LLM misread rate on cookbook fonts the model consistently mis-parses — documented in `PARSING_KNOWN_LIMITATIONS.md`.
+
+**Server Sentry instrumentation (shipped 2026-04-19, PR #3):**
+
+- `@sentry/node ^10.49.0` in the server workspace. `Sentry.init` in `server/src/instrument.ts` imported first (before Fastify/HTTP) so auto-instrumentation hooks before they load. `SENTRY_DSN` in Railway + `server/.env.example`.
+- `runParseInBackground` wrapped in `Sentry.startNewTrace` (detaches from the already-finished HTTP parent span so child spans don't inherit `sampled=false`) with manual spans for `supabase.download` / `image.optimize` (until removed in PR #5) / `parse.image-adapter` / `parse.finalize`.
+- OpenAI Call A + Call B auto-instrumented as `http.client` children via `@sentry/instrumentation-openai`.
+- `tracesSampleRate: 1.0` in dev, `0.5` in production. `sendDefaultPii: false`. Profiling off. Environments `development` / `production` both flowing.
+
+**LLM eval suite (shipped 2026-04-19):**
+
+- `server/tests/image-parse-eval.test.ts` gated by `RUN_LLM_EVALS=1` env var (skipped in normal CI to avoid OpenAI cost, ~$0.25/full run).
+- 5 real cookbook fixtures in `server/tests/fixtures/recipe-images/<slug>/image.HEIC` + `expected.json`: Ika-Age, Nagoya Tebasaki, Rose Water Baklava, Takikomi-Gohan, Mochi Waffles.
+- HEIC decoded via macOS `sips` (sharp's npm prebuilds don't include libheif on macOS).
+- Scoring: strict fraction amount (within 0.001), case-insensitive ingredient name substring, step count `>0` with warn-at-diff-3, step numerics/tools with ≤25% drop via `ceil`. 27/27 assertions pass as regression gate.
+- Fraction-fidelity gate is non-negotiable: no fraction regression ships. Step count/numeric tolerance reflects real cookbook formatting variance (some number every sub-action, some lump them into numbered paragraphs).
+
+**Testing (2026-04-19):**
+
+- 189 server tests (Vitest), 2 pre-existing unrelated failures from master: notes-spy assertions + `machine.test.ts` SyntaxError. 1 placeholder skip (eval suite). New tests: 11 unit tests in `server/tests/image-parse.adapter.test.ts` covering every split-call failure mode; 3 new validation engine cases (`STEPS_EXTRACTION_FAILED` emitted + cleared + no double-flag with `STEPS_MISSING`); integration test mock updates for split-call shape.
 
 **Tech stack:**
 

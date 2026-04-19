@@ -138,6 +138,23 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Session tracking | Auth middleware records user agent + IP on every request. `GET /account/sessions` returns session list. |
 | Provider linking | AccountScreen shows interactive Link/Unlink for Apple and Google. |
 
+## Proven in 2026-04-19 cycle (Image parse speed + fraction UX + server Sentry)
+
+| What | Evidence |
+|---|---|
+| **Split-call image parse architecture** | `parseImages()` now fans out into two parallel OpenAI calls: Call A (gpt-5.4, ingredients/title/servings/metadata, temp=0, strict JSON schema) + Call B (gpt-4o, steps/description, ≤40-word concision, temp=0, strict JSON schema), merged client-side. Total latency = `max(A, B)`. Dual-prompt fallback deleted. Verified via Sentry `parse.background` spans: single-page p50 ~14s / p95 ~18s (was 30-45s baseline), multi-page ~29-31s. 11 unit tests in `server/tests/image-parse.adapter.test.ts` cover happy path + every failure mode. |
+| **Partial-success flow (Call B failure)** | If Call B fails but A succeeds, candidate is saved with `extractionError:"steps_failed"`; new rule in `rules.steps.ts` emits `STEPS_EXTRACTION_FAILED` FLAG; existing warning-banner UI in `PreviewEditView` renders "We couldn't read the step instructions..." Save allowed. Gated on `steps.length === 0` so the banner auto-clears when the user types. Validation engine tests cover all three cases (empty + error, empty + no error, user-edited). |
+| **Ingredient-only recipes save** | `STEPS_MISSING` downgraded BLOCK → FLAG with friendly copy. User product decision 2026-04-19 ("plenty of screenshots people have with just ingredient lists"). Validation engine test confirms `hasBlockingIssues: false` and `saveState: "SAVE_CLEAN"` when only STEPS_MISSING fires. |
+| **Fraction verification UX** | `PreviewEditView` renders ingredients with non-integer amounts in a `LIGHT_PEACH` tint (subtle, not alarming). One-time banner on first fraction-containing parse nudges double-check. Dismissal persists under `fraction_verification_tip_seen_v1` AsyncStorage key. Verified on device after Build 2. |
+| **Temperature=0 on both calls** | Production testing surfaced 2-of-4 imports with Unicode-fraction misreads (⅔↔½, ⅓↔¼) at temp 0.1. Dropping to temp=0 eliminated random-flip variance. gpt-5.4 accepts temperature=0 without error — confirmed via 27/27 eval re-run post-change. Separate Call B drop caught a step-text misread "1 3/4 tsp salt" → "1 1/4 tsp salt" and fixed it the same way. |
+| **LLM eval suite (5 cookbook fixtures)** | `server/tests/image-parse-eval.test.ts` gated by `RUN_LLM_EVALS=1`. Fixtures for Ika-Age, Nagoya Tebasaki, Rose Water Baklava, Takikomi-Gohan, Mochi Waffles. Tolerance: strict fraction amount (within 0.001), case-insensitive ingredient-name substring, step count `>0` with warn-at-diff-3, numerics/tools with ≤25% drop. HEIC decoded via macOS `sips`. 27/27 assertions pass at session end as regression gate. ~$0.25/full run. |
+| **Server Sentry instrumentation** | `orzo-server` project on Sentry. `Sentry.init` in `server/src/instrument.ts` (imported first so auto-instrumentation hooks Fastify/HTTP before they load). `runParseInBackground` wrapped in `Sentry.startNewTrace` (to detach from the already-finished HTTP parent span — a bug caught in first prod test) + manual spans for download / optimize / image-adapter / finalize. OpenAI HTTP calls auto-instrumented as children. `SENTRY_DSN` live in Railway + `server/.env`. Environment tag `development` / `production` works. Verified 100+ spans flowing by session end. |
+| **Rate-limit allowlist for draft polling** | `GET /drafts/:draftId` added to `RATE_LIMIT_ALLOWLIST` in `server/src/app.ts` (same pattern as `/health`). Prevents 3-concurrent-imports-at-750ms-poll from tripping the global 100-req/min limit. Mutation endpoints (POST/PATCH) still rate-limited. |
+| **Parse semaphore 2 → 3** | `MAX_CONCURRENT` in `parse-semaphore.ts` bumped to match README's "up to 3 image-based recipes concurrently" contract. Each parse fires 2 parallel OpenAI calls, so up to 6 simultaneous OpenAI requests server-wide; well under 500 RPM Tier 1 cap. |
+| **`optimizeForOcr` removed** | Redundant re-encode at `3072 @ q90` was running after the upload buffer was already `3072 @ q85`. ~300-500ms per page saved. Function exported-but-unused; now deleted from `image-optimizer.ts`. |
+| **Mobile poll interval 3000ms → 750ms + Promise.all uploadDraft** | `mobile/src/features/import/machine.ts`. Tail poll wait cut from avg 1.5s to ~0.4s. `Promise.all` in `uploadDraft` actor is load-bearing for future multi-image import; no-op for single-image today. |
+| **TestFlight Build 2 (1.0 build 2)** | Xcode Release archive uploaded to App Store Connect. Existing testers auto-receive. Mobile bundles fraction tint + banner + partial-success display messages + `extractionError` shared type + faster poll. |
+
 ## Proven in 2026-04-17 cycle (Observability + URL import overhaul + home-screen perf)
 
 | What | Evidence |
@@ -199,7 +216,17 @@ All UI icons use `lucide-react-native` (peer: **`react-native-svg@15.15.4`**, ho
 
 ### Image parsing quality
 
-GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy verified. Parse time ~27 seconds per single-page recipe. See [`DEVELOPMENT.md`](DEVELOPMENT.md) → "Image optimization" for full pipeline details and the resolution/model iteration history.
+**Split-call architecture (shipped 2026-04-19):** two parallel OpenAI calls that merge client-side.
+
+- **Call A** — `gpt-5.4` Vision, `detail:"high"`, 3072px, `temperature: 0`, strict JSON schema. Owns title, servings, ingredients (with fractions), metadata, page-level signals.
+- **Call B** — `gpt-4o`, `detail:"high"`, 3072px, `temperature: 0`, strict JSON schema with "≤40 words per step, preserve every numeric/time/temp/tool" concision rule. Owns steps, description, stepSignals, `descriptionDetected`.
+- Both run via `Promise.allSettled`; total latency = `max(A, B)` instead of the old `A + B-on-failure` shape. Dual-prompt fallback deleted — strict JSON schema guarantees valid output.
+
+**Measured latency (Sentry, post-deploy):** single-page p50 ~14s, p95 ~18s (was 30-45s baseline). Multi-page (3-4 pages) ~29-31s. See 2026-04-19 CHANGELOG entry for full cycle context.
+
+**Residual limitation surfaced by production testing:** ~10% deterministic fraction misread rate on some cookbook fonts where the model locks onto a consistent wrong reading (e.g. ⅔ → ½, 1 3/4 → 1 1/4). Not prompt-fixable. Compensated by the fraction-verification UX: ingredients with non-integer amounts render with a subtle peach tint in `PreviewEditView`, plus a one-time banner on the user's first fraction-containing parse. See [`PARSING_KNOWN_LIMITATIONS.md`](PARSING_KNOWN_LIMITATIONS.md) → "Image parsing" for the full documentation.
+
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) → "Image optimization" for the pipeline details + resolution/model iteration history.
 
 ## Known Gaps
 
@@ -221,7 +248,8 @@ GPT-5.4 Vision with `detail: "high"` at 3072px resolution. Fraction accuracy ver
 - **Server image format hardening**: Server-side `optimizeForUpload` silently falls back to the original buffer on failure. Phase 2: throw an error and return 422 so unsupported formats fail clearly instead of producing bad OCR results.
 - **Bot-protected / degraded-HTML hero images** (not yet shipped): PostHog shows NYT Cooking and some PBS recipes with `server_hero_image_missing` reason=`no_metadata_url` even when their live pages DO publish og:image. Strong signal of bot-served degraded HTML reaching the server fetch path. Fix is to route these imports through the in-app WebView's client-captured HTML (we already do this for users who browse via the WebView). For clipboard / share / paste flows we'd need another mechanism, likely a headless-browser fetcher or a UA rotation with caching.
 - **dom-ai tier latency (~10-24s)** (not yet shipped): PBS (~12s), Joy of Baking (~24s), Tasty Kitchen (~18s). GPT-5.4 on the recipe-extraction prompt is the dominant cost. Switching to `gpt-4o-mini` would likely halve it; a tighter DOM boundary before sending to the model would help further. Not on the critical path now that JSON-LD is fully synchronous, but visible when users hit a site we can't parse structurally.
-- **Photo vision latency (~40s)** (not yet shipped): biggest UX cliff remaining. Every camera / photo-library import waits on GPT-5.4 Vision for 30-45s. A `gpt-4o-mini` vision swap would cut it significantly; the bigger architectural unlock is the shell-insert pattern described under Path 3 below.
+- **~~Photo vision latency (~40s)~~** ✅ **shipped 2026-04-19.** Split-call architecture landed. Single-page p50 ~14s / p95 ~18s (was 30-45s). Multi-page ~29-31s. See CHANGELOG 2026-04-19 entry for the full cycle.
+- **Residual fraction misread rate (~10%)** (known limitation, UX-mitigated): some cookbook fonts cause deterministic glyph confusion the model can't be prompted out of. Fraction-verification UX (peach tint + one-time banner) surfaces the risk to the user. Documented in [`PARSING_KNOWN_LIMITATIONS.md`](PARSING_KNOWN_LIMITATIONS.md). Next architectural unlock would be Path 3 below (shell-insert + stream updates) or a hybrid OCR + low-detail-image verification pass.
 - **Import preview hero image** (not yet shipped): `metadata.imageUrl` from JSON-LD is present on the parsed candidate but the import preview screen doesn't render it — users only see the hero after save-and-re-upload. Small mobile-side polish; ~20 lines in `PreviewEditView` to render the metadata image when present.
 - **Path 3 — async enrichment architecture** (not yet designed): save recipe immediately with whatever structured data we have, fill AI-only fields (vision parse, time inference) in a background job, stream updates back to the detail screen. Unblocks vision-import speedup (shell insert + AI fills in) and Cluster C (JSON-LD recipes missing times get AI-inferred times asynchronously). Needs design pass on the update mechanism (polling vs SSE vs Supabase realtime subscriptions).
 - **Build 2 TestFlight archive** (pending user action): mobile changes in `a6e475d` (display copy, FastImage cacheKey, optimistic insert) are live in Orzo Dev but require an Xcode Release archive + App Store Connect upload before production TestFlight testers see them.

@@ -1,5 +1,63 @@
 # Orzo Changelog
 
+### 2026-04-19 — Image parse speed (2-3×) + split-call architecture + fraction verification UX + server Sentry
+
+The biggest parse-speed win of the project. Image imports dropped from 30-45s baseline to p50 ~15s / p95 ~18s single-page (multi-page ~29-31s proportionally). Split the monolithic OpenAI Vision call into two parallel calls that merge client-side; one protects ingredient fraction fidelity, the other rewrites steps concisely on a faster model. Product decision: ingredient-only recipes now save (users routinely screenshot just the ingredient list). New fraction-verification UX compensates for the residual ~10% deterministic LLM misread rate on visually-similar glyphs. Full per-stage Sentry instrumentation on the server parse path. Shipped to Railway + TestFlight Build 2 end-of-day.
+
+**Shipped in this cycle (2 PR merges, ~12 commits):**
+
+#### Server Sentry instrumentation — PR #3 ([`53cf07c`](https://github.com/warelincoln/RecipeJar/commit/53cf07c))
+
+- **`3890553` feat(observability): server Sentry instrumentation for parse pipeline** — added `@sentry/node ^10.49.0` to the server workspace. New `server/src/instrument.ts` initializes Sentry before any other module so auto-instrumentation can hook Fastify + HTTP before they load. `Sentry.setupFastifyErrorHandler(app)` after Fastify creation captures unhandled errors with request context. `tracesSampleRate: 1.0` in dev / `0.5` in production, profiling off, `sendDefaultPii: false`. Wrapped `runParseInBackground` in a top-level `parse.background` span with per-stage children (`supabase.download`, `image.optimize`, `parse.finalize`). `SENTRY_DSN` wired to Railway + `.env.example`, new Sentry project `orzo-server` under the `orzo` org.
+- **`e219209` fix(observability): wrap background parse in `Sentry.startNewTrace`** — bug caught during first real-import test: `runParseInBackground` runs AFTER `POST /drafts/:id/parse` returned 202, so the HTTP request's trace has already finished. Child spans inherited the finished parent's `sampled=false` decision → every span silently dropped (0 accepted in dashboard despite `SpanExporter exported 4 spans` logs). `startNewTrace` detaches the background work from the dead parent and creates a fresh root trace.
+- Health-check filter retained as a Sentry default — our `/health` pings were filtered server-side (by design) which explained the initial "zero spans" state before PR 5 work was real traffic.
+
+#### Image parse split-call architecture — PR #5 ([`9c277ed`](https://github.com/warelincoln/RecipeJar/commit/9c277ed))
+
+PR #4 was auto-closed by GitHub when PR #3's base branch was deleted; PR #5 is the same source branch re-pointed at master. All commits preserved.
+
+- **`a27bf73` feat(parsing): split image parse into two parallel LLM calls** — core architecture change. `parseImages()` keeps its external signature but internally fans out into `callIngredients()` + `callSteps()` via `Promise.allSettled`, merging results client-side before calling `normalizeToCandidate`. Call A is accuracy-critical (owns title, servings, ingredients + fractions, metadata, page-level signals) and keeps `gpt-5.4` + `detail:"high"` + 3072px — the model + detail level we never touch to preserve fraction accuracy. Call B is summarization-tolerant (owns steps, description, `descriptionDetected`, stepSignals) and runs on `gpt-4o` with an explicit concision rule: "Each step ≤ 40 words. Preserve every numeric value, time, temperature, tool, and cross-reference." Total latency = `max(A, B)` instead of `A + B` with retries on failure. Dual-prompt fallback deleted — strict JSON schema on both calls guarantees valid output or a typed error.
+- **`a27bf73` (same)** — partial-success flow. If Call A fails → `buildErrorCandidate` (no recipe without ingredients). If Call B fails → adapter sets `candidate.extractionError = "steps_failed"`, new rule in `rules.steps.ts` emits a `FLAG`-severity `STEPS_EXTRACTION_FAILED` issue that the existing warning-banner UI renders as "We couldn't read the step instructions from this photo. Edit them below or retake the page." Save stays allowed. Gated on `steps.length === 0` so the banner disappears once the user types.
+- **`a27bf73` (same)** — product change: **ingredient-only recipes now save**. `STEPS_MISSING` downgraded `BLOCK` → `FLAG` with friendly copy ("No step instructions yet. Save ingredients-only or add steps below"). Lots of users screenshot just the ingredient list; forcing them to invent steps was bad UX. Mutually exclusive with `STEPS_EXTRACTION_FAILED` so no double-flag.
+- **`a27bf73` (same)** — other wins bundled:
+  - Removed redundant `optimizeForOcr` re-encode (~300-500ms saved per page). The upload-time buffer was already at 3072 @ 85%; the download-time re-encode at 3072 @ 90% was pure waste.
+  - `POLL_INTERVAL` 3000ms → 750ms on the mobile XState machine + `GET /drafts/:draftId` added to the rate-limit allowlist in [`server/src/app.ts`](server/src/app.ts) (same pattern as `/health`) so 3 concurrent imports polling every 750ms don't trip the global 100-req/min limit.
+  - `MAX_CONCURRENT` 2 → 3 in [`parse-semaphore.ts`](server/src/parsing/parse-semaphore.ts) to match the README's documented "3 image-based recipes concurrently" contract.
+  - `Promise.all` in mobile `uploadDraft` actor — no-op for single-image today, load-bearing when multi-image import ships (STATUS.md:220).
+  - Base64 imageContent built once in `parseImages` and shared across both calls (avoids duplicate allocations for multi-page imports).
+- **`4f413b7` test(parsing): wire up eval suite with 5 real cookbook fixtures** — LLM eval suite at `server/tests/image-parse-eval.test.ts`, gated by `RUN_LLM_EVALS=1` (skipped in normal CI to avoid OpenAI cost, ~$0.25/full run). Fixtures in `server/tests/fixtures/recipe-images/<slug>/image.HEIC + expected.json` — real cookbook pages for Ika-Age, Nagoya Tebasaki, Rose Water Baklava, Takikomi-Gohan, Mochi Waffles. Scoring: strict fraction-amount tolerance (`< 0.001`), case-insensitive ingredient name substring match, step count within ±3, step numerics/tools with ≤25% drop tolerance. HEIC decoded via macOS `sips` (sharp's npm prebuilds don't include libheif on macOS). 27/27 assertions pass as regression gate.
+- **`bc37e48` fix(parsing): drop Call A temperature 0.1 → 0 deterministic** — production testing surfaced 2-of-4 real imports with Unicode-fraction misreads (⅔ read as ½, ⅓ as ¼) on the fastest parses. Temp 0.1 left sampling variance on visually-similar glyph pairs that flipped on close calls. Dropping to temp=0 locks the reading deterministically. Confirmed gpt-5.4 accepts temperature=0 without error.
+- **`bccb54d` fix(parsing): drop Call B temperature 0.1 → 0** — follow-up retest surfaced Call B rewriting "1 3/4 tsp salt" → "1 1/4 tsp salt" in a step rewrite. Same fix pattern — numeric fidelity doesn't benefit from sampling variety.
+- **`d473610` feat(import): subtle peach tint on fractional ingredients + one-time verification tip** — fraction verification UX. Ingredients with non-integer amounts render with a subtle `LIGHT_PEACH` tint on the preview row (matches existing tinted-surface language for feature cards). One-time banner at the top of the ingredient list on first fraction-containing parse: "Double-check fractions before cooking — AI isn't always perfect on ½ vs ⅓." Dismissal persists under `fraction_verification_tip_seen_v1` AsyncStorage key. Compensates for the residual ~10% deterministic LLM misread rate on cookbook fonts the model consistently mis-parses — this kind of failure can't be prompt-fixed, so the UX invites user verification instead. Same pattern as Adobe Scan / Apple Notes / Google Lens for OCR confidence.
+
+**Measured results (Sentry, ~25 real imports during the cycle):**
+
+- Single-page parse: p50 ~14s, p95 ~18s. Range 10-18s.
+- Multi-page parse (3-4 pages): ~29-31s.
+- Baseline before PR 5: 30-45s (per `docs/STATUS.md:224` pre-edit, since removed).
+- Fraction accuracy (real imports + 5-fixture eval): 90-100% across runs, with residual misreads now surfaced via the verification banner.
+
+**Honest residual limitations documented in `docs/PARSING_KNOWN_LIMITATIONS.md`:**
+
+- ~10% deterministic fraction misread rate on specific cookbook fonts where the model locks onto a consistent wrong reading (not random variance — temp=0 gives the same wrong answer every run on the same image). Can't be fixed by prompt tuning; fraction-verification UX is the compensation.
+- Step count varies ±2-3 from source count on dense multi-action recipes. The eval tolerates this; users see numbered steps they can edit.
+- Supabase Storage download occasionally hangs (one 60s hang observed on the first prod import). Server has no download timeout today — queued as a small follow-up PR.
+
+**Infrastructure notes:**
+
+- New `orzo-server` Sentry project under `orzo` org, both `development` (`tracesSampleRate: 1.0`) and `production` (`0.5`) environments flowing.
+- Railway env var `SENTRY_DSN` added to production. Auto-deploys on master push are now observable.
+- TestFlight **Build 2** uploaded end-of-day with full mobile UX (fraction tint + banner, faster poll, partial-success display messages, `extractionError` shared type). Previous Build 1 testers will auto-receive when Apple finishes processing.
+
+**Queued follow-ups (not shipped today):**
+
+1. **Supabase download timeout** — wrap `.download()` in a 15-20s timeout so Supabase Storage hangs don't consume mobile's 60s XState timeout. Small server PR.
+2. **Capture-flow per-shot review screen** — user feedback: camera re-arms immediately after shutter, can't verify framing/focus before import. Add a "Keep / Retake / Add Page" review step between shutter and the existing `ReorderView`. Mobile-only, ~3-4 hours.
+3. **Save-flow loading-state mismatch** — user reported the parsing splash animation plays for ~30s during an idle-session save retry. Add a distinct "Saving..." state. ~1 hour mobile polish.
+4. **URL AI adapter port** — apply the same model swap + concision rules to [`url-ai.adapter.ts`](server/src/parsing/url/url-ai.adapter.ts) (text-only) to drop the 10-24s dom-ai tier latency flagged in the 2026-04-17 entry. ~2 hours once image path bakes.
+
+---
+
 ### 2026-04-17 — Observability + URL import overhaul + home-screen perf
 
 A long day of work on top of the TestFlight build. Two full PostHog-driven observability layers, a full rethink of the URL import pipeline, a home-screen performance fix, and a cluster of small mobile polish items. Net result: URL imports dropped from ~4-5s to ~1s on the happy path, home-screen load dropped from "2-30s-depending-on-Supabase-mood" to consistent sub-second, image flicker on return visits eliminated, 4 previously-failing reputable sites (PBS, Joy of Baking) rescued, and every interesting import outcome now lands in PostHog with rich properties.
