@@ -1,4 +1,8 @@
 import "dotenv/config";
+// Must come before any instrumented import. Sentry.init needs to run before
+// Fastify/HTTP are required so its auto-instrumentation can hook them.
+import "./instrument.js";
+import * as Sentry from "@sentry/node";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
@@ -41,6 +45,10 @@ app.addContentTypeParser(
     }
   },
 );
+
+// Wire Sentry's Fastify error handler so unhandled errors get captured with
+// request context. No-op when SENTRY_DSN is unset.
+Sentry.setupFastifyErrorHandler(app);
 
 registerAuth(app);
 
