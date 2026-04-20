@@ -32,7 +32,9 @@ type EventName =
   | "recipe_bulk_moved"
   | "times_banner_shown"
   | "times_accepted"
-  | "times_edited";
+  | "times_edited"
+  | "capture_shot_taken"
+  | "capture_review_retake";
 
 type EventValue = string | number | boolean | null | string[];
 type EventProps = Record<string, EventValue>;

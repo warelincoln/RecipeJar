@@ -107,6 +107,7 @@ export interface ImportContext {
   urlAcquisitionMethod: UrlParseRequest["acquisitionMethod"] | null;
   urlCaptureFailureReason: UrlParseRequest["captureFailureReason"] | null;
   capturedPages: CapturedPage[];
+  pendingCapture: { imageUri: string } | null;
   parsedCandidate: ParsedRecipeCandidate | null;
   editedCandidate: EditedRecipeCandidate | null;
   validationResult: ValidationResult | null;
@@ -128,6 +129,8 @@ type ImportEvent =
   | { type: "PHOTOS_SELECTED"; imageUris: { uri: string; type?: string; fileName?: string }[] }
   | { type: "RESUME_DRAFT"; draftId: string }
   | { type: "PAGE_CAPTURED"; imageUri: string }
+  | { type: "KEEP_PENDING_PAGE" }
+  | { type: "DISCARD_PENDING_PAGE" }
   | { type: "DONE_CAPTURING" }
   | { type: "CONFIRM_ORDER" }
   | {
@@ -316,6 +319,7 @@ export const importMachine = setup({
     urlAcquisitionMethod: null,
     urlCaptureFailureReason: null,
     capturedPages: [],
+    pendingCapture: null,
     parsedCandidate: null,
     editedCandidate: null,
     validationResult: null,
@@ -429,18 +433,49 @@ export const importMachine = setup({
     capture: {
       on: {
         PAGE_CAPTURED: {
+          // Per-shot review (see docs/PARSING_KNOWN_LIMITATIONS / dad-test
+          // 2026-04-19): instead of appending immediately and re-arming the
+          // camera silently, stage the photo and transition to `reviewing`
+          // so the user can verify framing/focus before committing.
+          target: "reviewing",
           actions: assign({
-            capturedPages: ({ context, event }) => [
-              ...context.capturedPages,
-              {
-                pageId: "",
-                imageUri: event.imageUri,
-                orderIndex: context.capturedPages.length,
-              },
-            ],
+            pendingCapture: ({ event }) => ({ imageUri: event.imageUri }),
           }),
         },
         DONE_CAPTURING: { target: "reorder" },
+      },
+    },
+
+    reviewing: {
+      on: {
+        KEEP_PENDING_PAGE: {
+          target: "capture",
+          actions: assign({
+            capturedPages: ({ context }) =>
+              context.pendingCapture
+                ? [
+                    ...context.capturedPages,
+                    {
+                      pageId: "",
+                      imageUri: context.pendingCapture.imageUri,
+                      orderIndex: context.capturedPages.length,
+                    },
+                  ]
+                : context.capturedPages,
+            pendingCapture: () => null,
+          }),
+        },
+        DISCARD_PENDING_PAGE: {
+          target: "capture",
+          actions: [
+            assign({ pendingCapture: () => null }),
+            ({ context }) => {
+              analytics.track("capture_review_retake", {
+                page_index: context.capturedPages.length,
+              });
+            },
+          ],
+        },
       },
     },
 

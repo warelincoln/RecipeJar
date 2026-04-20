@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMachine } from "@xstate/react";
 import { importMachine, buildImportEventProps } from "../features/import/machine";
 import { CaptureView } from "../features/import/CaptureView";
+import { ReviewView } from "../features/import/ReviewView";
 import { ReorderView } from "../features/import/ReorderView";
 import { ParsingView } from "../features/import/ParsingView";
 import { PreviewEditView } from "../features/import/PreviewEditView";
@@ -385,6 +386,18 @@ export function ImportFlowScreen({ route, navigation }: Props) {
       );
     }
 
+    if (state.matches("reviewing")) {
+      return (
+        <ReviewView
+          imageUri={state.context.pendingCapture?.imageUri ?? ""}
+          pageNumber={state.context.capturedPages.length + 1}
+          onKeep={() => send({ type: "KEEP_PENDING_PAGE" })}
+          onRetake={() => send({ type: "DISCARD_PENDING_PAGE" })}
+          onCancel={handleCancel}
+        />
+      );
+    }
+
     if (state.matches("reorder")) {
       return (
         <ReorderView
@@ -503,7 +516,9 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     return <ParsingView />;
   };
 
-  const isFullBleed = (state.matches("capture") && !isConcurrentFlow) || awaitingUrl;
+  const isFullBleed =
+    ((state.matches("capture") || state.matches("reviewing")) && !isConcurrentFlow) ||
+    awaitingUrl;
   return (
     <View
       style={[
