@@ -70,23 +70,37 @@ items on the page."
 but doesn't fail). In production, the user sees numbered steps they can
 freely edit, merge, or split from the preview screen. No data loss.
 
-## Supabase Storage download hang
+## Supabase Storage download hang — bounded at 18s (2026-04-19 follow-up)
 
 **Fingerprint**: a single occurrence observed 2026-04-19 on a prod import
 where `supabase.download` span ran for 60s (full XState timeout) before
 returning. Second import 1 minute later worked in 15s. Transient, not
 reproducible.
 
-**Failure mode**: server has no per-download timeout on
-`supabase.storage.from(...).download()` in
-`server/src/api/drafts.routes.ts`. If Supabase Storage hangs, the parse
-background job hangs for the full mobile 60s XState timeout before mobile
-surfaces "couldn't read the picture."
+**Failure mode**: under degraded Supabase Storage, a `.download()` call
+can stall indefinitely. Without a server-side timeout the parse background
+job consumes mobile's full 60s XState budget, so the user sees the parsing
+splash for a full minute and the eventual mobile-side timeout produces a
+confusing UX (no server-side error, just "took too long").
 
-**Mitigation queued (not shipped)**: wrap the download call in a 15-20s
-`Promise.race` with a clear timeout error. Surfaces failure fast, lets
-mobile retry. Small server PR, ~30 min of work. Tracked as a follow-up
-from the 2026-04-19 cycle.
+**Mitigation (shipped 2026-04-19, same-day follow-up)**: per-page
+`.download()` is wrapped in a generic `withTimeout<T>` helper
+([`server/src/lib/timeout.ts`](server/src/lib/timeout.ts)) capped at 18s.
+On timeout: throws `"supabase download timeout after 18000ms"`, sets
+`timed_out=true` on the active `supabase.download` Sentry span, falls
+through the existing `runParseInBackground` catch → `classifyParseError →
+"fetch"` → `setParseError → mobile renders parse_failed and shows the
+retake screen well inside the 60s XState window. Env-overridable via
+`SUPABASE_DOWNLOAD_TIMEOUT_MS`. Same helper backs the URL sync path's
+`fetchWithTimeout`. 5 unit tests + 1 integration test cover the wiring.
+
+**Residual risk**: the underlying Supabase request is not cancellable (the
+JS SDK's `.download()` doesn't accept `AbortSignal`); the work continues
+in the background until it eventually settles or is GC'd. Cost is theoretical
+at our scale (a few hundred parses/min worst case = a handful of orphaned
+requests at any given time). If we ever see real memory pressure from this,
+the fix would be to drop the SDK and call the Supabase REST endpoint via
+`fetch` directly with an `AbortController`.
 
 ---
 
