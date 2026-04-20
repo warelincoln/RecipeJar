@@ -100,6 +100,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import { draftsRoutes } from "../src/api/drafts.routes.js";
+import { getSupabase } from "../src/services/supabase.js";
 import { recipesRoutes } from "../src/api/recipes.routes.js";
 import { draftsRepository } from "../src/persistence/drafts.repository.js";
 import { recipesRepository } from "../src/persistence/recipes.repository.js";
@@ -507,6 +508,83 @@ describe("API Integration", () => {
       draftRepo.findById.mockResolvedValue(null as never);
       const res = await app.inject({ method: "POST", url: "/drafts/unknown/parse" });
       expect(res.statusCode).toBe(404);
+    });
+
+    it("surfaces a Supabase download hang as a typed parse failure inside the timeout", async () => {
+      // Drive a 50ms timeout for test speed (production default is 18s).
+      const previousTimeout = process.env.SUPABASE_DOWNLOAD_TIMEOUT_MS;
+      process.env.SUPABASE_DOWNLOAD_TIMEOUT_MS = "50";
+
+      // Override the supabase storage.from() chain to return a download that
+      // hangs forever. The default mock returns a fast { data: null, error }
+      // envelope which would trip the existing "no data" error path before
+      // our timeout ever fires. We grab the cached client via getSupabase()
+      // (rather than reaching into vi.mocked(createClient).mock.results,
+      // which beforeEach's clearAllMocks empties between tests).
+      const supabaseClient = getSupabase() as unknown as {
+        storage: { from: ReturnType<typeof vi.fn> };
+      };
+      const originalFrom = supabaseClient.storage.from;
+      supabaseClient.storage.from = vi.fn(() => ({
+        upload: vi.fn().mockResolvedValue({ error: null }),
+        remove: vi.fn().mockResolvedValue({ error: null }),
+        download: vi.fn(() => new Promise(() => {})),
+        getPublicUrl: vi.fn((path: string) => ({
+          data: { publicUrl: `http://test.supabase.co/${path}` },
+        })),
+        createSignedUrl: vi.fn((path: string) =>
+          Promise.resolve({
+            data: { signedUrl: `http://test.supabase.co/signed/${path}` },
+            error: null,
+          }),
+        ),
+      }));
+
+      try {
+        draftRepo.findById.mockResolvedValue({
+          id: "d-timeout",
+          status: "READY_FOR_PARSE",
+          sourceType: "image",
+          originalUrl: null,
+          userId: "u-timeout",
+        } as never);
+        draftRepo.updateStatus.mockResolvedValue({} as never);
+        draftRepo.getPages.mockResolvedValue([
+          {
+            id: "p1",
+            draftId: "d-timeout",
+            orderIndex: 0,
+            imageUri: "u-timeout/d-timeout/p1.jpg",
+            retakeCount: 0,
+            ocrText: null,
+          },
+        ] as never);
+        draftRepo.setParseError.mockResolvedValue({} as never);
+
+        const res = await app.inject({
+          method: "POST",
+          url: "/drafts/d-timeout/parse",
+        });
+        expect(res.statusCode).toBe(202);
+
+        // Wait long enough for the 50ms timeout + downstream processing to
+        // settle. 250ms is plenty of headroom; tighten if it makes the
+        // suite too slow.
+        await new Promise((r) => setTimeout(r, 250));
+
+        expect(draftRepo.setParseError).toHaveBeenCalledWith(
+          "d-timeout",
+          expect.stringMatching(/supabase download timeout after 50ms/),
+          "PARSING",
+        );
+      } finally {
+        supabaseClient.storage.from = originalFrom;
+        if (previousTimeout === undefined) {
+          delete process.env.SUPABASE_DOWNLOAD_TIMEOUT_MS;
+        } else {
+          process.env.SUPABASE_DOWNLOAD_TIMEOUT_MS = previousTimeout;
+        }
+      }
     });
   });
 

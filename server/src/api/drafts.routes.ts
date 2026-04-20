@@ -34,6 +34,7 @@ import {
 } from "../services/recipe-image.service.js";
 import { acquireParseLock, releaseParseLock } from "../parsing/parse-semaphore.js";
 import { isoDurationToMinutes } from "../parsing/time.js";
+import { withTimeout } from "../lib/timeout.js";
 
 const PARSE_ALLOWED_STATUSES = new Set<DraftStatus>([
   "READY_FOR_PARSE",
@@ -370,6 +371,7 @@ async function runParseInBackground(
           // shape for the LLM. The old double-encode was ~300-500ms of
           // pure waste per page. If quality ever suffers at q85, raise
           // `optimizeForUpload` to q90 instead of re-encoding on read.
+          const downloadTimeoutMs = getSupabaseDownloadTimeoutMs();
           const imageDataUrls = await Promise.all(
             pages.map((page, index) =>
               Sentry.startSpan(
@@ -379,12 +381,32 @@ async function runParseInBackground(
                   attributes: {
                     "page.index": index,
                     "page.id": page.id,
+                    "timeout_ms": downloadTimeoutMs,
                   },
                 },
                 async () => {
-                  const { data, error } = await getSupabase().storage
-                    .from(RECIPE_PAGES_BUCKET)
-                    .download(page.imageUri);
+                  let downloadResult;
+                  try {
+                    downloadResult = await withTimeout(
+                      getSupabase().storage
+                        .from(RECIPE_PAGES_BUCKET)
+                        .download(page.imageUri),
+                      downloadTimeoutMs,
+                      "supabase download",
+                    );
+                  } catch (err) {
+                    // Distinguish our timeout from Supabase's own errors so
+                    // the Sentry trace can be filtered cleanly. A spike in
+                    // timed_out=true means Supabase Storage is degrading.
+                    if (
+                      err instanceof Error &&
+                      err.message.includes("supabase download timeout")
+                    ) {
+                      Sentry.getActiveSpan()?.setAttribute("timed_out", true);
+                    }
+                    throw err;
+                  }
+                  const { data, error } = downloadResult;
                   if (error || !data)
                     throw new Error(error?.message ?? "Download returned no data");
                   const rawBuffer = Buffer.from(await data.arrayBuffer());
@@ -502,15 +524,24 @@ function classifyParseError(message: string): string {
 const SYNC_FETCH_TIMEOUT_MS = 4000;
 
 async function fetchWithTimeout(url: string, ms: number): Promise<string> {
-  return Promise.race([
-    fetchUrl(url),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`sync fetch timeout after ${ms}ms`)),
-        ms,
-      ),
-    ),
-  ]);
+  return withTimeout(fetchUrl(url), ms, "sync fetch");
+}
+
+/**
+ * Hard cap on a single Supabase Storage `.download()` call. Prod observed a
+ * 60s hang on 2026-04-19 (Sentry trace 064c8b45504449af9d0d325efd0b8f7d).
+ * Mobile's XState `parsing` budget is 60s end-to-end; we need to fail well
+ * inside that so the user sees a real parse_failed error and can retake,
+ * instead of staring at the parsing splash for a full minute.
+ *
+ * Read on every call (not cached at module load) so integration tests can
+ * drive a short timeout via process.env without a re-import dance, and so
+ * ops can tune per-environment without redeploy.
+ */
+function getSupabaseDownloadTimeoutMs(): number {
+  const raw = process.env.SUPABASE_DOWNLOAD_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 18_000;
 }
 
 export async function draftsRoutes(app: FastifyInstance) {
