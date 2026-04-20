@@ -25,7 +25,6 @@ import {
 import { useRecipeParseReveal } from "./useRecipeParseReveal";
 import { displayMessageForIssue } from "./issueDisplayMessage";
 import { isFractionalAmount } from "../../utils/fractions";
-import { hasSeenFractionTip, markFractionTipSeen } from "../../utils/fractionTip";
 import { ShimmerPlaceholder } from "../../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../../components/RecipeImagePlaceholder";
 import {
@@ -109,31 +108,16 @@ export function PreviewEditView({
   const [steps, setSteps] = useState(candidate.steps);
   const [heroLoaded, setHeroLoaded] = useState(false);
 
-  // First-run fraction-verification tip. Shown once, ever — the first time
-  // a user lands on a preview that contains any fractional ingredient. The
-  // tip nudges them to double-check fractions (½ vs ⅓ etc.) before cooking,
-  // which is the known residual failure mode of LLM vision on similar
-  // glyphs even at temperature=0. Dismissed state persists in AsyncStorage.
+  // Persistent fraction-verification context. Always shown when ANY ingredient
+  // has a fractional amount, so the peach tint always has nearby explanation.
+  // Was previously a one-time dismissible banner (AsyncStorage gated), but
+  // dad-test 2026-04-19 surfaced the obvious gap: anyone who dismissed
+  // without reading, or anyone using the app on someone else's phone, sees
+  // the peach tint with zero context. The tip is small enough to ignore
+  // and only renders when relevant, so always-on is the right tradeoff.
   const hasAnyFractionalIngredient = ingredients.some(
     (ing) => !ing.isHeader && isFractionalAmount(ing.amount),
   );
-  const [showFractionTip, setShowFractionTip] = useState(false);
-  useEffect(() => {
-    if (!hasAnyFractionalIngredient) return;
-    let cancelled = false;
-    (async () => {
-      const seen = await hasSeenFractionTip();
-      if (!cancelled && !seen) setShowFractionTip(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasAnyFractionalIngredient]);
-
-  const dismissFractionTip = useCallback(() => {
-    setShowFractionTip(false);
-    void markFractionTipSeen();
-  }, []);
 
   // Times review banner state --------------------------------------------
   // Derive the banner's "seed" values from the candidate's user overrides
@@ -502,21 +486,11 @@ export function PreviewEditView({
       <Text style={styles.sectionTitle}>
         Ingredients ({ingredients.length})
       </Text>
-      {showFractionTip && (
-        <View style={styles.fractionTipBanner}>
-          <Text style={styles.fractionTipText}>
-            Double-check fractions before cooking — AI isn&apos;t always perfect
-            on ½ vs ⅓. Flagged amounts have a peach tint below.
-          </Text>
-          <TouchableOpacity
-            style={styles.fractionTipDismiss}
-            onPress={dismissFractionTip}
-            accessibilityRole="button"
-            accessibilityLabel="dismiss-fraction-tip"
-          >
-            <Text style={styles.fractionTipDismissText}>Got it</Text>
-          </TouchableOpacity>
-        </View>
+      {hasAnyFractionalIngredient && (
+        <Text style={styles.fractionTipNote} testID="fraction-tip-note">
+          Peach-tinted amounts are AI estimates — double-check fractions
+          before cooking.
+        </Text>
       )}
       {ingredients.map((ing, i) => {
         const isFractional =
@@ -848,31 +822,13 @@ const styles = StyleSheet.create({
     backgroundColor: LIGHT_PEACH,
     borderColor: LIGHT_PEACH,
   },
-  fractionTipBanner: {
-    backgroundColor: LIGHT_PEACH,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  fractionTipText: {
-    flex: 1,
-    fontSize: 13,
-    color: TEXT_PRIMARY,
-    lineHeight: 18,
-  },
-  fractionTipDismiss: {
-    backgroundColor: PRIMARY,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-  },
-  fractionTipDismissText: {
-    color: WHITE,
+  fractionTipNote: {
     fontSize: 12,
-    fontWeight: "600",
+    color: TEXT_SECONDARY,
+    lineHeight: 16,
+    fontStyle: "italic",
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
   servingsInput: {
     width: 100,
