@@ -19,7 +19,11 @@ export type EventType =
   | "startup_cancelled_drafts_cleaned"
   | "account_deletion_requested"
   | "auth_middleware_failure"
-  | "rate_limit_exceeded";
+  | "rate_limit_exceeded"
+  // Per-call token/cost breakdown from the image-parse adapter. Mirrors
+  // the `server_parse_tokens` PostHog event so grep-server-logs triage
+  // can see the same data without the analytics roundtrip.
+  | "parse_tokens";
 
 export interface EventAttributes {
   draftId?: string;

@@ -7,6 +7,9 @@ import {
 } from "../normalize.js";
 import { INGREDIENTS_PROMPT, STEPS_PROMPT } from "./prompts.js";
 import { ingredientsSchema, stepsSchema } from "./schemas.js";
+import { estimateCostUsd, type TokenUsage } from "./pricing.js";
+import { logEvent } from "../../observability/event-logger.js";
+import { trackAnalytics } from "../../observability/analytics.js";
 
 /*
  * IMAGE PARSE — SPLIT-CALL ARCHITECTURE
@@ -72,6 +75,19 @@ const openai = new OpenAI({
 
 type ImageContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
 
+/**
+ * A single OpenAI call's outcome plus cost-instrumentation payload. We
+ * return usage + latency alongside the parsed data so the orchestrator can
+ * emit analytics per call. Wrapping (instead of threading a callback) keeps
+ * the call helpers pure; the top-level parseImages owns observability.
+ */
+interface CallOutcome<T> {
+  data: T;
+  usage: TokenUsage;
+  model: string;
+  latencyMs: number;
+}
+
 export async function parseImages(
   imageUrls: string[],
   sourcePages: SourcePage[],
@@ -83,12 +99,24 @@ export async function parseImages(
     image_url: { url, detail: "high" as const },
   }));
 
+  const pageCount = imageUrls.length;
+
   // allSettled so one leg's rejection doesn't cancel the other. We decide
   // total vs partial failure based on which legs settled which way.
   const [ingredientsResult, stepsResult] = await Promise.allSettled([
     callIngredients(imageContent),
     callSteps(imageContent),
   ]);
+
+  // Cost instrumentation: emit per-call tokens + an aggregate per-recipe
+  // total for each call that actually returned. Rejected calls don't have
+  // usage info (the thrown error doesn't carry it), so we report only the
+  // legs that settled. This lets us observe real prod p50/p90 cost to
+  // compare against the eval-driven candidate architectures — see the
+  // plan at ~/.claude/plans/snug-waddling-quiche.md.
+  emitCallTelemetry("ingredients", pageCount, ingredientsResult);
+  emitCallTelemetry("steps", pageCount, stepsResult);
+  emitAggregateCostTelemetry(pageCount, ingredientsResult, stepsResult);
 
   // Call A (ingredients) is the hard floor. No recipe without ingredients.
   if (ingredientsResult.status === "rejected") {
@@ -102,7 +130,7 @@ export async function parseImages(
   // Semantic gate: strict JSON schema guarantees structure, not correctness.
   // An empty ingredients array means the model produced valid JSON but the
   // recipe is useless. Mirror the URL path's isValidAIResponse check.
-  if (ingredientsResult.value.ingredients.length === 0) {
+  if (ingredientsResult.value.data.ingredients.length === 0) {
     console.error("[image-parse] Call A returned zero ingredients");
     return buildErrorCandidate("image", sourcePages);
   }
@@ -115,14 +143,107 @@ export async function parseImages(
       "[image-parse] Call B (steps) failed, surfacing partial candidate:",
       formatError(stepsResult.reason),
     );
-    const merged = mergeRaw(ingredientsResult.value, null);
+    const merged = mergeRaw(ingredientsResult.value.data, null);
     const candidate = normalizeToCandidate(merged, "image", sourcePages);
     return { ...candidate, extractionError: "steps_failed" };
   }
 
   // Happy path.
-  const merged = mergeRaw(ingredientsResult.value, stepsResult.value);
+  const merged = mergeRaw(
+    ingredientsResult.value.data,
+    stepsResult.value.data,
+  );
   return normalizeToCandidate(merged, "image", sourcePages);
+}
+
+/** Per-call telemetry: one event per leg that settled successfully. */
+function emitCallTelemetry(
+  callLabel: "ingredients" | "steps",
+  pageCount: number,
+  result: PromiseSettledResult<CallOutcome<unknown>>,
+): void {
+  if (result.status !== "fulfilled") return;
+  const { usage, model, latencyMs } = result.value;
+  const costUsd = estimateCostUsd(model, usage);
+  logEvent("parse_tokens", {
+    callLabel,
+    model,
+    pageCount,
+    promptTokens: usage.prompt_tokens,
+    completionTokens: usage.completion_tokens,
+    latencyMs,
+    estimatedCostUsd: costUsd,
+  });
+  trackAnalytics(
+    "server_parse_tokens",
+    {
+      call_label: callLabel,
+      model,
+      page_count: pageCount,
+      prompt_tokens: usage.prompt_tokens,
+      completion_tokens: usage.completion_tokens,
+      total_tokens: usage.prompt_tokens + usage.completion_tokens,
+      latency_ms: latencyMs,
+      estimated_cost_usd: costUsd,
+    },
+    { userId: null },
+  );
+}
+
+/**
+ * Per-recipe aggregate: sums cost/tokens across whatever legs settled so we
+ * can compare real prod p50 cost per parse to the eval-study candidates.
+ * Emitted even on partial success (one leg failed) so our cost dashboards
+ * don't silently lose a chunk of parses — the architecture spec of 2026-04-19
+ * explicitly calls out that partial success is a first-class outcome.
+ */
+function emitAggregateCostTelemetry(
+  pageCount: number,
+  ingredientsResult: PromiseSettledResult<CallOutcome<unknown>>,
+  stepsResult: PromiseSettledResult<CallOutcome<unknown>>,
+): void {
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalCostUsd = 0;
+  let anyCost = false;
+  const models: string[] = [];
+
+  for (const r of [ingredientsResult, stepsResult]) {
+    if (r.status !== "fulfilled") continue;
+    const { usage, model } = r.value;
+    totalPromptTokens += usage.prompt_tokens;
+    totalCompletionTokens += usage.completion_tokens;
+    const costUsd = estimateCostUsd(model, usage);
+    if (costUsd != null) {
+      totalCostUsd += costUsd;
+      anyCost = true;
+    }
+    models.push(model);
+  }
+
+  const architecture =
+    ingredientsResult.status === "fulfilled" &&
+    stepsResult.status === "fulfilled"
+      ? "split_both_ok"
+      : ingredientsResult.status === "fulfilled"
+        ? "split_ingredients_only"
+        : stepsResult.status === "fulfilled"
+          ? "split_steps_only"
+          : "split_both_failed";
+
+  trackAnalytics(
+    "server_parse_cost",
+    {
+      architecture,
+      models,
+      page_count: pageCount,
+      total_prompt_tokens: totalPromptTokens,
+      total_completion_tokens: totalCompletionTokens,
+      total_tokens: totalPromptTokens + totalCompletionTokens,
+      estimated_cost_usd: anyCost ? totalCostUsd : null,
+    },
+    { userId: null },
+  );
 }
 
 /** Result shape from Call A (ingredients). Mirrors the ingredientsSchema keys. */
@@ -150,11 +271,15 @@ interface StepsResult {
   stepSignals: NonNullable<RawExtractionResult["stepSignals"]>;
 }
 
+const INGREDIENTS_MODEL = "gpt-5.4";
+const STEPS_MODEL = "gpt-4o";
+
 async function callIngredients(
   imageContent: ImageContentPart[],
-): Promise<IngredientsResult> {
+): Promise<CallOutcome<IngredientsResult>> {
+  const startedAt = Date.now();
   const response = await openai.chat.completions.create({
-    model: "gpt-5.4",
+    model: INGREDIENTS_MODEL,
     messages: [
       { role: "system", content: INGREDIENTS_PROMPT },
       {
@@ -185,6 +310,7 @@ async function callIngredients(
     // from some sampling variety.
     temperature: 0,
   });
+  const latencyMs = Date.now() - startedAt;
 
   const choice = response.choices[0];
   if (choice?.finish_reason === "length") {
@@ -199,14 +325,23 @@ async function callIngredients(
   if (!content) {
     throw new Error("Call A returned empty content");
   }
-  return JSON.parse(content) as IngredientsResult;
+  return {
+    data: JSON.parse(content) as IngredientsResult,
+    usage: {
+      prompt_tokens: response.usage?.prompt_tokens ?? 0,
+      completion_tokens: response.usage?.completion_tokens ?? 0,
+    },
+    model: INGREDIENTS_MODEL,
+    latencyMs,
+  };
 }
 
 async function callSteps(
   imageContent: ImageContentPart[],
-): Promise<StepsResult> {
+): Promise<CallOutcome<StepsResult>> {
+  const startedAt = Date.now();
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: STEPS_MODEL,
     messages: [
       { role: "system", content: STEPS_PROMPT },
       {
@@ -238,6 +373,7 @@ async function callSteps(
     // same rewrite every time for the same source, and drop the flip risk.
     temperature: 0,
   });
+  const latencyMs = Date.now() - startedAt;
 
   const choice = response.choices[0];
   if (choice?.finish_reason === "length") {
@@ -249,7 +385,15 @@ async function callSteps(
   if (!content) {
     throw new Error("Call B returned empty content");
   }
-  return JSON.parse(content) as StepsResult;
+  return {
+    data: JSON.parse(content) as StepsResult,
+    usage: {
+      prompt_tokens: response.usage?.prompt_tokens ?? 0,
+      completion_tokens: response.usage?.completion_tokens ?? 0,
+    },
+    model: STEPS_MODEL,
+    latencyMs,
+  };
 }
 
 /**
