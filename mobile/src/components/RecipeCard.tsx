@@ -68,19 +68,57 @@ export function RecipeCard({
   testID,
 }: RecipeCardProps) {
   const [loaded, setLoaded] = useState(false);
+  // Bug 5 (2026-04-21): thumbnails intermittently fail — thumb.jpg may
+  // be missing for historical recipes, Supabase returns a signed URL
+  // that 404s at download, and FastImage's failure cache keys on the
+  // stable cacheKey so refetches never retry. Three-part mitigation:
+  //   - fellBack swaps to the hero URL when thumb fails.
+  //   - attempt bumps the cacheKey so FastImage treats the retry as
+  //     a fresh identity, bypassing the failure cache.
+  //   - broken renders the placeholder instead of an infinite shimmer
+  //     when both thumb and hero fail.
+  const [attempt, setAttempt] = useState(0);
+  const [fellBack, setFellBack] = useState(false);
+  const [broken, setBroken] = useState(false);
 
-  const hasRemoteImage = Boolean(recipe.thumbnailUrl || recipe.imageUrl);
+  // Reset fallback/broken state when the recipe row changes (e.g. hero
+  // replacement bumps updatedAt). Without this, once a card breaks it
+  // stays broken even after the user fixes the underlying image.
+  useEffect(() => {
+    setFellBack(false);
+    setBroken(false);
+    setAttempt(0);
+  }, [recipe.id, recipe.updatedAt]);
+
+  const canFallback = Boolean(
+    recipe.imageUrl && recipe.imageUrl !== recipe.thumbnailUrl,
+  );
+  const rawSource = fellBack ? recipe.imageUrl : (recipe.thumbnailUrl ?? recipe.imageUrl);
+  const hasRemoteImage = Boolean(rawSource) && !broken;
   const imageSource = useMemo(() => {
-    const raw = recipe.thumbnailUrl ?? recipe.imageUrl;
-    const uri = imageUriWithVersion(raw, recipe.updatedAt);
+    const uri = imageUriWithVersion(rawSource, recipe.updatedAt);
     if (!uri) return null;
-    const cacheKey = stableCacheKey(raw, recipe.updatedAt);
-    return cacheKey ? { uri, cacheKey } : { uri };
-  }, [recipe.imageUrl, recipe.thumbnailUrl, recipe.updatedAt]);
+    const baseCacheKey = stableCacheKey(rawSource, recipe.updatedAt);
+    if (!baseCacheKey) return { uri };
+    // Suffix the cacheKey on retry so FastImage's failure cache doesn't
+    // treat the retry as the same (previously-failed) image identity.
+    const cacheKey =
+      attempt > 0 ? `${baseCacheKey}#a${attempt}` : baseCacheKey;
+    return { uri, cacheKey };
+  }, [rawSource, recipe.updatedAt, attempt]);
 
   useEffect(() => {
     setLoaded(false);
-  }, [imageSource?.uri]);
+  }, [imageSource?.uri, imageSource?.cacheKey]);
+
+  const handleError = () => {
+    if (!fellBack && canFallback) {
+      setFellBack(true);
+      setAttempt((a) => a + 1);
+    } else {
+      setBroken(true);
+    }
+  };
 
   return (
     <TouchableOpacity
@@ -100,6 +138,7 @@ export function RecipeCard({
             style={[StyleSheet.absoluteFillObject, !loaded && styles.hidden]}
             resizeMode={FastImage.resizeMode.cover}
             onLoadEnd={() => setLoaded(true)}
+            onError={handleError}
           />
         </>
       ) : (
