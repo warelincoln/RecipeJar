@@ -7,24 +7,26 @@
 Located in `server/src/domain/validation/`. Runs 8 rule modules in this exact order:
 
 ```
-1. rules.structure       → STRUCTURE_NOT_SEPARABLE (BLOCK)
-2. rules.integrity       → CONFIRMED_OMISSION (BLOCK), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, userDismissible)
-3. rules.required-fields → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (BLOCK), STEPS_MISSING (BLOCK)
-4. rules.servings        → SERVINGS_MISSING (BLOCK)
+1. rules.structure       → STRUCTURE_NOT_SEPARABLE (FLAG, dismissible)
+2. rules.integrity       → CONFIRMED_OMISSION (FLAG, dismissible), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, dismissible)
+3. rules.required-fields → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (FLAG, dismissible), STEPS_MISSING (FLAG)
+4. rules.servings        → SERVINGS_MISSING (FLAG)
 5. rules.ingredients     → INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
 6. rules.steps           → OCR artifacts (FLAG)
-7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE or BLOCK if limit hit), POOR_IMAGE_QUALITY (RETAKE or BLOCK if limit hit)
+7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE; FLAG dismissible if limit hit), POOR_IMAGE_QUALITY (RETAKE; FLAG dismissible if limit hit)
 ```
 
-Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline.
+**Severity consolidation 2026-04-21:** every former BLOCK was downgraded to a dismissible FLAG. The user owns their data and can always save — we surface context, we don't gate. Matches the STEPS_MISSING decision from 2026-04-19 (ingredient-only recipes are legitimate).
 
-There are only 3 severities (CORRECTION_REQUIRED was removed — all former CORRECTION_REQUIRED issues now emit FLAG):
+Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline. `INGREDIENT_MERGED` was removed 2026-04-21 (every hit was a legitimate compound ingredient like "salt and pepper to taste").
 
-| Severity | Effect on save | User action required |
+There are only 2 save-gating severities now. FLAG is the default surface.
+
+| Severity | Effect on save | User action |
 |---|---|---|
-| `FLAG` | Does NOT block save | User may confirm/dismiss inline in preview |
-| `RETAKE` | Blocks save | User should retake the photo |
-| `BLOCK` | Blocks save, no user fix possible | User must start over |
+| `FLAG` | Does NOT block save | Confirm/dismiss inline, or just save |
+| `RETAKE` | Blocks save | Retake photo; after limit, downgrades to dismissible FLAG |
+| `BLOCK` | (Reserved, no current rule emits this) | — |
 
 FLAGs represent observations, not errors. A missing quantity ("salt" with no amount) is valid — many recipes write it that way. The system surfaces these so the user is aware, but never prevents saving based on them.
 

@@ -13,7 +13,7 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
     case "TITLE_MISSING":
       return "We don't see a title yet—add one if it's missing.";
     case "INGREDIENTS_MISSING":
-      return "We couldn't find ingredient lines—add a few so you can save.";
+      return "No ingredients yet. Add some below or save as-is and fill them in later.";
     case "STEPS_MISSING":
       return "No step instructions yet. Save ingredients-only or add steps below.";
     case "STEPS_EXTRACTION_FAILED":
@@ -23,15 +23,15 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
     case "INGREDIENT_QTY_OR_UNIT_MISSING":
       return "This line might be missing an amount or unit—take a quick look.";
     case "STRUCTURE_NOT_SEPARABLE":
-      return "We couldn't split ingredients and steps cleanly—edit them in manually to save.";
+      return "We couldn't split ingredients and steps cleanly. Edit them below or save as-is and tidy up later.";
     case "LOW_CONFIDENCE_STRUCTURE":
       return "We're not quite confident in the layout—a clearer photo usually helps.";
     case "POOR_IMAGE_QUALITY":
       return "This shot's a bit hard to read—try another photo if you can.";
     case "RETAKE_LIMIT_REACHED":
-      return "You've used the max retakes—tidy things up below, then save when you're ready.";
+      return "You've hit the retake limit. Tidy things up below and save when you're ready.";
     case "CONFIRMED_OMISSION":
-      return "Some of the recipe may not have made it off the page—fill in what's missing before saving.";
+      return "Looks like part of the page was cut off. Fill in what's missing, or save as-is and add it later.";
     case "SUSPECTED_OMISSION":
       return "We might be missing a bit of the recipe—peek at the photo and tweak if needed.";
     case "MINOR_OCR_ARTIFACT":

@@ -7,14 +7,18 @@ export function evaluateIntegrity(
   const issues: ValidationIssue[] = [];
 
   if (candidate.parseSignals.confirmedOmission) {
+    // Downgraded from BLOCK to FLAG 2026-04-21. The signal is worth
+    // surfacing (framing cut off content) but the user might be fine
+    // saving a partial recipe and filling the gap from the physical
+    // book later — forcing a retake or edit here is paternalistic.
     issues.push({
       issueId: "confirmed-omission",
       code: "CONFIRMED_OMISSION",
-      severity: "BLOCK",
+      severity: "FLAG",
       message:
-        "Some of the recipe may not have made it off the page—fill in what's missing before saving.",
-      userDismissible: false,
-      userResolvable: false,
+        "Looks like part of the page was cut off. Fill in what's missing, or save as-is and add it later.",
+      userDismissible: true,
+      userResolvable: true,
     });
   }
 

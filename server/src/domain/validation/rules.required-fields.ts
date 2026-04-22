@@ -22,14 +22,19 @@ export function evaluateRequiredFields(
     (i) => !i.isHeader,
   );
   if (nonHeaderIngredients.length === 0) {
+    // Downgraded from BLOCK to FLAG 2026-04-21: users sometimes capture
+    // a steps-only page or want to save a skeleton with just a title
+    // and ingredients they'll type in later. Matches the STEPS_MISSING
+    // decision from 2026-04-19 — the user owns their data, we provide
+    // context instead of gating.
     issues.push({
       issueId: "ingredients-missing",
       code: "INGREDIENTS_MISSING",
-      severity: "BLOCK",
-      message: "We couldn't find ingredient lines—add a few so you can save.",
+      severity: "FLAG",
+      message: "No ingredients yet. Add some below or save as-is and fill them in later.",
       fieldPath: "ingredients",
-      userDismissible: false,
-      userResolvable: false,
+      userDismissible: true,
+      userResolvable: true,
     });
   }
 
