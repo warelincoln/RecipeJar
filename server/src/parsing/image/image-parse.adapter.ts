@@ -73,15 +73,20 @@ const openai = new OpenAI({
   maxRetries: 2,
 });
 
-type ImageContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
+export type ImageContentPart =
+  OpenAI.Chat.Completions.ChatCompletionContentPart;
 
 /**
  * A single OpenAI call's outcome plus cost-instrumentation payload. We
  * return usage + latency alongside the parsed data so the orchestrator can
  * emit analytics per call. Wrapping (instead of threading a callback) keeps
  * the call helpers pure; the top-level parseImages owns observability.
+ *
+ * Exported for the eval harness's Arm 0 wrapper (arms/arm0-current-split.ts)
+ * so it can build the comparison-table metrics view without duplicating
+ * the call orchestration.
  */
-interface CallOutcome<T> {
+export interface CallOutcome<T> {
   data: T;
   usage: TokenUsage;
   model: string;
@@ -273,6 +278,48 @@ interface StepsResult {
 
 const INGREDIENTS_MODEL = "gpt-5.4";
 const STEPS_MODEL = "gpt-4o";
+
+/**
+ * Build a reusable imageContent array from base64-encoded image URLs.
+ * Exported so the eval harness + candidate arms can share the same
+ * input shape as the current production adapter — same detail:high,
+ * same image URL format, same allocation pattern.
+ */
+export function buildImageContent(imageUrls: string[]): ImageContentPart[] {
+  return imageUrls.map((url) => ({
+    type: "image_url" as const,
+    image_url: { url, detail: "high" as const },
+  }));
+}
+
+/**
+ * Exported for the Arm 0 eval wrapper (arms/arm0-current-split.ts). Same
+ * behavior as invoking parseImages — runs the split-call orchestration —
+ * but returns CallOutcome for each leg so the eval harness can score
+ * accuracy + track token cost + wall-clock latency per call. Skips the
+ * production telemetry emit (eval shouldn't pollute the analytics
+ * firehose with repeated fixture parses).
+ */
+export async function runSplitCallForEval(
+  imageContent: ImageContentPart[],
+): Promise<{
+  ingredients: PromiseSettledResult<CallOutcome<IngredientsResult>>;
+  steps: PromiseSettledResult<CallOutcome<StepsResult>>;
+}> {
+  const [ingredients, steps] = await Promise.allSettled([
+    callIngredients(imageContent),
+    callSteps(imageContent),
+  ]);
+  return { ingredients, steps };
+}
+
+/**
+ * Exported for the Arm 0 eval wrapper — reuses the production merge
+ * logic so the normalized candidate is identical to what production
+ * ships.
+ */
+export { mergeRaw as mergeSplitCallResults };
+export type { IngredientsResult, StepsResult };
 
 async function callIngredients(
   imageContent: ImageContentPart[],

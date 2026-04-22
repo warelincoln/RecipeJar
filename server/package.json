@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@orzo/shared": "*",
