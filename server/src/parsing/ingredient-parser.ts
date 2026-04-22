@@ -175,6 +175,30 @@ function parseAmount(s: string): [number, string] | null {
     return [wholeOrDecimal + frac, rest.slice(1).trimStart()];
   }
 
+  // Bare slash fraction with no leading whole number: input was "N/M ..." —
+  // the first numMatch consumed the numerator, so rest starts with "/M".
+  // Without this branch the function would return [N, "/M ..."], leaving
+  // "/M" in the downstream name/unit fields, which produces the "1 /2 cup
+  // flour" rendering bug when the ingredient is re-parsed on recipe edit
+  // (see /recipes/:id PUT → recipes.repository.ts → parseIngredientLine).
+  // Gated on integer + no decimal so we don't convert "1.5/2" (which
+  // parseFloat would happily eat as 1.5) into a fraction — that's a
+  // weird input and treating the "1.5" as whole is less surprising.
+  const nakedSlashMatch = rest.match(/^\/\s*(\d+)\s*/);
+  if (
+    nakedSlashMatch &&
+    Number.isInteger(wholeOrDecimal) &&
+    numMatch[1].indexOf(".") === -1
+  ) {
+    const den = parseInt(nakedSlashMatch[1], 10);
+    if (den !== 0) {
+      return [
+        wholeOrDecimal / den,
+        rest.slice(nakedSlashMatch[0].length).trimStart(),
+      ];
+    }
+  }
+
   // Check for slash fraction after a space or directly (e.g. "1 1/2" or "1/2")
   const slashMatch = rest.match(/^(\d+)\s*\/\s*(\d+)\s*/);
   if (slashMatch) {
