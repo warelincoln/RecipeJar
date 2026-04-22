@@ -17,35 +17,27 @@ export function evaluateRetake(
   }
 
   if (candidate.parseSignals.lowConfidenceStructure) {
-    const allPagesExhausted = candidate.sourcePages.every(
-      (p) => (p.retakeCount ?? 0) >= MAX_RETAKES_PER_PAGE,
-    );
-
-    if (allPagesExhausted) {
-      // Downgraded from BLOCK to FLAG 2026-04-21. Reaching the retake
-      // limit is just a signal that re-capturing isn't going to help
-      // anymore — it shouldn't actively block save. The user already
-      // sees the flag and can edit manually to fix what needs fixing.
-      issues.push({
-        issueId: "retake-limit-reached",
-        code: "RETAKE_LIMIT_REACHED",
-        severity: "FLAG",
-        message:
-          "You've hit the retake limit. Tidy things up below and save when you're ready.",
-        userDismissible: true,
-        userResolvable: true,
-      });
-    } else {
-      issues.push({
-        issueId: "low-confidence-structure",
-        code: "LOW_CONFIDENCE_STRUCTURE",
-        severity: "RETAKE",
-        message:
-          "We're not quite confident in the layout—a clearer photo usually helps.",
-        userDismissible: false,
-        userResolvable: false,
-      });
-    }
+    // Downgraded from RETAKE to FLAG 2026-04-21 (follow-up to the Bug 1
+    // BLOCK→FLAG pass). The model fires this signal on any page it
+    // considers structurally uncertain — which includes legitimate
+    // ingredient-only screenshots (no steps visible). Forcing retake on
+    // those is exactly the friction the user called out: "a clear
+    // screenshot of an ingredient list should populate a recipe without
+    // a title, not be rejected." Retaking a clear screenshot doesn't
+    // change anything; the structure signal is about content, not the
+    // photo. FLAG + dismissible lets the user land on PreviewEdit and
+    // save what they captured. POOR_IMAGE_QUALITY below stays as RETAKE
+    // because that IS about the photo (blurry, unreadable) and retaking
+    // legitimately helps (e.g. better lighting on a cookbook page).
+    issues.push({
+      issueId: "low-confidence-structure",
+      code: "LOW_CONFIDENCE_STRUCTURE",
+      severity: "FLAG",
+      message:
+        "This one's a bit unusual — no clear steps or standard recipe layout. Double-check what we captured below.",
+      userDismissible: true,
+      userResolvable: true,
+    });
   }
 
   if (candidate.parseSignals.poorImageQuality) {

@@ -13,10 +13,12 @@ Located in `server/src/domain/validation/`. Runs 8 rule modules in this exact or
 4. rules.servings        → SERVINGS_MISSING (FLAG)
 5. rules.ingredients     → INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
 6. rules.steps           → OCR artifacts (FLAG)
-7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE; FLAG dismissible if limit hit), POOR_IMAGE_QUALITY (RETAKE; FLAG dismissible if limit hit)
+7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (FLAG, dismissible), POOR_IMAGE_QUALITY (RETAKE; FLAG dismissible if limit hit)
 ```
 
 **Severity consolidation 2026-04-21:** every former BLOCK was downgraded to a dismissible FLAG. The user owns their data and can always save — we surface context, we don't gate. Matches the STEPS_MISSING decision from 2026-04-19 (ingredient-only recipes are legitimate).
+
+**Retake follow-up same day:** `LOW_CONFIDENCE_STRUCTURE` also downgraded from RETAKE to FLAG. The signal fires when the vision model considers a page structurally uncertain — which includes legitimate ingredient-only screenshots (no steps visible). Retaking a clear screenshot doesn't change anything; the signal is about content, not the photo. `POOR_IMAGE_QUALITY` stays as RETAKE because that IS about photo readability and retaking legitimately helps (e.g. better lighting on a cookbook page).
 
 Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline. `INGREDIENT_MERGED` was removed 2026-04-21 (every hit was a legitimate compound ingredient like "salt and pepper to taste").
 
@@ -30,7 +32,7 @@ There are only 2 save-gating severities now. FLAG is the default surface.
 
 FLAGs represent observations, not errors. A missing quantity ("salt" with no amount) is valid — many recipes write it that way. The system surfaces these so the user is aware, but never prevents saving based on them.
 
-Retake escalation: when `LOW_CONFIDENCE_STRUCTURE` or `POOR_IMAGE_QUALITY` fires, severity is `RETAKE`. After 2 retakes per page (`retakeCount >= 2` on all pages), severity escalates to `BLOCK` as `RETAKE_LIMIT_REACHED`.
+Retake escalation: `POOR_IMAGE_QUALITY` fires as `RETAKE` on first occurrence. After 2 retakes per page (`retakeCount >= 2` on all pages), escalates to dismissible `FLAG` as `RETAKE_LIMIT_REACHED`. `LOW_CONFIDENCE_STRUCTURE` is now FLAG directly and never drives the retake UI flow.
 
 Each issue has a severity. The validation result aggregates:
 - `hasBlockingIssues` — any BLOCK severity

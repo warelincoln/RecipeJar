@@ -414,7 +414,12 @@ describe("validateRecipe", () => {
     expect(result.hasBlockingIssues).toBe(false);
   });
 
-  it("low confidence structure -> RETAKE when retakes available", () => {
+  // Downgraded from RETAKE to FLAG 2026-04-21 (follow-up to Bug 1 pass).
+  // The signal fires on legitimate ingredient-only screenshots (model
+  // considers "no steps" structurally low-confidence). Those parses
+  // should land on PreviewEdit, not retake. POOR_IMAGE_QUALITY is the
+  // photo-is-genuinely-unreadable case and still routes to retake.
+  it("low confidence structure -> FLAG (dismissible), does NOT require retake", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -438,12 +443,47 @@ describe("validateRecipe", () => {
         ],
       }),
     );
-    expect(result.requiresRetake).toBe(true);
+    expect(result.requiresRetake).toBe(false);
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.saveState).toBe("SAVE_CLEAN");
     const issue = result.issues.find(
       (i) => i.code === "LOW_CONFIDENCE_STRUCTURE",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("RETAKE");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+  });
+
+  it("poor image quality still -> RETAKE (the wall photo case)", () => {
+    const result = validateRecipe(
+      makeCandidate({
+        parseSignals: {
+          structureSeparable: true,
+          lowConfidenceStructure: true,
+          poorImageQuality: true, // ← the photo is genuinely unreadable
+          multiRecipeDetected: false,
+          confirmedOmission: false,
+          suspectedOmission: false,
+          descriptionDetected: false,
+        },
+        sourcePages: [
+          {
+            id: "p1",
+            orderIndex: 0,
+            sourceType: "image",
+            retakeCount: 0,
+            imageUri: "test.jpg",
+            extractedText: null,
+          },
+        ],
+      }),
+    );
+    expect(result.requiresRetake).toBe(true);
+    const poorQuality = result.issues.find(
+      (i) => i.code === "POOR_IMAGE_QUALITY",
+    );
+    expect(poorQuality).toBeDefined();
+    expect(poorQuality!.severity).toBe("RETAKE");
   });
 
   it("poor image quality -> RETAKE when retakes available", () => {
@@ -475,14 +515,15 @@ describe("validateRecipe", () => {
 
   // Downgraded from BLOCK to FLAG 2026-04-21. Retake limit is a signal
   // that re-capturing won't help anymore — it shouldn't actively block
-  // save. User can edit manually.
+  // save. User can edit manually. Now emitted only from the
+  // poorImageQuality branch (LOW_CONFIDENCE_STRUCTURE is FLAG directly).
   it("retake limit reached -> FLAG (dismissible) after 2 retakes per page", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
           structureSeparable: true,
-          lowConfidenceStructure: true,
-          poorImageQuality: false,
+          lowConfidenceStructure: false,
+          poorImageQuality: true,
           multiRecipeDetected: false,
           confirmedOmission: false,
           suspectedOmission: false,
@@ -521,7 +562,7 @@ describe("validateRecipe", () => {
       parseSignals: {
         structureSeparable: false,
         lowConfidenceStructure: true,
-        poorImageQuality: false,
+        poorImageQuality: true, // exhausted retake path
         multiRecipeDetected: false,
         confirmedOmission: true,
         suspectedOmission: false,

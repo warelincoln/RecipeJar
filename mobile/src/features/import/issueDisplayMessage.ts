@@ -25,7 +25,7 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
     case "STRUCTURE_NOT_SEPARABLE":
       return "We couldn't split ingredients and steps cleanly. Edit them below or save as-is and tidy up later.";
     case "LOW_CONFIDENCE_STRUCTURE":
-      return "We're not quite confident in the layout—a clearer photo usually helps.";
+      return "This one's a bit unusual — no clear steps or standard recipe layout. Double-check what we captured below.";
     case "POOR_IMAGE_QUALITY":
       return "This shot's a bit hard to read—try another photo if you can.";
     case "RETAKE_LIMIT_REACHED":
