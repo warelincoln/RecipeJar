@@ -35,6 +35,7 @@ import {
 import { acquireParseLock, releaseParseLock } from "../parsing/parse-semaphore.js";
 import { isoDurationToMinutes } from "../parsing/time.js";
 import { withTimeout } from "../lib/timeout.js";
+import { parseIngredientLine } from "../parsing/ingredient-parser.js";
 
 const PARSE_ALLOWED_STATUSES = new Set<DraftStatus>([
   "READY_FOR_PARSE",
@@ -1069,17 +1070,49 @@ export async function draftsRoutes(app: FastifyInstance) {
         totalTimeMinutes: totalTime.minutes,
         totalTimeSource: totalTime.source,
         saveDecision,
-        ingredients: edited.ingredients.map((ing) => ({
-          text: ing.text,
-          orderIndex: ing.orderIndex,
-          isHeader: ing.isHeader,
-          amount: ing.amount ?? null,
-          amountMax: ing.amountMax ?? null,
-          unit: ing.unit ?? null,
-          name: ing.name ?? null,
-          rawText: ing.raw ?? ing.text,
-          isScalable: ing.isScalable ?? false,
-        })),
+        // Re-parse each ingredient's text via parseIngredientLine here,
+        // NOT just trust the structured fields that came in on the
+        // editedCandidate payload. Background: the preview editor
+        // (mobile/src/features/import/PreviewEditView.tsx) only edits
+        // ing.text when the user edits an ingredient line — the
+        // structured amount/unit/name/amountMax fields stay at their
+        // original parse-time values. Trusting them here meant a user
+        // who edited "3 cups water" to "2/3 cups water" in preview got
+        // a saved recipe with text="2/3 cups water" BUT amount=3,
+        // unit="cup", name="water" — and the detail screen's
+        // scaleIngredient render composes from the structured fields,
+        // not text. So the detail showed "3 cup water" until the user
+        // opened the edit screen (which DID re-parse via the same
+        // parseIngredientLine call on PUT /recipes/:id) and saved
+        // again. Re-parsing here closes that gap so preview-save and
+        // post-save-edit produce identical stored fields.
+        ingredients: edited.ingredients.map((ing) => {
+          if (ing.isHeader) {
+            return {
+              text: ing.text,
+              orderIndex: ing.orderIndex,
+              isHeader: true,
+              amount: null,
+              amountMax: null,
+              unit: null,
+              name: null,
+              rawText: ing.text,
+              isScalable: false,
+            };
+          }
+          const parsed = parseIngredientLine(ing.text);
+          return {
+            text: ing.text,
+            orderIndex: ing.orderIndex,
+            isHeader: false,
+            amount: parsed.amount,
+            amountMax: parsed.amountMax,
+            unit: parsed.unit,
+            name: parsed.name,
+            rawText: ing.text,
+            isScalable: parsed.isScalable,
+          };
+        }),
         steps: edited.steps.map((step) => ({
           text: step.text,
           summaryText: null, // Feature 5 wiring deferred
