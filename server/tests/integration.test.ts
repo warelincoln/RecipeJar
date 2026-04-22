@@ -695,6 +695,78 @@ describe("API Integration", () => {
       expect(draftRepo.markSaved).toHaveBeenCalledWith("d1");
     });
 
+    // Regression guard (2026-04-22): before this fix, the preview save
+    // path trusted the structured fields (amount/unit/name) on the
+    // editedCandidate payload — but the preview editor only updates
+    // ing.text when the user edits a line. So "3 cups water" → "2/3
+    // cups water" saved as text="2/3 cups water" + amount=3 + unit="cup"
+    // + name="water", and the detail screen (which renders from
+    // structured fields, not text) showed "3 cup water" until the user
+    // tapped Edit + Save again (that path re-parsed via PUT /recipes/:id).
+    // This test asserts POST /drafts/:id/save re-parses each ingredient's
+    // text too, so preview-save and post-save-edit produce identical
+    // stored fields.
+    it("re-parses ingredient text on save (not just trusts structured fields from client)", async () => {
+      draftRepo.findById.mockResolvedValue({
+        id: "d1",
+        status: "PARSED",
+        sourceType: "image",
+        originalUrl: null,
+        validationResultJson: {
+          issues: [],
+          saveState: "SAVE_CLEAN",
+          hasWarnings: false,
+          hasBlockingIssues: false,
+          requiresRetake: false,
+        },
+        editedCandidateJson: {
+          title: "Rice",
+          ingredients: [
+            // text was edited from "3 cups water" to "2/3 cups water"
+            // during preview, but the client never updated the structured
+            // fields — they're still the pre-edit values.
+            {
+              text: "2/3 cups water",
+              orderIndex: 0,
+              isHeader: false,
+              amount: 3, // STALE: pre-edit value from the original parse
+              amountMax: null,
+              unit: "cup",
+              name: "water",
+            },
+          ],
+          steps: [{ text: "Boil.", orderIndex: 0, isHeader: false }],
+          description: null,
+        },
+        parsedCandidateJson: null,
+      } as never);
+      draftRepo.getWarningStates.mockResolvedValue([] as never);
+      draftRepo.getPages.mockResolvedValue([] as never);
+      draftRepo.markSaved.mockResolvedValue({} as never);
+      recipeRepo.save.mockResolvedValue({ id: "r1", title: "Rice" } as never);
+
+      await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+      expect(recipeRepo.save).toHaveBeenCalledTimes(1);
+      const saveCallArgs = (recipeRepo.save.mock.calls[0] as unknown[])[0] as {
+        ingredients: Array<{
+          text: string;
+          amount: number | null;
+          unit: string | null;
+          name: string | null;
+        }>;
+      };
+      expect(saveCallArgs.ingredients).toHaveLength(1);
+      const ing = saveCallArgs.ingredients[0];
+      // text preserved as-is
+      expect(ing.text).toBe("2/3 cups water");
+      // structured fields re-parsed from text, NOT carried over from
+      // the stale client payload
+      expect(ing.amount).toBeCloseTo(2 / 3, 3);
+      expect(ing.unit).toBe("cup");
+      expect(ing.name).toBe("water");
+    });
+
     it("saves as SAVE_USER_VERIFIED when FLAG warnings are dismissed", async () => {
       draftRepo.findById.mockResolvedValue({
         id: "d1",
