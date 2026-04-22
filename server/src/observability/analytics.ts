@@ -6,7 +6,15 @@ export type AnalyticsEventName =
   | "server_parse_failed"
   | "server_url_capture_failed"
   | "server_recipe_saved"
-  | "server_hero_image_missing";
+  | "server_hero_image_missing"
+  // Per-call token + cost breakdown from the image parse adapter. Emitted
+  // once per OpenAI call that settled successfully. See
+  // server/src/parsing/image/pricing.ts for the rate table.
+  | "server_parse_tokens"
+  // Per-recipe aggregate across whichever calls settled. Used to track
+  // real p50/p90 cost per parse so we can compare against the eval-study
+  // candidates (plan: ~/.claude/plans/snug-waddling-quiche.md).
+  | "server_parse_cost";
 
 type Primitive = string | number | boolean | null | undefined;
 type AnalyticsProps = Record<string, Primitive | Primitive[]>;
