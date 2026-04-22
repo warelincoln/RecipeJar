@@ -1,6 +1,39 @@
 # Architecture
 
-> **What this doc covers:** Deep dive into Orzo's validation engine, save-decision logic, and the dual import architecture (XState machine path + concurrent queue path). For monorepo layout and the high-level data flow diagram, see [`../README.md`](../README.md). For where individual files live, see [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md).
+> **What this doc covers:** Deep dive into Orzo's image parse architecture, validation engine, save-decision logic, and the dual import architecture (XState machine path + concurrent queue path). For monorepo layout and the high-level data flow diagram, see [`../README.md`](../README.md). For where individual files live, see [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md).
+
+## Image Parse
+
+Single-call architecture (shipped 2026-04-21 after the cost trade study at `~/.claude/plans/snug-waddling-quiche.md`):
+
+- **Model:** `gpt-4o`, vision-capable, `detail:high` on all image inputs.
+- **One call** with a merged system prompt (see [`server/src/parsing/image/prompts.ts`](../server/src/parsing/image/prompts.ts)) covering both the ingredient-side (title, servings, ingredients, metadata, page-level signals) and step-side (steps, description, step signals) responsibilities.
+- **Strict JSON schema** via OpenAI's `response_format.json_schema` strict mode (see [`server/src/parsing/image/schemas.ts`](../server/src/parsing/image/schemas.ts)). Schema shape mirrors `RawExtractionResult` in [`normalize.ts`](../server/src/parsing/normalize.ts) so downstream `normalizeToCandidate` consumes the response directly.
+- **temperature: 0** for deterministic fraction reads (⅔ vs ½, ¼ vs ¾). Confirmed in production at temp:0.1 to flip on visually-similar glyphs; temp:0 locks the model onto the same reading every time for the same source.
+- **max_completion_tokens: 4500.** Sum of the old split-call budgets (2500 + 2000). Covers the fattest recipes we've seen in eval.
+- **Cost instrumentation:** per-parse `server_parse_tokens` + `server_parse_cost` PostHog events, plus a `parse_tokens` structured log event for grep-able triage. See [`server/src/parsing/image/pricing.ts`](../server/src/parsing/image/pricing.ts) for the rate table used to compute `estimated_cost_usd`.
+- **Error paths:** OpenAI throws → `buildErrorCandidate` → retake UI. Valid JSON with zero ingredients (semantic gate) → same. `finish_reason: "length"` → error (raise max_completion_tokens + file an issue).
+
+### Architecture history
+
+| Period | Architecture | Why |
+|---|---|---|
+| Before 2026-04-19 | Single gpt-5.4 call | Simple but slow (30-45s p50, output token generation dominated on verbose cookbook pages) |
+| 2026-04-19 to 2026-04-21 | Split: gpt-5.4 ingredients + gpt-4o steps in parallel | Cut p50 latency to ~15s at the cost of sending images through the API twice |
+| 2026-04-21 onward | **Single gpt-4o call** | 42% cost reduction, slightly better p50 latency, same fraction fidelity |
+
+### 2026-04-21 cost trade study eval results
+
+5 real cookbook fixtures at [`server/tests/fixtures/recipe-images/`](../server/tests/fixtures/recipe-images/), scored by [`server/tests/image-parse-eval.test.ts`](../server/tests/image-parse-eval.test.ts) (gated by `RUN_LLM_EVALS=1`):
+
+| Architecture | Fraction gate | p50 latency | p50 cost/parse | Verdict |
+|---|---|---|---|---|
+| Split gpt-5.4 + gpt-4o (prior prod) | 5/5 | 19.4s | $0.0481 | baseline |
+| **gpt-4o monolithic** | **5/5** | **18.7s** | **$0.0278** | **winner (current prod)** |
+| Claude Sonnet 4.6 monolithic | 4/5 | 37.7s | $0.0614 | rejected: 2× slower + 28% more expensive |
+| Claude Haiku 4.5 monolithic | 3/5 | 22.2s | $0.0230 | rejected: fails fraction gate (systematic 2× misreads) |
+
+At scale the 42% cost reduction is the biggest win: 10k parses/mo goes from ~$481 to ~$278, 100k from ~$4,810 to ~$2,780.
 
 ## Validation Engine
 

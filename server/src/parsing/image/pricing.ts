@@ -42,9 +42,13 @@ const PRICING: Record<string, ModelPricing> = {
   "gpt-4o": { inputPerMillion: 2.5, outputPerMillion: 10.0 },
   "gpt-4o-mini": { inputPerMillion: 0.15, outputPerMillion: 0.6 },
 
-  // Anthropic — vision-capable Claude models
-  "claude-sonnet-4.5": { inputPerMillion: 3.0, outputPerMillion: 15.0 },
-  "claude-haiku-4.5": { inputPerMillion: 0.8, outputPerMillion: 4.0 },
+  // Anthropic — vision-capable Claude models. Anthropic uses hyphen not
+  // dot IDs ("claude-sonnet-4-6", not "claude-sonnet-4.5"). Keep both
+  // the shorthand ID and the dated aliases here so the lookup works
+  // regardless of how the arm references them.
+  "claude-sonnet-4-6": { inputPerMillion: 3.0, outputPerMillion: 15.0 },
+  "claude-sonnet-4-5-20250929": { inputPerMillion: 3.0, outputPerMillion: 15.0 },
+  "claude-haiku-4-5-20251001": { inputPerMillion: 1.0, outputPerMillion: 5.0 },
 };
 
 /**

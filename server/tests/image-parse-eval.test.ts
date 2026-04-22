@@ -1,51 +1,60 @@
-import "dotenv/config"; // Load OPENAI_API_KEY from server/.env before the adapter import tries to construct the client.
+// Load OPENAI_API_KEY from server/.env before the adapter imports the
+// OpenAI client. Use override:true in case a shell parent (e.g. the
+// Claude Code host) injects an empty value that would otherwise shadow
+// the real key.
+import { config as loadDotenv } from "dotenv";
+loadDotenv({ override: true });
+
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, existsSync, statSync, mkdtempSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import sharp from "sharp";
 import type { SourcePage } from "@orzo/shared";
-
-// Dynamic import guard: only load the adapter when we're actually running
-// the eval suite. The adapter constructs an OpenAI client at module-load,
-// which throws without OPENAI_API_KEY — normal CI doesn't set that and
-// doesn't need to, because the whole suite is skipped there anyway.
-const runEvals = process.env.RUN_LLM_EVALS === "1";
-const parseImagesPromise = runEvals
-  ? import("../src/parsing/image/image-parse.adapter.js").then((m) => m.parseImages)
-  : Promise.resolve(
-      (() => {
-        throw new Error("eval suite not enabled — set RUN_LLM_EVALS=1");
-      }) as unknown as typeof import("../src/parsing/image/image-parse.adapter.js")["parseImages"],
-    );
+import { estimateCostUsd } from "../src/parsing/image/pricing.js";
 
 /**
- * LLM eval suite — the hard quality gate for the split-call architecture.
+ * LLM eval suite — the hard quality gate for the single-call image parse
+ * architecture (shipped 2026-04-21 after the cost trade study at
+ * ~/.claude/plans/snug-waddling-quiche.md).
  *
- * Gated by RUN_LLM_EVALS=1 env var. Normal CI skips this suite because
- * each run costs real OpenAI tokens (~$0.05 per fixture per run). Run
- * manually before opening PR 2 and on demand to catch drift:
+ * Gated by RUN_LLM_EVALS=1 env var. Normal CI skips this because each
+ * run costs real OpenAI tokens (~$0.03 per fixture, ~$0.15 per full
+ * 5-fixture run). Run manually on-demand or before any change to the
+ * prompt / schema / model:
  *
  *     RUN_LLM_EVALS=1 cd server && npm test -- image-parse-eval
  *
- * Every fixture in tests/fixtures/recipe-images/<slug>/ is run through
- * the real OpenAI API (both Call A and Call B) and scored against its
- * expected.json ground truth.
+ * For each fixture in tests/fixtures/recipe-images/<slug>/:
+ *  - Run the parse, capture latency + token usage
+ *  - Score the candidate against expected.json:
+ *    - Fractions match within 0.001 tolerance (½ → 0.5, ⅓ → 0.333, etc)
+ *    - Ingredient names match case-insensitively (substring)
+ *    - Step count is non-zero; diff > 3 logs a warning
+ *    - Required step numerics: ≤25% may be missing
+ *    - Required step tools: ≤25% may be missing
  *
- * Scoring rules (see tests/fixtures/recipe-images/README.md for the full
- * authoring guide):
- *  - Fractions match within 0.001 tolerance (½ → 0.5, ⅓ → 0.333, etc)
- *  - Ingredient names match case-insensitively (substring)
- *  - Step count matches exactly (summarization is per-step, not merging)
- *  - Every required numeric from the source must survive Call B's rewrite
- *  - Every required tool from the source must survive Call B's rewrite
+ * Ingredient-fraction failures are HARD GATES. Every other check is
+ * warning-only. Summary table + per-fixture JSONL written at suite end.
  *
- * Any failure blocks the PR. Don't downgrade thresholds without
- * reopening the eng review.
+ * To compare a candidate architecture (e.g. a new vendor, a prompt
+ * change) against this baseline, add a second parse function + a
+ * second describe block. Historical multi-arm harness (2026-04-21
+ * trade study) lived in git history on branch fix/parse-cost-study-eval
+ * if you want to resurrect the pattern.
  */
 
 const FIXTURES_DIR = join(__dirname, "fixtures/recipe-images");
+const RESULTS_DIR = join(__dirname, "eval-results");
 const FRACTION_TOLERANCE = 0.001;
 
 interface ExpectedIngredient {
@@ -63,28 +72,55 @@ interface ExpectedFixture {
   requiredStepTools: string[];
 }
 
-/**
- * Load fixture images from disk. Accepts HEIC (iPhone default), JPEG, PNG,
- * WEBP — always re-encodes as JPEG via sharp because OpenAI's vision API
- * only accepts PNG/JPEG/GIF/WEBP and we send `data:image/jpeg;base64,...`
- * uniformly. Re-encoding a JPEG is a small cost (~50ms/page) and lets
- * contributors drop raw iPhone photos without manual conversion.
- *
- * Returns promises so loading can happen in parallel with other setup.
- */
+interface FixtureScore {
+  fixture: string;
+  titleOk: boolean | null;
+  servingsOk: boolean | null;
+  ingredientsPass: boolean;
+  ingredientsMissing: string[];
+  fractionDeltas: Array<{ name: string; expected: number; actual: number | null }>;
+  stepCountActual: number;
+  stepCountDiff: number;
+  stepNumericsMissing: string[];
+  stepToolsMissing: string[];
+  latencyMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUsd: number | null;
+  model: string;
+  hardGatePassed: boolean;
+  error?: string;
+}
+
+const runEvals = process.env.RUN_LLM_EVALS === "1";
+
+const parseForEvalPromise = runEvals
+  ? import("../src/parsing/image/image-parse.adapter.js").then(
+      (m) => m.parseImagesForEvalSingleCall,
+    )
+  : Promise.resolve(
+      (() => {
+        throw new Error("eval suite not enabled — set RUN_LLM_EVALS=1");
+      }) as unknown as typeof import(
+        "../src/parsing/image/image-parse.adapter.js"
+      )["parseImagesForEvalSingleCall"],
+    );
+
 async function loadFixtures(): Promise<
   Array<{ slug: string; image: Buffer; expected: ExpectedFixture }>
 > {
   if (!existsSync(FIXTURES_DIR)) return [];
 
-  const fixtures: Array<{ slug: string; image: Buffer; expected: ExpectedFixture }> = [];
+  const fixtures: Array<{
+    slug: string;
+    image: Buffer;
+    expected: ExpectedFixture;
+  }> = [];
 
   for (const entry of readdirSync(FIXTURES_DIR)) {
     const dir = join(FIXTURES_DIR, entry);
     if (!statSync(dir).isDirectory()) continue;
 
-    // Find the first matching image file. Order of preference doesn't
-    // matter — sharp re-encodes them all to JPEG below.
     let imagePath: string | null = null;
     for (const ext of [
       "image.jpg",
@@ -101,31 +137,35 @@ async function loadFixtures(): Promise<
       }
     }
     const expectedPath = join(dir, "expected.json");
-
     if (!imagePath || !existsSync(expectedPath)) continue;
 
-    // HEIC path: sharp's npm prebuilds drop libheif on macOS, so we shell
-    // out to `sips` (on every Mac since forever) to decode to JPEG first.
-    // Everything else goes straight to sharp. This keeps the eval local
-    // to macOS; if we ever run it in CI we'll need heic-convert or similar.
+    // HEIC decode via macOS `sips` (sharp's npm prebuilds drop libheif
+    // on macOS). Running this eval on non-macOS CI would need
+    // heic-convert or similar; today evals are local-dev-only.
     const isHeic = /\.heic$/i.test(imagePath);
     let rawBuffer: Buffer;
     if (isHeic) {
       const tmp = mkdtempSync(join(tmpdir(), "orzo-eval-"));
       const outPath = join(tmp, "converted.jpg");
-      execFileSync("sips", ["-s", "format", "jpeg", imagePath, "--out", outPath], {
-        stdio: "pipe",
-      });
+      execFileSync("sips", [
+        "-s",
+        "format",
+        "jpeg",
+        imagePath,
+        "--out",
+        outPath,
+      ], { stdio: "pipe" });
       rawBuffer = readFileSync(outPath);
     } else {
       rawBuffer = readFileSync(imagePath);
     }
-    // Re-encode through sharp → JPEG for uniform quality + EXIF orient.
     const image = await sharp(rawBuffer)
       .rotate()
       .jpeg({ quality: 90 })
       .toBuffer();
-    const expected = JSON.parse(readFileSync(expectedPath, "utf8")) as ExpectedFixture;
+    const expected = JSON.parse(
+      readFileSync(expectedPath, "utf8"),
+    ) as ExpectedFixture;
     fixtures.push({ slug: entry, image, expected });
   }
 
@@ -133,26 +173,27 @@ async function loadFixtures(): Promise<
 }
 
 const fixtures = runEvals ? await loadFixtures() : [];
-
-// Use describe.skip when not in eval mode so the suite is a no-op in CI.
 const describeEval = runEvals ? describe : describe.skip;
 
-// Placeholder so vitest sees at least one test registered in this file
-// even when the describeEval block skips — avoids "Test Files 1 failed"
-// from vitest's no-tests-found check.
 describe.skip("eval suite disabled (set RUN_LLM_EVALS=1 to run)", () => {
   it("placeholder", () => {});
 });
 
-// 120s per test — real OpenAI calls take 10-30s each and the fraction
-// gate runs both Call A and Call B against the fixture, so tests can
-// legitimately block for up to ~60s before assertions resolve.
 const EVAL_TIMEOUT_MS = 120_000;
 
-describeEval("image parse eval — real OpenAI", () => {
+function percentile(xs: number[], p: number): number {
+  if (xs.length === 0) return 0;
+  const sorted = [...xs].sort((a, b) => a - b);
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.floor(p * (sorted.length - 1)),
+  );
+  return sorted[idx];
+}
+
+describeEval("image parse eval — single-call gpt-4o", () => {
   if (runEvals && fixtures.length === 0) {
-    it("WARNING: RUN_LLM_EVALS=1 but no fixtures found — add some under tests/fixtures/recipe-images/", () => {
-      // Fails loudly so nobody thinks the eval passed with zero fixtures.
+    it("WARNING: no fixtures found — add some under tests/fixtures/recipe-images/", () => {
       expect(fixtures.length).toBeGreaterThan(0);
     });
     return;
@@ -169,155 +210,219 @@ describeEval("image parse eval — real OpenAI", () => {
     },
   ];
 
+  const scores: FixtureScore[] = [];
+
   for (const { slug, image, expected } of fixtures) {
-    describe(`fixture: ${slug}`, () => {
-      // Hoisted so title/ingredient/step assertions share one parse.
-      // Each fixture runs parseImages exactly once to keep token cost bounded.
-      const imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
-      let candidatePromise: Promise<
-        Awaited<ReturnType<Awaited<typeof parseImagesPromise>>>
-      > | null = null;
+    it(
+      `fixture: ${slug}`,
+      async () => {
+        const parseForEval = await parseForEvalPromise;
+        const imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
 
-      const parseOnce = () => {
-        if (!candidatePromise) {
-          candidatePromise = parseImagesPromise.then((parseImages) =>
-            parseImages([imageDataUrl], sourcePages),
-          );
+        let result;
+        try {
+          result = await parseForEval([imageDataUrl], sourcePages);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          scores.push({
+            fixture: slug,
+            titleOk: null,
+            servingsOk: null,
+            ingredientsPass: false,
+            ingredientsMissing: [],
+            fractionDeltas: [],
+            stepCountActual: 0,
+            stepCountDiff: 0,
+            stepNumericsMissing: [],
+            stepToolsMissing: [],
+            latencyMs: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            estimatedCostUsd: null,
+            model: "",
+            hardGatePassed: false,
+            error: msg,
+          });
+          throw err;
         }
-        return candidatePromise;
-      };
 
-      if (expected.title !== undefined) {
-        it(
-          "title matches (case-insensitive)",
-          async () => {
-            const candidate = await parseOnce();
-            expect(candidate.title?.toLowerCase()).toBe(
-              expected.title?.toLowerCase() ?? null,
-            );
-          },
-          EVAL_TIMEOUT_MS,
-        );
-      }
+        const candidate = result.candidate;
+        const { usage, model, latencyMs } = result.outcome;
 
-      if (expected.servings !== undefined) {
-        it(
-          "servings matches exactly",
-          async () => {
-            const candidate = await parseOnce();
-            expect(candidate.servings).toBe(expected.servings);
-          },
-          EVAL_TIMEOUT_MS,
-        );
-      }
+        const titleOk =
+          expected.title !== undefined
+            ? candidate.title?.toLowerCase() === expected.title.toLowerCase()
+            : null;
+        const servingsOk =
+          expected.servings !== undefined
+            ? candidate.servings === expected.servings
+            : null;
 
-      it(
-        "ingredients: every expected amount is present within tolerance (CRITICAL fraction gate)",
-        async () => {
-          const candidate = await parseOnce();
-          for (const expectedIng of expected.ingredients) {
-            const match = candidate.ingredients.find(
-              (actual) =>
-                actual.name?.toLowerCase().includes(expectedIng.name.toLowerCase()),
-            );
-            expect(match, `ingredient "${expectedIng.name}" missing`).toBeDefined();
-            if (expectedIng.amount === null) {
-              expect(match!.amount, `${expectedIng.name} expected null amount`).toBeNull();
-            } else {
-              expect(
-                match!.amount,
-                `${expectedIng.name} expected ${expectedIng.amount}, got ${match!.amount}`,
-              ).not.toBeNull();
-              expect(Math.abs(match!.amount! - expectedIng.amount)).toBeLessThan(
-                FRACTION_TOLERANCE,
-              );
+        const ingredientsMissing: string[] = [];
+        const fractionDeltas: Array<{
+          name: string;
+          expected: number;
+          actual: number | null;
+        }> = [];
+        let ingredientsPass = true;
+        for (const expectedIng of expected.ingredients) {
+          const match = candidate.ingredients.find((actual) =>
+            actual.name?.toLowerCase().includes(expectedIng.name.toLowerCase()),
+          );
+          if (!match) {
+            ingredientsMissing.push(expectedIng.name);
+            ingredientsPass = false;
+            continue;
+          }
+          if (expectedIng.amount === null) {
+            if (match.amount !== null) {
+              ingredientsPass = false;
+              fractionDeltas.push({
+                name: expectedIng.name,
+                expected: 0,
+                actual: match.amount,
+              });
+            }
+          } else {
+            if (
+              match.amount === null ||
+              Math.abs(match.amount - expectedIng.amount) >= FRACTION_TOLERANCE
+            ) {
+              ingredientsPass = false;
+              fractionDeltas.push({
+                name: expectedIng.name,
+                expected: expectedIng.amount,
+                actual: match.amount,
+              });
             }
           }
-        },
-        EVAL_TIMEOUT_MS,
-      );
+        }
 
-      // Step count: we want to catch regressions like "0 steps extracted"
-      // and "15 steps from a 5-step recipe" but tolerate normal split/merge
-      // variance. Cookbook formatting is inconsistent — some number every
-      // sub-action (→ LLM extracts many), some lump multi-action paragraphs
-      // into one numbered step (→ LLM extracts fewer). Fraction fidelity is
-      // the hard bar; step count is informational. Asserts steps were
-      // extracted at all (>0) and logs a warning when variance is large.
-      it(
-        `step count is non-zero (source has ${expected.stepCount}; variance tolerated)`,
-        async () => {
-          const candidate = await parseOnce();
-          expect(candidate.steps.length).toBeGreaterThan(0);
-          const diff = Math.abs(candidate.steps.length - expected.stepCount);
-          if (diff > 3) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              `  ⚠ step count variance: expected ${expected.stepCount}, got ${candidate.steps.length} (diff ${diff}). Not a failure — just noting.`,
-            );
-          }
-        },
-        EVAL_TIMEOUT_MS,
-      );
+        const stepCountActual = candidate.steps.length;
+        const stepCountDiff = Math.abs(stepCountActual - expected.stepCount);
+        const allStepText = candidate.steps
+          .map((s) => s.text)
+          .join(" ")
+          .toLowerCase();
+        const stepNumericsMissing = expected.requiredStepNumerics.filter(
+          (n) => !allStepText.includes(n.toLowerCase()),
+        );
+        const stepToolsMissing = expected.requiredStepTools.filter(
+          (t) => !allStepText.includes(t.toLowerCase()),
+        );
 
-      // Step numerics: allow up to 25% of required items to be missing
-      // (minimum tolerance of 0 for small lists). Real concision legitimately
-      // drops some time/temp mentions when they're inferable from context
-      // (e.g. "350°F" can be inferred when only one oil temp appears earlier).
-      // Zero tolerance on lists of 1-3 items; tolerance 1 on lists of 4-7.
-      it(
-        "step numerics mostly preserved (≤25% drop) through concision rewrite",
-        async () => {
-          const candidate = await parseOnce();
-          const allStepText = candidate.steps
-            .map((s) => s.text)
-            .join(" ")
-            .toLowerCase();
-          const missing = expected.requiredStepNumerics.filter(
-            (required) => !allStepText.includes(required.toLowerCase()),
+        const estimatedCostUsd = estimateCostUsd(model, usage);
+
+        scores.push({
+          fixture: slug,
+          titleOk,
+          servingsOk,
+          ingredientsPass,
+          ingredientsMissing,
+          fractionDeltas,
+          stepCountActual,
+          stepCountDiff,
+          stepNumericsMissing,
+          stepToolsMissing,
+          latencyMs,
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+          estimatedCostUsd,
+          model,
+          hardGatePassed: ingredientsPass,
+        });
+
+        // Hard gate: fraction fidelity. Every other check is warning-only.
+        expect(
+          ingredientsPass,
+          `Fraction regression on ${slug}: missing=${ingredientsMissing.join(
+            ", ",
+          )} deltas=${JSON.stringify(fractionDeltas)}`,
+        ).toBe(true);
+
+        if (stepCountDiff > 3) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `  ⚠ step-count variance on ${slug}: expected=${expected.stepCount} got=${stepCountActual}`,
           );
-          // ceil so small lists (3-4 items) tolerate 1 miss; 0 tolerance on
-          // single-item lists catches the "everything dropped" regression.
-          const maxMissing = Math.ceil(expected.requiredStepNumerics.length * 0.25);
-          if (missing.length > maxMissing) {
-            // eslint-disable-next-line no-console
-            console.warn(`  ⚠ numerics missing: ${missing.join(", ")}`);
-          }
-          expect(
-            missing.length,
-            `too many required numerics dropped: ${missing.join(", ")}`,
-          ).toBeLessThanOrEqual(maxMissing);
-        },
-        EVAL_TIMEOUT_MS,
-      );
-
-      // Step tools: same ≤25% drop tolerance. Tools like "thermometer"
-      // and "tray" are routinely concisable out of steps when the action
-      // is obvious from the temperature target or the draining instruction.
-      // The expected list is pre-pruned to only truly-critical tools.
-      it(
-        "step tools mostly preserved (≤25% drop) through concision rewrite",
-        async () => {
-          const candidate = await parseOnce();
-          const allStepText = candidate.steps
-            .map((s) => s.text)
-            .join(" ")
-            .toLowerCase();
-          const missing = expected.requiredStepTools.filter(
-            (tool) => !allStepText.includes(tool.toLowerCase()),
+        }
+        const maxNumericMiss = Math.ceil(
+          expected.requiredStepNumerics.length * 0.25,
+        );
+        if (stepNumericsMissing.length > maxNumericMiss) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `  ⚠ step numerics missing (>${maxNumericMiss}): ${stepNumericsMissing.join(", ")}`,
           );
-          const maxMissing = Math.ceil(expected.requiredStepTools.length * 0.25);
-          if (missing.length > maxMissing) {
-            // eslint-disable-next-line no-console
-            console.warn(`  ⚠ tools missing: ${missing.join(", ")}`);
-          }
-          expect(
-            missing.length,
-            `too many required tools dropped: ${missing.join(", ")}`,
-          ).toBeLessThanOrEqual(maxMissing);
-        },
-        EVAL_TIMEOUT_MS,
-      );
-    });
+        }
+        const maxToolsMiss = Math.ceil(
+          expected.requiredStepTools.length * 0.25,
+        );
+        if (stepToolsMissing.length > maxToolsMiss) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `  ⚠ step tools missing (>${maxToolsMiss}): ${stepToolsMissing.join(", ")}`,
+          );
+        }
+      },
+      EVAL_TIMEOUT_MS,
+    );
   }
+
+  // Summary table + JSONL report emitted after per-fixture tests.
+  it("prints summary table + writes JSONL report", () => {
+    const latencies = scores.map((s) => s.latencyMs).filter((x) => x > 0);
+    const costs = scores
+      .map((s) => s.estimatedCostUsd)
+      .filter((c): c is number => c !== null);
+    const promptTokens = scores.map((s) => s.promptTokens);
+    const completionTokens = scores.map((s) => s.completionTokens);
+
+    // eslint-disable-next-line no-console
+    console.log("\n═══ IMAGE-PARSE EVAL SUMMARY ═══");
+    // eslint-disable-next-line no-console
+    console.log(
+      `fixtures:       ${scores.filter((s) => s.hardGatePassed).length}/${scores.length} passed fraction gate`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `p50 latency:    ${(percentile(latencies, 0.5) / 1000).toFixed(1)}s`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `p90 latency:    ${(percentile(latencies, 0.9) / 1000).toFixed(1)}s`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `p50 cost/parse: ${costs.length ? "$" + percentile(costs, 0.5).toFixed(4) : "n/a"}`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `p90 cost/parse: ${costs.length ? "$" + percentile(costs, 0.9).toFixed(4) : "n/a"}`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `avg in tokens:  ${Math.round(
+        promptTokens.reduce((a, b) => a + b, 0) /
+          Math.max(1, promptTokens.length),
+      )}`,
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `avg out tokens: ${Math.round(
+        completionTokens.reduce((a, b) => a + b, 0) /
+          Math.max(1, completionTokens.length),
+      )}`,
+    );
+
+    if (!existsSync(RESULTS_DIR)) mkdirSync(RESULTS_DIR, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const path = join(RESULTS_DIR, `eval-${ts}.jsonl`);
+    writeFileSync(
+      path,
+      scores.map((s) => JSON.stringify({ type: "score", ...s })).join("\n") + "\n",
+    );
+    // eslint-disable-next-line no-console
+    console.log(`\nFull eval results written to ${path}\n`);
+  });
 });
