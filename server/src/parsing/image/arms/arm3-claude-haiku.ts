@@ -20,7 +20,9 @@ import type { SourcePage } from "@orzo/shared";
 import { parseForEvalClaude } from "./arm2-claude-sonnet.js";
 import type { ArmResult, ImageParseArm } from "./types.js";
 
-const MODEL = "claude-haiku-4.5";
+// Anthropic model IDs use hyphens, not dots. The dated alias avoids
+// surprise behavior when Anthropic rotates the "latest" pointer.
+const MODEL = "claude-haiku-4-5-20251001";
 
 async function parseForEval(
   imageUrls: string[],

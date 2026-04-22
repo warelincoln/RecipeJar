@@ -1,4 +1,11 @@
-import "dotenv/config"; // Load OPENAI_API_KEY + ANTHROPIC_API_KEY from server/.env before arm modules import vendor clients.
+// Load OPENAI_API_KEY + ANTHROPIC_API_KEY from server/.env before arm modules
+// import vendor clients. Use override:true because some shell parents (e.g.
+// the Claude Code host when the eval is invoked from the assistant) inject
+// ANTHROPIC_API_KEY="" into the env, which dotenv's default load silently
+// skips — the .env-file value then never reaches the arms and Arms 2+3 get
+// skipped with a confusing "not set" warning.
+import { config as loadDotenv } from "dotenv";
+loadDotenv({ override: true });
 import { describe, it, expect } from "vitest";
 import {
   readdirSync,
@@ -99,12 +106,23 @@ const runEvals = process.env.RUN_LLM_EVALS === "1";
  * is skipped and arm modules aren't loaded at all.
  */
 async function loadArms(): Promise<ImageParseArm[]> {
+  // Optional filter so we can re-run a specific subset after fixing
+  // something on one arm without re-paying for the arms that already
+  // produced clean data. Set via env: EVAL_ARMS=A2,A3 runs only those.
+  // Matches against ImageParseArm.name by substring (case-sensitive).
+  const filterRaw = process.env.EVAL_ARMS?.trim();
+  const filterTokens = filterRaw
+    ? filterRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : null;
+  const shouldInclude = (name: string) =>
+    filterTokens == null || filterTokens.some((t) => name.includes(t));
+
   const arms: ImageParseArm[] = [];
 
   const arm0 = await import(
     "../src/parsing/image/arms/arm0-current-split.js"
   ).then((m) => m.arm0CurrentSplit);
-  arms.push(arm0);
+  if (shouldInclude(arm0.name)) arms.push(arm0);
 
   // Phase 3: load candidate arms only if their adapter files exist
   // AND their required env vars are set. Keeps the harness runnable
@@ -142,7 +160,7 @@ async function loadArms(): Promise<ImageParseArm[]> {
     try {
       const mod = await import(loader.file);
       const arm = mod[loader.export] as ImageParseArm | undefined;
-      if (arm) arms.push(arm);
+      if (arm && shouldInclude(arm.name)) arms.push(arm);
     } catch (err) {
       // Arm not yet implemented — fine, skip. Log so Phase 3 can see
       // which arms still need to be built.

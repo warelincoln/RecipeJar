@@ -28,7 +28,11 @@ import {
 } from "./monolithic-schema.js";
 import type { ArmResult, ImageParseArm } from "./types.js";
 
-const MODEL = "claude-sonnet-4.5";
+// Anthropic model IDs use hyphens, not dots. Sonnet 4.6 was released after
+// the plan was written (2026-04-21 eval harness setup); it supersedes 4.5
+// at the same price tier with strictly better vision accuracy. Using 4.6
+// so eval results reflect what would actually ship.
+const MODEL = "claude-sonnet-4-6";
 const TOOL_NAME = "emit_recipe";
 
 const anthropic = new Anthropic({

@@ -26,24 +26,24 @@ describe("estimateCostUsd", () => {
     expect(cost).toBeCloseTo(0.015, 6);
   });
 
-  it("computes cost for claude-sonnet-4.5", () => {
-    // claude-sonnet-4.5: $3/1M input, $15/1M output
+  it("computes cost for claude-sonnet-4-6", () => {
+    // claude-sonnet-4-6: $3/1M input, $15/1M output
     // 1500 input + 500 output = $0.0045 + $0.0075 = $0.012
-    const cost = estimateCostUsd("claude-sonnet-4.5", {
+    const cost = estimateCostUsd("claude-sonnet-4-6", {
       prompt_tokens: 1500,
       completion_tokens: 500,
     });
     expect(cost).toBeCloseTo(0.012, 6);
   });
 
-  it("computes cost for claude-haiku-4.5", () => {
-    // claude-haiku-4.5: $0.80/1M input, $4/1M output
-    // 10000 input + 2000 output = $0.008 + $0.008 = $0.016
-    const cost = estimateCostUsd("claude-haiku-4.5", {
+  it("computes cost for claude-haiku-4-5-20251001", () => {
+    // claude-haiku-4-5: $1/1M input, $5/1M output
+    // 10000 input + 2000 output = $0.01 + $0.01 = $0.02
+    const cost = estimateCostUsd("claude-haiku-4-5-20251001", {
       prompt_tokens: 10000,
       completion_tokens: 2000,
     });
-    expect(cost).toBeCloseTo(0.016, 6);
+    expect(cost).toBeCloseTo(0.02, 6);
   });
 
   it("returns null for unknown models so the event still emits", () => {
@@ -93,8 +93,8 @@ describe("pricing table", () => {
     for (const model of [
       "gpt-5.4",
       "gpt-4o",
-      "claude-sonnet-4.5",
-      "claude-haiku-4.5",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5-20251001",
     ]) {
       expect(table[model], `${model} must be in the pricing table`).toBeDefined();
       expect(table[model].inputPerMillion).toBeGreaterThan(0);
