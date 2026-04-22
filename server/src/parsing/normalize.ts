@@ -89,6 +89,24 @@ export function decodeHtmlEntities(value: string): string {
   return decode(value);
 }
 
+/**
+ * Cookbook recipes routinely reference other pages parenthetically —
+ * "pine nuts (page 228)", "stock (see page 12)", "chili paste (p. 45)".
+ * These are navigation aids for a printed book, not part of the
+ * ingredient. Strip them here so the ingredient list reads cleanly
+ * whether or not the vision model obeyed the prompt instruction.
+ *
+ * Handles (case-insensitive): "(page 228)", "(see page 12)",
+ * "(p. 45)", "(p 45)", "(pg. 100)", "(pg 100)".
+ */
+const PAGE_REF_PATTERN =
+  /\s*\(\s*(?:see\s+)?(?:p\.?|pg\.?|page)\s*\d+\s*\)/gi;
+
+export function stripPageRefs(value: string): string {
+  if (typeof value !== "string" || value.length === 0) return value;
+  return value.replace(PAGE_REF_PATTERN, "").replace(/\s+/g, " ").trim();
+}
+
 export function normalizeToCandidate(
   raw: RawExtractionResult,
   sourceType: "image" | "url",
@@ -96,13 +114,23 @@ export function normalizeToCandidate(
 ): ParsedRecipeCandidate {
   const ingredients: ParsedIngredientEntry[] = (raw.ingredients ?? []).map(
     (ing, i) => {
+      // Decode entities first, then strip any parenthetical page
+      // references so downstream display/re-parse never sees them.
+      // Headers can legitimately say "For the sauce (see page 28)" so
+      // we strip refs on headers too — the ref wouldn't route the user
+      // anywhere inside the app anyway.
       const decodedText =
-        typeof ing.text === "string" ? decodeHtmlEntities(ing.text) : "";
+        typeof ing.text === "string"
+          ? stripPageRefs(decodeHtmlEntities(ing.text))
+          : "";
       const isHeader = ing.isHeader === true;
       const amount = typeof ing.amount === "number" ? ing.amount : null;
       const amountMax = typeof ing.amountMax === "number" ? ing.amountMax : null;
       const unit = typeof ing.unit === "string" && ing.unit.length > 0 ? ing.unit : null;
-      const name = typeof ing.name === "string" && ing.name.length > 0 ? decodeHtmlEntities(ing.name) : null;
+      const name =
+        typeof ing.name === "string" && ing.name.length > 0
+          ? stripPageRefs(decodeHtmlEntities(ing.name))
+          : null;
       const isScalable = !isHeader && amount !== null;
 
       return {
