@@ -110,6 +110,17 @@ export function CaptureView({ pages, onCapture, onDone, onCancel }: CaptureViewP
         device={device}
         isActive={true}
         photo={true}
+        // WYSIWYG capture: default "cover" crops the 3:4 sensor preview to
+        // fill the taller screen, hiding the horizontal edges of what the
+        // camera will actually capture. Users framed pages tightly in the
+        // preview and then got a much wider capture with the page tiny in
+        // the middle — which crushed OCR accuracy because the text
+        // rendered smaller than expected in the captured pixels. "contain"
+        // shows the real 3:4 frame with black letterboxes above/below, so
+        // the preview matches the capture. Users can get physically
+        // closer to the page and the OCR sees what the user thought they
+        // were sending. Root-cause find 2026-04-21.
+        resizeMode="contain"
       />
 
       {/*
