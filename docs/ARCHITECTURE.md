@@ -11,7 +11,7 @@ Located in `server/src/domain/validation/`. Runs 8 rule modules in this exact or
 2. rules.integrity       → CONFIRMED_OMISSION (BLOCK), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, userDismissible)
 3. rules.required-fields → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (BLOCK), STEPS_MISSING (BLOCK)
 4. rules.servings        → SERVINGS_MISSING (BLOCK)
-5. rules.ingredients     → INGREDIENT_MERGED (FLAG), INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
+5. rules.ingredients     → INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
 6. rules.steps           → OCR artifacts (FLAG)
 7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (RETAKE or BLOCK if limit hit), POOR_IMAGE_QUALITY (RETAKE or BLOCK if limit hit)
 ```

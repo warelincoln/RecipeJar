@@ -18,8 +18,6 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
       return "No step instructions yet. Save ingredients-only or add steps below.";
     case "STEPS_EXTRACTION_FAILED":
       return "We couldn't read the step instructions from this photo. Edit them below, retake the page, or save ingredients-only.";
-    case "INGREDIENT_MERGED":
-      return "This line may combine two ingredients—split it if that looks right.";
     case "INGREDIENT_NAME_MISSING":
       return "We couldn't spot an ingredient name on this line—give it a quick look.";
     case "INGREDIENT_QTY_OR_UNIT_MISSING":

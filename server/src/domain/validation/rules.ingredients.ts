@@ -7,18 +7,11 @@ export function evaluateIngredients(
   const issues: ValidationIssue[] = [];
 
   for (const signal of candidate.ingredientSignals) {
-    if (signal.mergedWhenSeparable) {
-      issues.push({
-        issueId: `ingredient-merged-${signal.index}`,
-        code: "INGREDIENT_MERGED",
-        severity: "FLAG",
-        message:
-          "This line may combine two ingredients—split it if that looks right.",
-        fieldPath: `ingredients[${signal.index}]`,
-        userDismissible: true,
-        userResolvable: true,
-      });
-    }
+    // INGREDIENT_MERGED removed 2026-04-21: every real-world hit was a
+    // legitimate compound entry ("salt and pepper to taste"). The signal
+    // from the vision model stays in the schema (removing it risks
+    // strict-JSON breakage on inflight drafts), but the rule no longer
+    // emits a FLAG. See fix/parse-ux-polish-5-bugs.
 
     if (signal.missingName) {
       issues.push({

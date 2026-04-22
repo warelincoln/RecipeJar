@@ -163,13 +163,13 @@ describe("validateRecipe", () => {
     expect(extractionFailedIssue).toBeUndefined();
   });
 
-  it("merged ingredient lines -> FLAG", () => {
+  it("mergedWhenSeparable signal no longer emits an issue (removed 2026-04-21)", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
           {
             index: 0,
-            text: "1 cup flour, 2 eggs",
+            text: "salt and pepper to taste",
             mergedWhenSeparable: true,
             missingName: false,
             missingQuantityOrUnit: false,
@@ -179,10 +179,13 @@ describe("validateRecipe", () => {
         ],
       }),
     );
-    const issue = result.issues.find((i) => i.code === "INGREDIENT_MERGED");
-    expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("FLAG");
-    expect(issue!.userDismissible).toBe(true);
+    // Rule removed — the signal still flows through the pipeline but
+    // produces no user-facing FLAG. Every real-world hit was a compound
+    // ingredient ("salt and pepper to taste"), never a legitimate
+    // split-needed case.
+    expect(
+      result.issues.find((i) => (i.code as string) === "INGREDIENT_MERGED"),
+    ).toBeUndefined();
   });
 
   it("suspected omission -> FLAG", () => {

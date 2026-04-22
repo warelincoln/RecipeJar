@@ -222,7 +222,6 @@ Machine states reference `importMachine` in `mobile/src/features/import/machine.
 | Code | Severity | Notes |
 |------|----------|-------|
 | `SUSPECTED_OMISSION` | `FLAG` | If AI can't extract everything |
-| `INGREDIENT_MERGED` | `FLAG` | If AI merges lines |
 
 **Expected save state:** `SAVE_CLEAN` if extraction is clean
 
