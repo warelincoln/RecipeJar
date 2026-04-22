@@ -29,7 +29,7 @@ Rules:
 - Convert fractions to decimals in the amount field (e.g. ½ → 0.5, ⅓ → 0.333, ¼ → 0.25). Keep the original text with fractions in the "text" field.
 - Do NOT rewrite, standardize units, or infer missing values in the "text" field.
 - Do NOT include stories, ads, or non-recipe content.
-- Cross-references like "See page 28" should be preserved as-is if they appear inside an ingredient line, but do not try to follow them.
+- Strip any parenthetical page references from ingredient lines (e.g. "(page 228)", "(see page 12)", "(p. 45)"). These are navigation aids for the printed book, not recipe content. The app strips them again post-parse as a safety net, but cleaner input here saves tokens on the structured-field side.
 - If multiple distinct recipes are visible, extract only the most prominent or primary recipe. Do not merge ingredients from adjacent recipes.
 - Extract prep time, cook time, and total time with a two-tier strategy:
   1. If a time is EXPLICITLY stated on the page (e.g. "Prep: 15 minutes", "Bake: 30 minutes", "Total time: 1 hour 30 minutes"), return the value with source "explicit".

@@ -83,17 +83,22 @@ describe("validateRecipe", () => {
     expect(issue!.severity).toBe("FLAG");
   });
 
-  it("missing ingredients -> BLOCK", () => {
+  // Downgraded 2026-04-21 — matches the STEPS_MISSING decision from
+  // 2026-04-19. The user owns their data; they may want to save a
+  // skeleton and fill ingredients in later.
+  it("missing ingredients -> FLAG (dismissible, save still clean)", () => {
     const result = validateRecipe(
       makeCandidate({ ingredients: [], ingredientSignals: [] }),
     );
     const issue = result.issues.find((i) => i.code === "INGREDIENTS_MISSING");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
-    expect(result.saveState).toBe("NO_SAVE");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+    expect(result.hasBlockingIssues).toBe(false);
+    expect(result.saveState).toBe("SAVE_CLEAN");
   });
 
-  it("only header ingredients count as missing -> BLOCK", () => {
+  it("only header ingredients count as missing -> FLAG (dismissible)", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredients: [
@@ -104,7 +109,8 @@ describe("validateRecipe", () => {
     );
     const issue = result.issues.find((i) => i.code === "INGREDIENTS_MISSING");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
   });
 
   // Ingredient-only recipes are allowed — users often screenshot just the
@@ -163,13 +169,13 @@ describe("validateRecipe", () => {
     expect(extractionFailedIssue).toBeUndefined();
   });
 
-  it("merged ingredient lines -> FLAG", () => {
+  it("mergedWhenSeparable signal no longer emits an issue (removed 2026-04-21)", () => {
     const result = validateRecipe(
       makeCandidate({
         ingredientSignals: [
           {
             index: 0,
-            text: "1 cup flour, 2 eggs",
+            text: "salt and pepper to taste",
             mergedWhenSeparable: true,
             missingName: false,
             missingQuantityOrUnit: false,
@@ -179,10 +185,13 @@ describe("validateRecipe", () => {
         ],
       }),
     );
-    const issue = result.issues.find((i) => i.code === "INGREDIENT_MERGED");
-    expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("FLAG");
-    expect(issue!.userDismissible).toBe(true);
+    // Rule removed — the signal still flows through the pipeline but
+    // produces no user-facing FLAG. Every real-world hit was a compound
+    // ingredient ("salt and pepper to taste"), never a legitimate
+    // split-needed case.
+    expect(
+      result.issues.find((i) => (i.code as string) === "INGREDIENT_MERGED"),
+    ).toBeUndefined();
   });
 
   it("suspected omission -> FLAG", () => {
@@ -204,7 +213,9 @@ describe("validateRecipe", () => {
     expect(issue!.severity).toBe("FLAG");
   });
 
-  it("confirmed omission -> BLOCK", () => {
+  // Downgraded from BLOCK to FLAG 2026-04-21. Framing cut off content
+  // is a useful signal, not a save-gate — user may want to save partial.
+  it("confirmed omission -> FLAG (dismissible)", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -220,7 +231,9 @@ describe("validateRecipe", () => {
     );
     const issue = result.issues.find((i) => i.code === "CONFIRMED_OMISSION");
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+    expect(result.hasBlockingIssues).toBe(false);
   });
 
   it("missing quantity/unit -> FLAG", () => {
@@ -377,7 +390,8 @@ describe("validateRecipe", () => {
     expect(result.saveState).toBe("SAVE_CLEAN");
   });
 
-  it("structure not separable -> BLOCK", () => {
+  // Downgraded from BLOCK to FLAG 2026-04-21.
+  it("structure not separable -> FLAG (dismissible)", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -395,7 +409,9 @@ describe("validateRecipe", () => {
       (i) => i.code === "STRUCTURE_NOT_SEPARABLE",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+    expect(result.hasBlockingIssues).toBe(false);
   });
 
   it("low confidence structure -> RETAKE when retakes available", () => {
@@ -457,7 +473,10 @@ describe("validateRecipe", () => {
     expect(result.requiresRetake).toBe(true);
   });
 
-  it("retake limit reached -> BLOCK after 2 retakes per page", () => {
+  // Downgraded from BLOCK to FLAG 2026-04-21. Retake limit is a signal
+  // that re-capturing won't help anymore — it shouldn't actively block
+  // save. User can edit manually.
+  it("retake limit reached -> FLAG (dismissible) after 2 retakes per page", () => {
     const result = validateRecipe(
       makeCandidate({
         parseSignals: {
@@ -485,8 +504,59 @@ describe("validateRecipe", () => {
       (i) => i.code === "RETAKE_LIMIT_REACHED",
     );
     expect(issue).toBeDefined();
-    expect(issue!.severity).toBe("BLOCK");
+    expect(issue!.severity).toBe("FLAG");
+    expect(issue!.userDismissible).toBe(true);
+    expect(result.hasBlockingIssues).toBe(false);
     expect(result.requiresRetake).toBe(false);
+  });
+
+  it("all four legacy BLOCKs together -> SAVE_USER_VERIFIED after dismissing all FLAGs", () => {
+    // Integration assertion: with BLOCKs downgraded to dismissible FLAGs,
+    // a pathologically bad draft (no ingredients + can't separate
+    // structure + cut-off content + retakes exhausted) is recoverable via
+    // the "Looks good" dismissal path on all four flags.
+    const candidate = makeCandidate({
+      ingredients: [],
+      ingredientSignals: [],
+      parseSignals: {
+        structureSeparable: false,
+        lowConfidenceStructure: true,
+        poorImageQuality: false,
+        multiRecipeDetected: false,
+        confirmedOmission: true,
+        suspectedOmission: false,
+        descriptionDetected: false,
+      },
+      sourcePages: [
+        {
+          id: "p1",
+          orderIndex: 0,
+          sourceType: "image",
+          retakeCount: 2,
+          imageUri: "test.jpg",
+          extractedText: null,
+        },
+      ],
+    });
+    const result = validateRecipe(candidate);
+
+    // No BLOCKs anywhere.
+    expect(result.hasBlockingIssues).toBe(false);
+    // Every legacy-BLOCK code is present as a dismissible FLAG.
+    for (const code of [
+      "INGREDIENTS_MISSING",
+      "STRUCTURE_NOT_SEPARABLE",
+      "CONFIRMED_OMISSION",
+      "RETAKE_LIMIT_REACHED",
+    ] as const) {
+      const issue = result.issues.find((i) => i.code === code);
+      expect(issue, `${code} should be present`).toBeDefined();
+      expect(issue!.severity, `${code} should be FLAG`).toBe("FLAG");
+      expect(
+        issue!.userDismissible,
+        `${code} should be dismissible`,
+      ).toBe(true);
+    }
   });
 
   it("SAVE_CLEAN allowed when ingredient signals have no active rules", () => {

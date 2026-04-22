@@ -152,11 +152,124 @@ describe("normalizeToCandidate", () => {
     expect(result.ingredients[0].text).toBe("Oil & butter");
     expect(result.steps[0].text).toBe("Mix A & B.");
   });
+
+  it("strips parenthetical page references from ingredient text and name", () => {
+    const raw: RawExtractionResult = {
+      title: "Roasted Carrots",
+      ingredients: [
+        {
+          text: "1/2 cup pine nuts (page 228)",
+          name: "pine nuts (page 228)",
+          isHeader: false,
+        },
+        {
+          text: "chili paste (see page 12)",
+          name: "chili paste (see page 12)",
+          isHeader: false,
+        },
+        {
+          text: "salt (p. 45)",
+          name: "salt (p. 45)",
+          isHeader: false,
+        },
+        {
+          text: "pepper (pg 100)",
+          name: "pepper (pg 100)",
+          isHeader: false,
+        },
+      ],
+      steps: [],
+      signals: { structureSeparable: true },
+    };
+    const result = normalizeToCandidate(raw, "image", testPages);
+    expect(result.ingredients[0].text).toBe("1/2 cup pine nuts");
+    expect(result.ingredients[0].name).toBe("pine nuts");
+    expect(result.ingredients[1].text).toBe("chili paste");
+    expect(result.ingredients[1].name).toBe("chili paste");
+    expect(result.ingredients[2].text).toBe("salt");
+    expect(result.ingredients[2].name).toBe("salt");
+    expect(result.ingredients[3].text).toBe("pepper");
+    expect(result.ingredients[3].name).toBe("pepper");
+  });
+
+  it("does not strip a parenthetical that is not a page ref", () => {
+    // Guard against over-eager stripping — "(14 oz)" is compound-amount
+    // syntax the ingredient parser relies on.
+    const raw: RawExtractionResult = {
+      title: "Tomato Sauce",
+      ingredients: [
+        {
+          text: "2 (14 oz) cans tomatoes",
+          name: "(14 oz) cans tomatoes",
+          isHeader: false,
+        },
+        {
+          text: "1 cup water (optional)",
+          name: "water (optional)",
+          isHeader: false,
+        },
+      ],
+      steps: [],
+      signals: { structureSeparable: true },
+    };
+    const result = normalizeToCandidate(raw, "image", testPages);
+    expect(result.ingredients[0].text).toBe("2 (14 oz) cans tomatoes");
+    expect(result.ingredients[1].text).toBe("1 cup water (optional)");
+  });
 });
 
 describe("decodeHtmlEntities", () => {
   it("passes through plain text", () => {
     expect(decodeHtmlEntities("No entities here")).toBe("No entities here");
+  });
+});
+
+describe("stripPageRefs", () => {
+  // Import lazily so the existing top-of-file import block stays short.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  it("strips '(page 228)' variants", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(stripPageRefs("pine nuts (page 228)")).toBe("pine nuts");
+    expect(stripPageRefs("pine nuts (Page 228)")).toBe("pine nuts");
+    expect(stripPageRefs("pine nuts (PAGE 228)")).toBe("pine nuts");
+  });
+
+  it("strips '(see page N)' variants", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(stripPageRefs("stock (see page 12)")).toBe("stock");
+    expect(stripPageRefs("stock (See Page 12)")).toBe("stock");
+  });
+
+  it("strips '(p. N)' and '(pg N)' variants", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(stripPageRefs("chili paste (p. 45)")).toBe("chili paste");
+    expect(stripPageRefs("chili paste (p 45)")).toBe("chili paste");
+    expect(stripPageRefs("chili paste (pg. 100)")).toBe("chili paste");
+    expect(stripPageRefs("chili paste (pg 100)")).toBe("chili paste");
+  });
+
+  it("leaves non-page parentheticals intact", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(stripPageRefs("2 (14 oz) cans tomatoes")).toBe(
+      "2 (14 oz) cans tomatoes",
+    );
+    expect(stripPageRefs("1 cup water (optional)")).toBe(
+      "1 cup water (optional)",
+    );
+  });
+
+  it("collapses whitespace after strip", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(stripPageRefs("pine   nuts   (page 228)   , toasted")).toBe(
+      "pine nuts , toasted",
+    );
+  });
+
+  it("strips multiple refs in one line", async () => {
+    const { stripPageRefs } = await import("../src/parsing/normalize.js");
+    expect(
+      stripPageRefs("sauce (page 10) with stock (see page 12)"),
+    ).toBe("sauce with stock");
   });
 });
 

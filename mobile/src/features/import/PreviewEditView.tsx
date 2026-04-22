@@ -54,6 +54,57 @@ function issueSummaryBadgeLabel(
   return null;
 }
 
+/**
+ * Shape of the locally-edited candidate pieces relevant to resolution.
+ * Typed loosely to accept the in-flight edit state from PreviewEditView.
+ */
+interface LocalEditSnapshot {
+  title: string;
+  servings: string;
+  ingredients: ReadonlyArray<{ text: string; isHeader: boolean }>;
+  steps: ReadonlyArray<{ text: string; isHeader: boolean }>;
+}
+
+/**
+ * Returns true if the user's current local edits have resolved the issue.
+ * Used to optimistically suppress stale FLAGs between keystroke and the
+ * server PATCH /drafts/:id/candidate round-trip. The server is always the
+ * source of truth on eventual validation; this is UX sugar for "I see
+ * you've already fixed this, stop nagging."
+ *
+ * Kept intentionally small — only handles the obvious field-level cases.
+ * Structural/signal-driven rules (OMISSION, OCR artifacts, STRUCTURE_NOT_SEPARABLE,
+ * etc.) reflect parse metadata and can only be resolved by round-tripping
+ * or by the user explicitly dismissing via "Looks good".
+ */
+function isLocallyResolved(
+  issue: ValidationIssue,
+  snap: LocalEditSnapshot,
+): boolean {
+  switch (issue.code) {
+    case "TITLE_MISSING":
+      return snap.title.trim().length > 0;
+    case "INGREDIENTS_MISSING":
+      return snap.ingredients.some(
+        (i) => !i.isHeader && i.text.trim().length > 0,
+      );
+    case "STEPS_MISSING":
+      return snap.steps.some((s) => !s.isHeader && s.text.trim().length > 0);
+    case "SERVINGS_MISSING": {
+      const n = parseFloat(snap.servings.trim());
+      return Number.isFinite(n) && n > 0;
+    }
+    case "INGREDIENT_NAME_MISSING": {
+      const m = issue.fieldPath?.match(/^ingredients\[(\d+)\]$/);
+      if (!m) return false;
+      const idx = parseInt(m[1], 10);
+      return (snap.ingredients[idx]?.text ?? "").trim().length > 0;
+    }
+    default:
+      return false;
+  }
+}
+
 function issueSummaryBadgeColor(
   issue: ValidationIssue,
   isDismissed: boolean,
@@ -234,10 +285,24 @@ export function PreviewEditView({
     [plan, candidate.steps, revealedWordCount],
   );
 
+  // Suppress issues the user has already resolved locally (between
+  // keystroke and server round-trip). Every render that changes title /
+  // servings / ingredients / steps recomputes this, so a one-character
+  // edit clears the red border and summary badge immediately. The
+  // server-authoritative validationResult still wins on round-trip —
+  // this is pure UX sugar.
+  const localSnap: LocalEditSnapshot = {
+    title,
+    servings: servingsText,
+    ingredients,
+    steps,
+  };
   const issuesByField = useCallback(
     (fieldPath: string): ValidationIssue[] =>
-      validationResult?.issues.filter((i) => i.fieldPath === fieldPath) ?? [],
-    [validationResult],
+      validationResult?.issues.filter(
+        (i) => i.fieldPath === fieldPath && !isLocallyResolved(i, localSnap),
+      ) ?? [],
+    [validationResult, localSnap],
   );
 
   const isFieldDismissed = useCallback(
@@ -614,13 +679,19 @@ export function PreviewEditView({
         </View>
       </TouchableOpacity>
 
-      {validationResult && validationResult.issues.length > 0 && (
+      {validationResult &&
+        validationResult.issues.filter(
+          (i) => i.severity !== "PASS" && !isLocallyResolved(i, localSnap),
+        ).length > 0 && (
         <View style={styles.issuesSummary}>
-          <Text style={styles.issuesSummaryTitle}>
-            {hasBlockers ? "Before you save" : "Give these a look"}
-          </Text>
+          {/* Label softened 2026-04-21 when all former BLOCKs were
+              downgraded to dismissible FLAGs — "Before you save" was too
+              scolding. "Give these a look" is the universal header now. */}
+          <Text style={styles.issuesSummaryTitle}>Give these a look</Text>
           {validationResult.issues
-            .filter((i) => i.severity !== "PASS")
+            .filter(
+              (i) => i.severity !== "PASS" && !isLocallyResolved(i, localSnap),
+            )
             .map((issue) => {
               const isDismissed = dismissedIssueIds.has(issue.issueId);
               const badgeLabel = issueSummaryBadgeLabel(issue, isDismissed);

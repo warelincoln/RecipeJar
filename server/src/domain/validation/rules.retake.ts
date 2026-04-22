@@ -22,14 +22,18 @@ export function evaluateRetake(
     );
 
     if (allPagesExhausted) {
+      // Downgraded from BLOCK to FLAG 2026-04-21. Reaching the retake
+      // limit is just a signal that re-capturing isn't going to help
+      // anymore — it shouldn't actively block save. The user already
+      // sees the flag and can edit manually to fix what needs fixing.
       issues.push({
         issueId: "retake-limit-reached",
         code: "RETAKE_LIMIT_REACHED",
-        severity: "BLOCK",
+        severity: "FLAG",
         message:
-          "You've used the max retakes—tidy things up below, then save when you're ready.",
-        userDismissible: false,
-        userResolvable: false,
+          "You've hit the retake limit. Tidy things up below and save when you're ready.",
+        userDismissible: true,
+        userResolvable: true,
       });
     } else {
       issues.push({
@@ -54,11 +58,11 @@ export function evaluateRetake(
         issues.push({
           issueId: "retake-limit-reached-quality",
           code: "RETAKE_LIMIT_REACHED",
-          severity: "BLOCK",
+          severity: "FLAG",
           message:
-            "Max retakes reached and the photo's still fuzzy—edit below to finish up.",
-          userDismissible: false,
-          userResolvable: false,
+            "Retakes exhausted and the photo's still fuzzy. Edit below to finish up.",
+          userDismissible: true,
+          userResolvable: true,
         });
       }
     } else {
