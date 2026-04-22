@@ -15,11 +15,16 @@ flagged), or a UX nudge (peach-tinted fraction fields).
 # Image Parsing — Known Limitations
 
 The image parse cascade lives in `server/src/parsing/image/image-parse.adapter.ts`.
-Split-call architecture shipped 2026-04-19 (see CHANGELOG entry).
+**Current architecture (shipped 2026-04-21):** single `gpt-4o` call with merged
+schema, `temperature: 0`, `detail: "high"`, `max_completion_tokens: 4500`.
+Replaced the 2026-04-19 split-call architecture after a 4-arm eval trade
+study showed monolithic gpt-4o beats it on cost (-42%) with equal accuracy
+and slightly better latency. See [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
+Image Parse section for the full history.
 
 ## Residual ~10% fraction misread rate on specific cookbook fonts
 
-**Failure mode**: gpt-5.4 Vision at `detail:"high"`, 3072px, `temperature: 0`
+**Failure mode**: gpt-4o Vision at `detail:"high"`, 3072px, `temperature: 0`
 occasionally locks onto a wrong reading for a visually-similar fraction glyph
 (common flips: ⅔ ↔ ½, ⅓ ↔ ¼, 1 3/4 ↔ 1 1/4) — and because temperature is 0,
 it gives the *same wrong answer every run on the same image*. This is not
@@ -27,20 +32,32 @@ random variance. Specific cookbook fonts, lighting, or column layouts cause
 the model to commit to a specific mis-read the way a human might read
 "il" as "ll" at a glance.
 
-**Why we can't fix this with prompt tuning**: the INGREDIENTS_PROMPT
+**Why we can't fix this with prompt tuning**: the `RECIPE_PROMPT`
 already tells the model to pay close attention to fractions and prefer the
-fraction matching surrounding character style. gpt-5.4 is the model we use
-because it's the most fraction-accurate option available. The monolithic
-architecture had the same underlying rate — we just didn't instrument it
-to see.
+fraction matching surrounding character style. gpt-4o passed 5/5 eval
+fixtures for fraction fidelity at the moment of the 2026-04-21 architecture
+switch (same score as the gpt-5.4 ingredient call in the prior split
+architecture), so the residual rate is a property of current vision-OCR
+SOTA, not our model choice.
 
-**Mitigation shipped**: fraction-verification UX in `PreviewEditView` +
-`mobile/src/utils/fractions.ts` + `mobile/src/utils/fractionTip.ts`.
+**2026-04-21 tailwind (WYSIWYG camera fix)**: the prior camera preview
+used `resizeMode="cover"`, cropping the 3:4 sensor output to fill the
+iPhone screen. Users framed pages tighter than the actual capture —
+text rendered smaller in the captured pixels than expected. The new
+`resizeMode="contain"` preview matches the capture frame exactly, so
+users can frame tighter (get physically closer) with confidence.
+Expected downstream: lower fraction misread rate over time as users
+send tighter-framed shots. No measurement yet; watch Sentry
+`server_parse_cost` + user fraction-error reports over the next week.
+
+**Mitigation shipped (2026-04-19, refined 2026-04-21)**: fraction-
+verification UX in `PreviewEditView` + `mobile/src/utils/fractions.ts`.
 Ingredients with non-integer `amount` values render with a subtle peach
-tint (`LIGHT_PEACH`). One-time banner on first fraction-containing parse:
-"Double-check fractions before cooking — AI isn't always perfect on ½ vs
-⅓." Dismissal persists under AsyncStorage key
-`fraction_verification_tip_seen_v1`.
+tint (`LIGHT_PEACH`). Persistent italic note above the ingredient list
+when any fractional amount is present: "Peach-tinted amounts are AI
+estimates — double-check fractions before cooking." (The original
+one-time AsyncStorage-gated banner was replaced with an always-visible
+note during 2026-04-19 dad-testing.)
 
 **User experience today**: user sees the tint on every fractional
 ingredient, can tap to edit any misread. Trained pattern from every mature
@@ -53,12 +70,12 @@ misreads at ~3s added latency. Not yet scoped.
 
 ## Step count variance ±2-3 from source count on dense multi-action recipes
 
-**Failure mode**: Call B (gpt-4o, concision rewrite) occasionally splits
-one numbered step into multiple output steps when the source paragraph
-contains multiple distinct sub-actions (e.g. a single step saying
-"Preheat oven, brown butter, whisk dry ingredients, then fold in wet"
-might be split into 4 output steps). Less often: merges two short
-adjacent steps.
+**Failure mode**: the monolithic gpt-4o call (concision rewrite portion)
+occasionally splits one numbered step into multiple output steps when the
+source paragraph contains multiple distinct sub-actions (e.g. a single
+step saying "Preheat oven, brown butter, whisk dry ingredients, then fold
+in wet" might be split into 4 output steps). Less often: merges two short
+adjacent steps. Same behavior as the prior split-architecture's Call B.
 
 **Why we can't force exact match**: cookbook formatting is inconsistent.
 Some cookbooks number every sub-action as its own step; others lump 3-5

@@ -11,7 +11,7 @@
 - URL import via in-app WebView browser (omnibar with Google search fallback, ad-domain blocking)
 - Clipboard URL detection (auto-prompt when URL is on clipboard)
 - 4-tier URL parsing cascade: JSON-LD → Microdata → DOM boundary extraction → GPT-5.4 AI fallback (all with quality gates)
-- Image parsing via GPT-5.4 Vision with structured ingredient schema
+- Image parsing via GPT-4o Vision with structured ingredient schema (monolithic, shipped 2026-04-21 — was GPT-5.4 + GPT-4o split 2026-04-19, was monolithic GPT-5.4 before that)
 - Image optimization pipeline (sharp: auto-orient, resize ≤3072px, JPEG 85%/90%)
 - SSRF guard on all server-side URL fetches (blocks RFC 1918, loopback, link-local, CGNAT)
 
@@ -103,21 +103,42 @@
 
 - `SERVINGS_MISSING` severity downgraded from BLOCK to FLAG — users can save recipes without known servings, receive a dismissible warning chip instead. Mobile display copy updated to match.
 
-**Image parse split-call architecture (shipped 2026-04-19, PR #3 + PR #5):**
+**Image parse architecture (shipped 2026-04-21, replacing the 2026-04-19 split-call):**
 
-- `parseImages()` in `server/src/parsing/image/image-parse.adapter.ts` splits into two parallel OpenAI calls:
-  - **Call A** (ingredients/title/servings/metadata): `gpt-5.4` + `detail:"high"` + 3072px + `temperature: 0` + strict JSON schema (`server/src/parsing/image/schemas.ts:ingredientsSchema`). Owns fraction accuracy.
-  - **Call B** (steps/description/stepSignals/descriptionDetected): `gpt-4o` + `detail:"high"` + 3072px + `temperature: 0` + strict JSON schema (`schemas.ts:stepsSchema`). Concision rule: "≤ 40 words per step, preserve every numeric/time/temperature/tool/cross-reference."
-  - `Promise.allSettled` → total latency = `max(A, B)` instead of `A + B-on-failure`. Dual-prompt fallback deleted.
-- **Partial-success flow**: Call A fails → `buildErrorCandidate`. Call B fails → candidate saves with `extractionError: "steps_failed"`; new rule in `rules.steps.ts` emits `STEPS_EXTRACTION_FAILED` FLAG; existing warning banner UI renders "We couldn't read the step instructions..." Save stays allowed.
-- **Semantic gate on Call A** — `ingredients.length >= 1` check mirrors `url-ai.adapter.ts:isValidAIResponse`. Empty ingredients → error candidate.
-- **Base64 dedup** — `imageContent` array built once in `parseImages` and shared across both helper calls.
-- Prompts in `server/src/parsing/image/prompts.ts` (`INGREDIENTS_PROMPT`, `STEPS_PROMPT`). Schemas in `schemas.ts`.
-- **Removed `optimizeForOcr`** — redundant re-encode at 3072 @ q90 after upload buffer was already 3072 @ q85. ~300-500ms per page saved.
-- **Parse semaphore 2 → 3** — matches README's documented "3 image-based recipes concurrently" contract. Each parse fires 2 parallel OpenAI calls; server-wide max is ~6 simultaneous requests, well under 500 RPM Tier 1 cap.
-- **Mobile poll interval 3000ms → 750ms** in `mobile/src/features/import/machine.ts`. Tail poll wait cut from avg 1.5s to ~0.4s.
-- **Rate-limit allowlist for `GET /drafts/:draftId`** in `server/src/app.ts` — prevents 3-concurrent-imports-at-750ms from tripping the global 100/min limit.
-- **`Promise.all` in uploadDraft actor** — load-bearing for future multi-image import, no-op for single-image today.
+After a 4-arm eval-driven cost trade study, parse returned to a single-call architecture — but on a cheaper model (`gpt-4o`) with a merged prompt + schema. See [`ARCHITECTURE.md`](ARCHITECTURE.md) Image Parse section for the full eval-results table that justified the decision.
+
+- `parseImages()` in `server/src/parsing/image/image-parse.adapter.ts`: ONE OpenAI call via `callMonolithic()`:
+  - `gpt-4o` + `detail:"high"` + 3072px + `temperature: 0` + strict JSON schema at `server/src/parsing/image/schemas.ts:recipeSchema`.
+  - Single prompt `RECIPE_PROMPT` at `server/src/parsing/image/prompts.ts` — union of the old `INGREDIENTS_PROMPT` + `STEPS_PROMPT` rules plus a single-pass lead-in.
+  - `max_completion_tokens: 4500` (sum of old split-call budgets).
+  - `temperature: 0` for deterministic fraction reads (⅔↔½ / ⅓↔¼ locked).
+- **Measured production impact vs the prior split architecture:** -42% cost per recipe ($0.048 → $0.028 eval p50 / $0.024 live), slightly better p50 latency (19.4s → 18.7s), tied on fraction fidelity 5/5. Real iPhone test imports: 100% accuracy, $0.018-$0.031 cost, 22-26s wall-clock.
+- **Per-call cost instrumentation** — `server/src/parsing/image/pricing.ts` maps model → input/output rates and exposes `estimateCostUsd`. Adapter emits `parse_tokens` server-log event + `server_parse_tokens` (per call) + `server_parse_cost` (per parse) PostHog analytics events.
+- **Semantic gate** — `ingredients.length >= 1` check. Empty → `buildErrorCandidate` → retake UI.
+- **Error paths** — OpenAI throws → error candidate. `finish_reason: "length"` → throws (raise max_completion_tokens + investigate). Empty `message.content` → error.
+- **Draft-save re-parses ingredient text** — `POST /drafts/:id/save` in `server/src/api/drafts.routes.ts` calls `parseIngredientLine(ing.text)` per non-header ingredient. Pre-2026-04-21 fix, it trusted the client's stale structured fields while preview-edit only updated `text`, so edits like "3 cups water → 2/3 cups water" saved with the pre-edit `amount`. `PUT /recipes/:id` (post-save edit) already had this behavior; draft save now matches.
+- **Carried forward from 2026-04-19:** base64 imageContent allocated once per parse; parse semaphore at 3 concurrent parses; mobile poll interval 750ms; rate-limit allowlist for `GET /drafts/:draftId`; `Promise.all` in `uploadDraft`; `optimizeForOcr` removed (redundant re-encode).
+- **Multi-arm eval harness** lives in git history on branch `fix/parse-cost-study-eval` — `server/src/parsing/image/arms/` + eval-loop test. Resurrect when evaluating a future candidate (e.g. when Anthropic ships a Sonnet 5 or when we want to try `detail:auto` + smaller images).
+
+**Parse UX polish (shipped 2026-04-21 across 5 commits / PR #6):**
+
+- **Fraction parser fix** — `parseIngredientLine` in [`server/src/parsing/ingredient-parser.ts`](../server/src/parsing/ingredient-parser.ts) now recognizes bare `N/M` slash fractions. Pre-fix, `"1/2 cup flour"` parsed to `amount=1, name="/2 cup flour"` which rendered as `"1 /2 cup flour"` and scaled to `"2 /2 cup flour"` at 2×. Only manifested on `PUT /recipes/:id` (re-parse path); 18 regression tests at `server/tests/ingredient-parser.test.ts`.
+- **Parenthetical page refs stripped** — `"(page 228)"`, `"(see page 12)"`, `"(p. 45)"` removed. Primary defense in the vision-model prompt; `stripPageRefs` regex in `server/src/parsing/normalize.ts` as safety net (covers all parse paths). Guarded against `"(14 oz)"` compound amounts.
+- **Validation: BLOCK→FLAG consolidation** — all 4 former BLOCK rules (`INGREDIENTS_MISSING`, `STRUCTURE_NOT_SEPARABLE`, `CONFIRMED_OMISSION`, `RETAKE_LIMIT_REACHED`) downgraded to dismissible FLAGs with `userDismissible: true`. Existing "Looks good" button pattern enables save. `INGREDIENT_MERGED` FLAG removed entirely (always a false positive). The "BLOCK" severity is reserved — no current rule emits it.
+- **`LOW_CONFIDENCE_STRUCTURE` RETAKE→FLAG** — follow-up same day. Vision model fires this signal on ingredient-only screenshots (no steps visible); pre-fix those were routed to retakeRequired with no save path. Now emits FLAG unconditionally, lets the user land on PreviewEdit. `POOR_IMAGE_QUALITY` stays as RETAKE (wall-photo case still nudges retake correctly).
+- **Optimistic flag clearing** — `isLocallyResolved` helper in `mobile/src/features/import/PreviewEditView.tsx` hides field-level issues whose local resolution is obvious (type a character in title field → red border + badge clear before server round-trip).
+- **Retake-screen Cancel button** — top-left link on `RetakeRequiredView`, wired through `handleCancel` to call `api.drafts.cancel(draftId)` + navigate. Also fixes latent issue where photos-library "Go Home" navigated without cancelling the draft server-side (now "Discard Import" with proper cleanup).
+- **Home-screen thumbnail fallback** — `onError` on `RecipeCard` FastImage swaps to hero URL, bumps cacheKey with retry counter to bypass FastImage failure cache, falls back to `RecipeImagePlaceholder` if both fail.
+- **Draft-save re-parse** — hotfix for edits made in preview. `POST /drafts/:id/save` now calls `parseIngredientLine(ing.text)` per ingredient (same pattern `PUT /recipes/:id` has always used). Regression guard in `server/tests/integration.test.ts`.
+
+**Camera WYSIWYG preview (shipped 2026-04-21):**
+
+- `CaptureView.tsx` `Camera` component now passes `resizeMode="contain"`. Default `"cover"` was cropping the 3:4 sensor output to fill the taller iPhone screen, hiding the horizontal edges of what the capture actually contained. Users thought they were framing tight but the captured photo was significantly wider, making text smaller in the captured pixels. Silent quality drag on every photo-based parse since launch.
+- Preview now matches the actual 3:4 capture frame with black letterboxes above/below (same UX as the native iOS Camera app). Users can get physically closer to the page. Expected downstream: higher OCR accuracy on every new parse without any prompt/model changes.
+
+**CLAUDE.md hard rule on dev server restarts (shipped 2026-04-21):**
+
+- `CLAUDE.md` at repo root: after any code change under `server/src/**`, `mobile/src/**`, `shared/src/**`, or config files, kill + restart the server and Metro, verify `/health`, confirm the new PID's start time is current. Auto-loads into every Claude session in this repo. Rule exists because `tsx watch` on this Mac silently drops file-change reloads — confirmed empirically when a 24-hour-old server process kept serving pre-edit code during the 2026-04-21 session; user caught it only via "this fix isn't working" after iPhone testing. Most likely cause is watchman recrawls on the repo path containing spaces (`MACBOOK PRO DESKTOP/Orzo`).
 
 **Ingredient-only recipes save (shipped 2026-04-19, product decision):**
 
@@ -134,7 +155,7 @@
 
 - `@sentry/node ^10.49.0` in the server workspace. `Sentry.init` in `server/src/instrument.ts` imported first (before Fastify/HTTP) so auto-instrumentation hooks before they load. `SENTRY_DSN` in Railway + `server/.env.example`.
 - `runParseInBackground` wrapped in `Sentry.startNewTrace` (detaches from the already-finished HTTP parent span so child spans don't inherit `sampled=false`) with manual spans for `supabase.download` / `image.optimize` (until removed in PR #5) / `parse.image-adapter` / `parse.finalize`.
-- OpenAI Call A + Call B auto-instrumented as `http.client` children via `@sentry/instrumentation-openai`.
+- OpenAI calls auto-instrumented as `http.client` children via `@sentry/instrumentation-openai`. Pre-2026-04-21: two calls per parse (split architecture). Post-2026-04-21: one call per parse (monolithic gpt-4o).
 - `tracesSampleRate: 1.0` in dev, `0.5` in production. `sendDefaultPii: false`. Profiling off. Environments `development` / `production` both flowing.
 
 **LLM eval suite (shipped 2026-04-19):**
@@ -154,7 +175,7 @@
 - Monorepo: `shared/` (TypeScript types) + `server/` (Fastify + Drizzle ORM + PostgreSQL) + `mobile/` (React Native 0.76 + XState 5 + Zustand 5)
 - Supabase used for file/image storage AND authentication (NOT for database queries — server connects to Postgres directly via `postgres` driver + Drizzle ORM)
 - Supabase Auth: Email/password + Apple Sign-In + Google OAuth configured, TOTP MFA enabled. **Mobile auth complete (WS-4)**: Supabase client, Keychain session, auth-gated navigation, all three sign-in methods functional.
-- OpenAI GPT-5.4 for Vision and text extraction
+- OpenAI GPT-4o for image Vision (shipped 2026-04-21 monolithic); GPT-5.4 still used for URL-AI fallback path in `url-ai.adapter.ts`
 - 15 database migrations (0000–0014)
 - Mobile native deps of note: `react-native-fast-image`, `react-native-vision-camera`, `react-native-image-picker`, `react-native-keychain`, `@react-native-clipboard/clipboard`, `lucide-react-native` + `react-native-svg`, `react-native-reanimated` + `react-native-gesture-handler` (installed but most screens still use `Animated`), **`react-native-haptic-feedback`** (added 2026-04-16 for bulk-select mode)
 
