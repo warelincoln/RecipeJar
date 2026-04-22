@@ -488,7 +488,7 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           issues={state.context.validationResult?.issues ?? []}
           onRetake={(pageId) => send({ type: "RETAKE_PAGE", pageId })}
           isPhotosEntry={state.context.imageEntry === "photos"}
-          onGoHome={() => fromHub ? navigation.navigate("ImportHub") : navigation.navigate("Home", {})}
+          onDiscard={handleCancel}
         />
       );
     }

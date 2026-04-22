@@ -23,7 +23,12 @@ interface RetakeRequiredViewProps {
   issues: ValidationIssue[];
   onRetake: (pageId: string) => void;
   isPhotosEntry?: boolean;
-  onGoHome?: () => void;
+  /** Cancel the import entirely (fires server-side draft cancel,
+   *  removes from queue if hub-sourced, navigates to Home / Hub).
+   *  Always available — before this prop existed the only escape from
+   *  the retake screen was to tap Retake and then Cancel from the
+   *  camera, which was a confusing two-step workaround. */
+  onDiscard: () => void;
 }
 
 export function RetakeRequiredView({
@@ -31,7 +36,7 @@ export function RetakeRequiredView({
   issues,
   onRetake,
   isPhotosEntry,
-  onGoHome,
+  onDiscard,
 }: RetakeRequiredViewProps) {
   const retakeIssues = issues.filter(
     (i) => i.severity === "RETAKE" || i.code === "POOR_IMAGE_QUALITY",
@@ -39,6 +44,18 @@ export function RetakeRequiredView({
 
   return (
     <View style={styles.container} testID="retake-screen">
+      {/* Top-left Cancel link mirrors the pattern used in PreviewEditView
+          so users have a consistent escape hatch across import screens. */}
+      <TouchableOpacity
+        style={styles.cancelButton}
+        onPress={onDiscard}
+        testID="retake-cancel"
+        accessibilityRole="button"
+        accessibilityLabel="retake-cancel"
+      >
+        <Text style={styles.cancelText}>Cancel</Text>
+      </TouchableOpacity>
+
       <Text style={styles.title} testID="retake-title">
         {isPhotosEntry ? "Could Not Read Photo" : "Retake Required"}
       </Text>
@@ -54,14 +71,14 @@ export function RetakeRequiredView({
         </View>
       ))}
 
-      {isPhotosEntry && onGoHome ? (
+      {isPhotosEntry ? (
         <TouchableOpacity
           style={styles.goHomeButton}
-          onPress={onGoHome}
+          onPress={onDiscard}
           testID="retake-go-home"
           accessibilityRole="button"
         >
-          <Text style={styles.goHomeText}>Go Home</Text>
+          <Text style={styles.goHomeText}>Discard Import</Text>
         </TouchableOpacity>
       ) : (
         <FlatList
@@ -97,6 +114,8 @@ export function RetakeRequiredView({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WHITE, paddingHorizontal: 24, paddingTop: 16 },
+  cancelButton: { alignSelf: "flex-start", paddingVertical: 8, marginBottom: 4 },
+  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
   subtitle: { fontSize: 14, color: TEXT_SECONDARY, marginBottom: 16, lineHeight: 20 },
   issueBanner: {
