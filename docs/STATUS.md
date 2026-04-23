@@ -138,6 +138,16 @@ Tests that depend on reaching deeper import flow states (saved, retake) use `gua
 | Session tracking | Auth middleware records user agent + IP on every request. `GET /account/sessions` returns session list. |
 | Provider linking | AccountScreen shows interactive Link/Unlink for Apple and Google. |
 
+## Proven in 2026-04-23 cycle (late evening) — iPhone smoke-test follow-ups to Tier 1+2C
+
+| What | Evidence |
+|---|---|
+| **Body-text rescue for partial microdata** | [`url-parse.adapter.ts`](../server/src/parsing/url/url-parse.adapter.ts) `extractBodyTextForRescue` called when `extractDomBoundary` returns null AND `fallbackIngredients.length >= 2`. Strips scripts/styles/nav/footer/header/aside/iframe/noscript, caps at 20 KB. Verified end-to-end on iPhone Orzo Dev: notquitenigella.com 2010 post (23 microdata ingredients, no recipeInstructions microdata, no Directions heading, no recipe-class wrapper) now saves with 23 ingredients + 10 AI-extracted steps + hero image. Log shows `microdata-partial-merged` with `reason: "boundary_null_body_rescue"` + `fallbackIngredientCount: 23`, then a second `microdata-partial-merged` after merge with `stepCount: 10`. |
+| **Heading-anchored title heuristic** | [`url-dom.adapter.ts`](../server/src/parsing/url/url-dom.adapter.ts) `findRecipeTitle` marks the ingredient heading with a unique data attribute, queries h1-h4 + the marker in one combined selector (cheerio preserves document order), captures the last heading text before the marker. Cross-parent DOM structures work because the selector doesn't rely on sibling traversal. Verified end-to-end: brightfarms.com LGBTQ+ Pride Salad post now titles the recipe "LGBTQ+ Pride Salad" (the h3 inside `.recipes-details`) instead of "BrightFarms Recipes" (the page h1). |
+| **ensureImageFromFreshFetch in fast path** | [`parseUrlStructuredOnly`](../server/src/parsing/url/url-parse.adapter.ts) (the sync fast path) now calls `ensureImageFromFreshFetch` in both json-ld and microdata success branches. Previously only wired into `parseUrlFromHtml`. Verified on jamieoliver.com halloumi-strawberry-skewers: parse emits `fastPath: true` + `image_fallback_fresh_fetch recovered:true`, then `hero_image_attach attached:true` with Sanity CDN URL. |
+| **Test suite** | 101 passing across parsing-domain-fixtures + parsing tests (up from 82 at start of day — +19 tests today). Full server suite: 274 passed, 2 pre-existing failures unchanged. |
+| **Railway auto-deploy recovered** | After silent pause post-[`9a22dfd`](https://github.com/warelincoln/RecipeJar/commit/9a22dfd), adding [`railway.json`](../railway.json) with explicit `"dockerfilePath": "server/Dockerfile"` + `"builder": "DOCKERFILE"` re-anchored the integration. As of [`56c1f58`](https://github.com/warelincoln/RecipeJar/commit/56c1f58), both CLI (`railway up`) and GitHub auto-deploy fire simultaneously for master pushes. |
+
 ## Proven in 2026-04-23 cycle (evening) — URL Tier 1 + Tier 2C heuristics: microdata partial, bot-block detection, heading-anchored extraction
 
 | What | Evidence |

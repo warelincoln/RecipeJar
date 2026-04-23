@@ -1,5 +1,49 @@
 # Orzo Changelog
 
+### 2026-04-23 (late evening) — iPhone smoke-test follow-ups: body-rescue, title heuristic, fast-path image
+
+Three bugs surfaced in the first iPhone smoke test of the Tier 1+2C cycle. Same-session fix-and-verify. All three confirmed working live on Orzo Dev within 20 minutes of the first failed import. Committed as [`56c1f58`](https://github.com/warelincoln/RecipeJar/commit/56c1f58).
+
+#### 1. notquitenigella.com 2010 rescue — extractDomBoundary returned null despite captured microdata
+
+**Symptom.** notquitenigella.com/2010/12/02 post had 23 `<li itemprop="recipeIngredient">` items captured as `fallbackIngredients`, but `extractDomBoundary` returned null because the page has no recipe-class wrapper, no `recipeInstructions` microdata, and no `<h2>Directions</h2>` heading (the directions are inline `<p><strong>Beef layer</strong></p>` paragraphs). AI never ran; the recipe cascade ended in error despite having 23 high-fidelity ingredients in hand.
+
+**Fix.** New `extractBodyTextForRescue` helper in [`url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts): strips scripts/styles/nav/footer, caps at 20 KB, returns body text. Called only when `extractDomBoundary` returns null AND `fallbackIngredients.length >= 2` — AI runs on the rescued body text, the existing microdata-ingredients merge replaces AI's re-extracted ingredients with the tagged ones. Emits `microdata-partial-merged` log tag with `reason: "boundary_null_body_rescue"` for observability.
+
+**Verified live:** notquitenigella 2010 now saves with **23 ingredients + 10 AI-extracted steps + hero image** via the body-rescue path.
+
+#### 2. Heading-anchored title heuristic — walk back from ingredient heading
+
+**Symptom.** brightfarms.com/recipes/lgbtq-pride-salad saved with title "BrightFarms Recipes" instead of "LGBTQ+ Pride Salad". Old heuristic was `$("h1").first().text()` which grabbed the site's h1 header; the real recipe title lives in a `<h3>` inside a sibling div — cross-parent, so naive sibling walks don't find it.
+
+**Fix.** New `findRecipeTitle` helper in [`url-dom.adapter.ts`](server/src/parsing/url/url-dom.adapter.ts): marks the ingredient heading with a unique `data-orzo-ing-marker` attribute, queries `h1, h2, h3, h4, [data-orzo-ing-marker]` in one combined selector (cheerio returns matches in document order), iterates and captures the last heading text seen BEFORE the marker, removes the marker. Stable across cross-parent DOM structures. Falls back to `$("h1").first()` if no preceding heading found.
+
+**Verified live:** brightfarms now titles the recipe "LGBTQ+ Pride Salad".
+
+#### 3. ensureImageFromFreshFetch in the fast path
+
+**Symptom.** jamieoliver.com/recipes/cheese/halloumi-strawberry-skewers parsed cleanly via `parseUrlStructuredOnly` (JSON-LD passed the quality gate, fast path returned immediately) — but the iPhone WebView capture sometimes strips the JSON-LD `image` field, so `metadata.imageUrl` came back null. The morning's `ensureImageFromFreshFetch` server-fetch image-recovery helper was only wired into `parseUrlFromHtml` — NOT into the sync fast path.
+
+**Fix.** Call `ensureImageFromFreshFetch` in both `parseUrlStructuredOnly` success branches (json-ld + microdata fast paths). Same guard: only fires when `acquisitionMethod === "webview-html"` AND image is missing post-enrichment.
+
+**Verified live:** jamieoliver now hits the fast path (`fastPath: true`) AND triggers `image_fallback_fresh_fetch recovered:true` → hero image attached from the Sanity CDN URL.
+
+#### Tests
+
+All 101 tests in `parsing-domain-fixtures.test.ts` + `parsing.test.ts` still pass. No new fixture tests added in this commit — the three fixes exercise existing code paths covered by the brightfarms-headings, notquitenigella-2010-microdata-partial, and jamieoliver synthetic-HTML tests.
+
+#### Deployment follow-up — Railway auto-deploy recovered
+
+During this cycle, Railway's GitHub App auto-deploy silently stopped firing for master pushes after commit [`9a22dfd`](https://github.com/warelincoln/RecipeJar/commit/9a22dfd) failed with "skipping 'Dockerfile' at 'server/Dockerfile'" on 3 successive builder retries. Added [`railway.json`](railway.json) in [`974b754`](https://github.com/warelincoln/RecipeJar/commit/974b754) with explicit `"dockerfilePath": "server/Dockerfile"` + `"builder": "DOCKERFILE"` + healthcheck + restart policy to pin build config in-repo.
+
+Used `railway up --ci` (Railway CLI) to manually bypass the stuck auto-deploy for `9683fdf` and `56c1f58`. The CLI deploys succeeded and both commits went live. As of `56c1f58`, GitHub auto-deploy fired simultaneously with the CLI deploy — both built the same commit identically, demonstrating Railway's GitHub integration is back online (likely re-anchored by `railway.json`).
+
+#### TODOS.md additions
+
+- Preview title field typewriter animation restarts on every keystroke — mobile UI bug, observed during the brightfarms title edit. Likely the animated component's `key` prop is bound to the text content itself; every keystroke re-mounts the animation. Fix in `PreviewEditView.tsx` — bind key to draft id instead.
+
+---
+
 ### 2026-04-23 (evening) — URL import Tier 1 + Tier 2C heuristics: microdata partial, bot-block detection, heading-anchored extraction
 
 Follow-up session to the morning's URL-import fixes. Ran a 14-day PostHog scrape of 181 URL parses → 15 non-clean outcomes → clustered into 5 tractable failure modes → ran `/plan-eng-review` which reduced scope to the 3 highest-impact mechanisms. Shipped them plus the 3 image wins already coded that morning.
