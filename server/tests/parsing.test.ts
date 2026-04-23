@@ -1031,6 +1031,121 @@ describe("enrichFromDom", () => {
     expect(result.metadata?.yield).toBe("4 servings");
     expect(result.servings).toEqual({ min: 5, max: null });
   });
+
+  // Shipped 2026-04-22: when a site's JSON-LD includes prepTime + cookTime
+  // but not totalTime (common on savoryonline, where "READY IN 35 MINS" is
+  // template-computed rather than serialized), the DOM pass now picks it
+  // up from labeled text and tags it "explicit". Falls back to the save-
+  // time gap-fill (prep + cook) when neither JSON-LD nor DOM has a total.
+  describe("total-time top-up", () => {
+    it("extracts 'Ready in 35 mins' from a recipe-scoped element", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-card">
+            <h1>Creamy Pasta Primavera</h1>
+            <p>READY IN 35 MINS</p>
+          </div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBe("PT35M");
+      expect(result.metadata?.totalTimeSource).toBe("explicit");
+    });
+
+    it("extracts 'Total time: 1 hour 15 min' (combined hours + minutes)", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-meta">
+            Total time: 1 hour 15 min
+          </div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBe("PT1H15M");
+      expect(result.metadata?.totalTimeSource).toBe("explicit");
+    });
+
+    it("extracts 'Total: 2 hrs' (hours only)", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-info">Total: 2 hrs</div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBe("PT2H");
+      expect(result.metadata?.totalTimeSource).toBe("explicit");
+    });
+
+    it("does NOT pick up 'Cook time: 20 min' as total", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-card">
+            <p>Cook time: 20 min</p>
+            <p>Prep time: 10 min</p>
+          </div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBeUndefined();
+    });
+
+    it("does NOT overwrite an existing totalTime from JSON-LD", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-card">
+            <p>READY IN 99 MINS</p>
+          </div>
+        </body></html>
+      `;
+      const input: RawExtractionResult = {
+        ...baseStructured,
+        metadata: { totalTime: "PT45M", totalTimeSource: "explicit" },
+      };
+      const result = enrichFromDom(html, input);
+      expect(result.metadata?.totalTime).toBe("PT45M");
+    });
+
+    it("skips non-duration matches like 'Total fat: 15g'", () => {
+      const html = `
+        <html><body>
+          <div class="recipe-card">
+            <p>Total fat: 15g, total carbs: 30g</p>
+          </div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBeUndefined();
+    });
+
+    it("finds 'Total time: 35 min' past a leading false match", () => {
+      // Nutrition-style "Total fat: 20g" appears before the real total
+      // time label in the same scoped element. The retry loop should skip
+      // the non-duration first match and find the real one.
+      const html = `
+        <html><body>
+          <div class="recipe-card">
+            <p>Total fat: 20g · Total time: 35 min</p>
+          </div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBe("PT35M");
+      expect(result.metadata?.totalTimeSource).toBe("explicit");
+    });
+
+    it("does not scan outside recipe scope (avoids body noise)", () => {
+      // "Ready in" appears in a marketing blurb outside any recipe-scoped
+      // element — we should not grab it.
+      const html = `
+        <html><body>
+          <div class="hero-banner">Ready in 5 min — our quickest site ever!</div>
+          <div><p>No recipe markup anywhere.</p></div>
+        </body></html>
+      `;
+      const result = enrichFromDom(html, baseStructured);
+      expect(result.metadata?.totalTime).toBeUndefined();
+    });
+  });
 });
 
 describe("parseUrlFromHtml — DOM enrichment integration", () => {

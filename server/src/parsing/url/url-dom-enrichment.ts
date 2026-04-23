@@ -20,8 +20,11 @@ export function enrichFromDom(
     !!result.servings &&
     typeof result.servings.min === "number" &&
     result.servings.min > 0;
+  const hasTotalTime =
+    typeof result.metadata?.totalTime === "string" &&
+    result.metadata.totalTime.length > 0;
 
-  if (hasImage && hasServings) return result;
+  if (hasImage && hasServings && hasTotalTime) return result;
 
   const $ = cheerio.load(html);
 
@@ -47,6 +50,17 @@ export function enrichFromDom(
           };
         }
       }
+    }
+  }
+
+  if (!hasTotalTime) {
+    const totalTimeIso = findTotalTime($);
+    if (totalTimeIso) {
+      enriched.metadata = {
+        ...(enriched.metadata ?? {}),
+        totalTime: totalTimeIso,
+        totalTimeSource: "explicit",
+      };
     }
   }
 
@@ -199,5 +213,64 @@ function parseYieldText(
     }
   }
 
+  return null;
+}
+
+// Label that must precede the duration for us to treat it as the recipe's
+// total time. Requires an explicit keyword to avoid misreading adjacent
+// fields like "Cook time: 20 min" or "Total carbs: 30g" as the total.
+// Tries the most specific phrasing first so "total time" doesn't just match
+// "total" and then fail on a non-time window.
+const TOTAL_TIME_LABEL =
+  /\b(?:total\s*time|ready\s+in|total)\s*[:\-–—]?\s*/i;
+
+// "1 hr 15 min", "35 mins", "2 hours", "1h 30m" — both parts optional but
+// at least one must be present and positive.
+const DURATION_PATTERN =
+  /^\s*(?:(\d+)\s*(?:hours?|hrs?|h)\b)?\s*(?:(\d+)\s*(?:minutes?|mins?|m)\b)?/i;
+
+function parseDurationToIso(text: string): string | null {
+  const m = text.match(DURATION_PATTERN);
+  if (!m) return null;
+  const hours = m[1] ? parseInt(m[1], 10) : 0;
+  const minutes = m[2] ? parseInt(m[2], 10) : 0;
+  if (hours <= 0 && minutes <= 0) return null;
+  let iso = "PT";
+  if (hours > 0) iso += `${hours}H`;
+  if (minutes > 0) iso += `${minutes}M`;
+  return iso;
+}
+
+function parseTotalTimeFromText(text: string): string | null {
+  // Retry label matches in sequence — guards against a leading false-match
+  // like "Total fat: 20g" followed by "Total time: 35 min" in the same
+  // scoped element.
+  let remaining = text;
+  while (remaining.length > 0) {
+    const match = remaining.match(TOTAL_TIME_LABEL);
+    if (!match) return null;
+    const afterStart = (match.index ?? 0) + match[0].length;
+    const window = remaining.slice(afterStart, afterStart + 40);
+    const iso = parseDurationToIso(window);
+    if (iso) return iso;
+    remaining = remaining.slice(afterStart);
+  }
+  return null;
+}
+
+// Recipe-scope only, no full-body fallback. The word "total" appears too
+// often in body copy (nutrition panels, comment threads, prose about
+// "total cooking experience") to scan unbounded text safely. If the site
+// doesn't have a recipe-scope element, the server-side gap-fill at save
+// time covers the prep+cook case.
+function findTotalTime($: cheerio.CheerioAPI): string | null {
+  for (const sel of RECIPE_SCOPE_SELECTORS) {
+    const matched = $(sel).first();
+    if (matched.length > 0) {
+      const text = matched.text().replace(/\s+/g, " ").trim();
+      const iso = parseTotalTimeFromText(text);
+      if (iso) return iso;
+    }
+  }
   return null;
 }

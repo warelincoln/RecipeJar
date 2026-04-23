@@ -1,13 +1,23 @@
 /**
  * Provenance of a recipe time field.
  *  - "explicit": the time was literally stated on the source (JSON-LD,
- *    Microdata, or a cookbook page that said "Prep: 15 min").
+ *    Microdata, DOM text labeled "Ready in X" / "Total: X", or a cookbook
+ *    page that said "Prep: 15 min").
+ *  - "derived": the server computed this time deterministically from other
+ *    explicit times on the same recipe (currently only: total = prep + cook
+ *    when a site publishes prep and cook in structured data but omits total
+ *    — common on JSON-LD partials like savoryonline). Renders clean on the
+ *    detail chip because the source genuinely stated the components.
  *  - "inferred": the AI parser estimated the time because it wasn't stated.
  *    The mobile app shows a review banner and renders the time with a
  *    muted "~" prefix on the detail chip until the user confirms.
  *  - "user_confirmed": the user accepted or edited the value in the app.
  */
-export type TimeSource = "explicit" | "inferred" | "user_confirmed";
+export type TimeSource =
+  | "explicit"
+  | "derived"
+  | "inferred"
+  | "user_confirmed";
 
 export interface RecipeIngredientEntry {
   id: string;

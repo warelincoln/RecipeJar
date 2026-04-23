@@ -11,6 +11,7 @@ import type {
   ValidationResult,
   SourcePage,
   DraftStatus,
+  TimeSource,
 } from "@orzo/shared";
 import { URL_IMPORT_HTML_MAX_BYTES } from "@orzo/shared";
 import { parseImages } from "../parsing/image/image-parse.adapter.js";
@@ -1032,7 +1033,7 @@ export async function draftsRoutes(app: FastifyInstance) {
         parsedSourceKey: "prepTimeSource" | "cookTimeSource" | "totalTimeSource",
       ): {
         minutes: number | null;
-        source: "explicit" | "inferred" | "user_confirmed" | null;
+        source: TimeSource | null;
       } => {
         if (overrideKey in edited) {
           const v = (edited as unknown as Record<string, unknown>)[overrideKey];
@@ -1050,7 +1051,28 @@ export async function draftsRoutes(app: FastifyInstance) {
       };
       const prepTime = resolveTime("prepTimeMinutes", "prepTime", "prepTimeSource");
       const cookTime = resolveTime("cookTimeMinutes", "cookTime", "cookTimeSource");
-      const totalTime = resolveTime("totalTimeMinutes", "totalTime", "totalTimeSource");
+      let totalTime = resolveTime("totalTimeMinutes", "totalTime", "totalTimeSource");
+
+      // Gap-fill: when the parse supplied prep + cook but no total (common
+      // on JSON-LD partials like savoryonline), derive total = prep + cook
+      // and persist it as "derived" — a distinct source from "inferred"
+      // (AI guess) so the client can render it clean instead of with the
+      // "~" uncertainty prefix. The components ARE explicit; the sum is
+      // arithmetic, not a guess. Skipped when the user explicitly set
+      // totalTimeMinutes via the TimesReviewBanner (including clearing to
+      // null) — user intent wins over derivation.
+      const totalExplicitlyOverridden = "totalTimeMinutes" in edited;
+      if (
+        !totalExplicitlyOverridden &&
+        totalTime.minutes == null &&
+        prepTime.minutes != null &&
+        cookTime.minutes != null
+      ) {
+        totalTime = {
+          minutes: prepTime.minutes + cookTime.minutes,
+          source: "derived",
+        };
+      }
 
       const pages = await draftsRepository.getPages(draftId);
 
@@ -1242,6 +1264,10 @@ export async function draftsRoutes(app: FastifyInstance) {
             prepTime.source === "inferred" ||
             cookTime.source === "inferred" ||
             totalTime.source === "inferred",
+          any_derived_time_final:
+            prepTime.source === "derived" ||
+            cookTime.source === "derived" ||
+            totalTime.source === "derived",
           any_user_confirmed_time:
             prepTime.source === "user_confirmed" ||
             cookTime.source === "user_confirmed" ||

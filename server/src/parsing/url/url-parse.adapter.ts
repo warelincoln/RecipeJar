@@ -70,6 +70,8 @@ export async function parseUrlStructuredOnly(
       enrichedImage:
         !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
       enrichedServings: !structured.servings && !!enriched.servings,
+      enrichedTotalTime:
+        !structured.metadata?.totalTime && !!enriched.metadata?.totalTime,
       fastPath: true,
     });
     const candidate = normalizeToCandidate(enriched, "url", sourcePages);
@@ -87,6 +89,8 @@ export async function parseUrlStructuredOnly(
       enrichedImage:
         !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
       enrichedServings: !microdata.servings && !!enriched.servings,
+      enrichedTotalTime:
+        !microdata.metadata?.totalTime && !!enriched.metadata?.totalTime,
       fastPath: true,
     });
     const candidate = normalizeToCandidate(enriched, "url", sourcePages);
@@ -151,6 +155,8 @@ export async function parseUrlFromHtml(
       enrichedImage:
         !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
       enrichedServings: !structured.servings && !!enriched.servings,
+      enrichedTotalTime:
+        !structured.metadata?.totalTime && !!enriched.metadata?.totalTime,
     });
     const candidate = normalizeToCandidate(enriched, "url", sourcePages);
     candidate.extractionMethod = "json-ld";
@@ -187,6 +193,8 @@ export async function parseUrlFromHtml(
       enrichedImage:
         !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
       enrichedServings: !microdata.servings && !!enriched.servings,
+      enrichedTotalTime:
+        !microdata.metadata?.totalTime && !!enriched.metadata?.totalTime,
     });
     const candidate = normalizeToCandidate(enriched, "url", sourcePages);
     candidate.extractionMethod = "microdata";
@@ -216,6 +224,8 @@ export async function parseUrlFromHtml(
         enrichedImage:
           !aiResult.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
         enrichedServings: !aiResult.servings && !!enriched.servings,
+        enrichedTotalTime:
+          !aiResult.metadata?.totalTime && !!enriched.metadata?.totalTime,
       });
       const candidate = normalizeToCandidate(enriched, "url", sourcePages);
       candidate.extractionMethod = "dom-ai";
