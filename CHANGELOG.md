@@ -1,5 +1,92 @@
 # Orzo Changelog
 
+### 2026-04-23 — URL-import cascade hardening (3 failure modes unblocked) + webview→server-fetch fallback + iOS Build 3
+
+Session started as a **bulk regression test** — pointed the parser at 30 real recipe URLs drawn from the Paprika app's supported-sites list to see where we break. 21/30 full parses, 1/30 parse-without-hero, 8/30 failed. Of the 8 failures, 3 turned out to be real parser bugs (the others were bot-block 402s and stale URLs I picked). Fixed all 3 the same session; re-ran the 30-URL sweep → 24/30 full. Follow-up iPhone testing surfaced two additional issues specific to the mobile path (webview-captured HTML returning skeletal DOM; 5 MB remote-image cap rejecting Blogger originals at `/s5472/`). Both fixed. All four server fixes are live on Railway; **TestFlight Build 3** archived the prior night carries the app icon refresh + build number bump but **zero mobile code changes** — the parse fixes reach every existing build automatically via the Railway API.
+
+**Commits shipped (2 on master):**
+
+- [`a1970ba`](https://github.com/warelincoln/RecipeJar/commit/a1970ba) — fix(parse): unblock 3 URL import failure modes + webview→server-fetch fallback
+- [`a4806ef`](https://github.com/warelincoln/RecipeJar/commit/a4806ef) — chore(ios): bump build to 3 + refresh app icon
+
+#### Bulk URL test harness — `a1970ba`
+
+[`server/scripts/bulk-url-parse-test.ts`](server/scripts/bulk-url-parse-test.ts) loops a hardcoded list of URLs through `parseUrl()` (no server boot, no auth, no DB writes), categorizes each result into **`full`** (recipe + hero image), **`no-hero`** (recipe + no image), or **`failed`** (error candidate / thrown), and dumps a markdown table + per-bucket URL list. Reusable for future regression sweeps — point it at any URL array and run `npx tsx server/scripts/bulk-url-parse-test.ts`. 30-URL run durations: JSON-LD hits ~200-700 ms, DOM-AI fallbacks 6-22 s (AI-bound), total ~2.5 min for the batch.
+
+#### URL-parse cascade fixes — `a1970ba`
+
+All 3 failures manifested as `all_paths_failed` (no extraction method in the cascade produced a candidate). Root-caused via a debug script that ran each adapter in isolation and printed what `extractDomBoundary` was returning.
+
+**1. Class-based junk strip deleting recipe containers** — [`url-dom.adapter.ts`](server/src/parsing/url/url-dom.adapter.ts). Root cause: `$('[class*="sidebar"]').remove()` matched **state classes** like `has-sidebar`, `no-review`, `no-related` on WordPress theme wrappers. chefmichaelsmith.com's recipe div carried `class="has-sidebar has-thumbnail no-full-image no-review no-sharing no-author-box no-related ... recipe type-recipe ... hentry recipe-type-chicken ..."` — the substring match ate the entire recipe body. After the strip, `<main>`/`<article>` text dropped from ~4KB to 352 chars. Fix: new `PROTECT_CLASS_PATTERN` check — if an element's class list contains any of `recipe` / `hentry` / `post-content` / `entry-content` / `main-content` / `article-body` / `content-body` **as a whole space-bounded token**, skip the strip even when a junk selector matches. Tightened the PROTECT regex to whole-token matching (not substring) so UI controls like `jump-to-recipe` or `save-recipe` don't accidentally get protected. Class-based strips refactored from a single chained `$(sel1, sel2, ...).remove()` into a `stripWithProtection($, sel)` helper iterating per-selector so protection fires per-element. The tag-based strip (`script, style, nav, footer, header, aside, iframe, noscript`) is unchanged — those never contain recipes regardless of parent class.
+
+**2. hRecipe microformat not in recipe selectors** — [`url-dom.adapter.ts`](server/src/parsing/url/url-dom.adapter.ts). Root cause: desktop www.joyofbaking.com uses the **pre-schema.org hRecipe microformat** (`<div class="hrecipe">` wrapping `<.fn>` title, `<.ingredient>` items, free-text instructions). None of the existing recipe selectors (`[class*="recipe-card"]`, `[class*="wprm-recipe"]`, etc.) matched — `.recipe` (CSS token-exact) doesn't match `hrecipe`, and none of our `[class*=...]` patterns used plain `recipe` because that would over-match. Fix: added `[class*="hrecipe"]` to the DOM recipe selector list. One-line change. Note that existing `tests/fixtures/joyofbaking-mobile-macarons.html` (MOBILE subdomain) uses a completely different template — flat HTML with labeled "Ingredients:" / "Instructions:" sections — so mobile already worked via the body-keyword fallback. Desktop specifically needed hRecipe support.
+
+**3. Body-fallback keyword gate too strict** — [`url-dom.adapter.ts`](server/src/parsing/url/url-dom.adapter.ts). Root cause: `hasRecipeKeywords` required BOTH `\bingredients?\b` AND one of `\b(instructions?|directions?|method|preparation|steps)\b` in the body text. Blogger template on angiesrecipes.blogspot.com renders ingredients as a bare `<ul>` inside a `<table>` followed by an `<ol>` of steps — **no "Ingredients:" or "Directions:" headers exist anywhere on the page**. Fix: added a parallel signal path — if the body contains **3+ measurement patterns** (matching `\b\d+\s*(?:\/\s*\d+)?\s*(?:cups?|tbsps?|tsps?|ounces?|oz|pounds?|lbs?|grams?|g|kg|ml|liters?|quarts?|pints?|...)\b`) **AND** at least one cooking verb (matching `\b(heat|cook|bake|simmer|boil|stir|whisk|fry|roast|sauté|mix|combine|add|pour|preheat|melt|season|sprinkle|drizzle|serve|garnish|marinate|chop|slice|dice|mince|blend|fold)\b`), accept the body. Both signals must fire — prevents articles that merely mention cooking from triggering, since random cooking prose doesn't contain a density of measurement patterns. Angie's page has 11 measurement hits + `heat`/`simmer`/`fry` + multiple cooking verbs → fallback triggers → AI extracts 11 ingredients + 3 steps + hero image.
+
+**Interaction with existing gourmetmagazine test** — the tightened PROTECT_CLASS_PATTERN (whole-token only) intentionally does NOT protect `tag-recipe` (suffix token on the article wrapper) in the gourmetmagazine-split-pea fixture. The accidentally-correct pre-fix behavior is preserved: `[class*="ad-"]` matches `is-head-middle-logo` (substring `ad-` inside `head-`), strips the body, DOM boundary returns null, AI is not called, error candidate returned. This is fragile — if that specific class combination ever disappeared we'd try to parse a subscribe-gate teaser — but it's a pre-existing condition and the test holds. Noted as a known limitation for future tightening.
+
+#### Webview→server-fetch auto-retry — `a1970ba`
+
+[`drafts.routes.ts`](server/src/api/drafts.routes.ts) `runParseInBackground` path. Problem surfaced during iPhone testing after the cascade fixes: curl-based `parseUrl("https://chefmichaelsmith.com/recipe/classic-chicken-stew/")` succeeded (53 KB of HTML, full recipe content), but the identical URL tapped in the in-app WebView failed with `all_paths_failed` in 302 ms. Captured the iPhone's actual submitted HTML via dev-only `fs.writeFile` logging → **13 KB**, containing `<head>` + `<nav>` + `<footer>` but **zero recipe content**. No mention of `"chicken thighs"` / `"boneless"` / `"simmer"` / `"ingredients"` in the entire capture. JavaScript-hydrated content or early capture — either way, the webview path returned a skeletal DOM for this page. Fix: when `parseUrlFromHtml(suppliedHtml)` returns `candidate.extractionMethod === "error"`, the route now retries via `parseUrl(draft.originalUrl, sourcePages, "server-fetch-fallback")` — fresh fetch bypasses whatever the in-app WebView did and gets the full page. Only fires on error (successful webview parses skip the retry). Error candidates from the retry preserve the original failure (we don't double-fail the user). New `webview_html_retry_via_server_fetch` logEvent for observability. Cleaned up the dev-only `fs.writeFile` dump after diagnosis.
+
+#### Hero-image remote cap raised 5 MB → 20 MB — `a1970ba`
+
+[`recipe-image.service.ts`](server/src/services/recipe-image.service.ts) `REMOTE_IMAGE_MAX_BYTES`. Problem: Angie's Recipes' hero URL is `https://blogger.googleusercontent.com/.../s5472/IMG_4347.JPG` — Google serves the uploader's original at full resolution when the path has `/s{width}/`, so a 5472×… JPEG arrived as **6,533,481 bytes** (6.2 MB). Our download helper rejected it with the 5 MB cap, returning null silently, so the recipe saved with no hero. User reported the hero showed in the preview review banner (loaded directly from the remote URL) but disappeared on the recipe card + detail view. Diagnosis: added `hero_image_attach` logEvent that records metadata URL + attach outcome + failure reason. Next test surfaced `attached: false, reason: "download_failed", errorMessage: null` — which pinpointed the size-cap path (reason `null` errorMessage = not a thrown exception). `curl -sI` on the URL confirmed `content-length: 6533481`. Fix: raised cap to 20 MB. `optimizeForHero()` (sharp) still resizes every stored image to 1200px at JPEG 80% regardless, so the cap's role is defense-in-depth against obviously malicious payloads (a hostile site serving `/s50000/` of a tarball). Also added `hero_image_attach` as a proper logEvent type for future diagnostics.
+
+#### Joy of Baking ATS error — deferred
+
+iPhone WebView refused to load `https://www.joyofbaking.com/ChocolateChunkCookies.html` with `NSURLErrorDomain -1022` ("the resource could not be loaded because the App Transport Security policy requires the use of a secure connection"). The parent URL is HTTPS but the page embeds HTTP sub-resources (YouTube iframes + Facebook/Pinterest buttons over HTTP). iOS 13+ WebView defaults to blocking HTTP content mixed into HTTPS pages, so the whole page fails to render. Not a parse-cascade issue — the server can still `curl` the page and parse it (confirmed in the bulk test). Fix requires Info.plist `NSAllowsArbitraryLoadsInWebContent = true` or a domain-specific exception for `joyofbaking.com`. Queued for a future mobile session since it needs a TestFlight rebuild.
+
+#### Angie's 30-30-30 time misread — deferred
+
+AI returned `prep: 30, cook: 30, total: 30` for angiesrecipes paprika chicken — impossible math (prep + cook should equal or be less than total). The page only states "ready in just 30 minutes" once. Root cause: AI prompt doesn't distinguish "if only one aggregate time is stated, populate total only — don't fan it across all three fields." Not a parse-cascade bug; prompt-quality issue. Queued for a prompt-tightening iteration alongside the time-inference work from 2026-04-22.
+
+#### iOS Build 3 + app icon refresh — `a4806ef`
+
+- `CURRENT_PROJECT_VERSION` 2 → 3 in both Debug and Release configurations ([`mobile/ios/Orzo.xcodeproj/project.pbxproj`](mobile/ios/Orzo.xcodeproj/project.pbxproj)) — user archived Build 3 the night of 2026-04-22 and pushed to TestFlight.
+- All 8 `AppIcon.appiconset/icon-{40,58,60,80,87,120,180,1024}.png` regenerated from new source `ORZO_ICON_4_22_26.png` (added at repo root).
+- Landing page icons updated to match (`landing/icon-{180,1024}.png`).
+- Removed stale `Orzo icon.png` at repo root (superseded by the dated source).
+
+Build 3 contains **no server-side parse code** — those changes are live via Railway regardless. Build 3 ships the new icon to TestFlight testers; existing Build 2 testers also pick up every parse fix automatically the next time they import a recipe.
+
+#### Measured results on the 30-URL sweep
+
+**Before fixes (baseline sweep, 2026-04-23 05:35 UTC):**
+
+| Bucket | Count | Notes |
+|---|---|---|
+| full (recipe + hero) | 21 | JSON-LD or microdata hit, image extracted |
+| no-hero (recipe, no image) | 1 | Broke Ass Gourmet (dom-ai parse succeeded, no `og:image` or hero candidate) |
+| failed | 8 | 3 real parser bugs + 3 bot-block 402s (Serious Eats, Simply Recipes, WaPo) + 2 stale URLs I picked (Pioneer Woman 404, Epicurious/Gourmet 404) |
+
+**After fixes (re-run, 2026-04-23 18:41 UTC):**
+
+| Bucket | Count | Delta |
+|---|---|---|
+| full (recipe + hero) | 24 | +3 — Angie's (dom-ai, json-ld-quality-gate-fail → body-measurement fallback), Chef Michael Smith (dom-ai, strip protection), Joy of Baking (dom-ai, hrecipe selector) |
+| no-hero | 1 | unchanged |
+| failed | 5 | -3 — only non-parser failures remain (stale URLs + Dotdash 402s) |
+
+**Regression tests + fixtures:**
+
+- [`server/tests/parsing-domain-fixtures.test.ts`](server/tests/parsing-domain-fixtures.test.ts): 3 new test groups, one per site. Each asserts `extractDomBoundary` returns > 500 chars of content with recipe-specific text markers. No AI mock needed — the assertion is on the DOM adapter output, which is the layer that was broken in each case.
+- New fixtures under [`server/tests/fixtures/`](server/tests/fixtures/):
+  - `chefmichaelsmith-chicken-stew.html` (53 KB, full page) — exercises PROTECT against `has-sidebar` + `no-review` + `no-related` state classes.
+  - `joyofbaking-desktop-chocolate-chunk.html` (58 KB, full page) — exercises `[class*="hrecipe"]` DOM selector.
+  - `angiesrecipes-paprika-chicken.html` **minified to 62 lines** from the original 6,020 — preserves only the structural signals that matter (no `<main>`/`<article>`/recipe classes, `<ul>` measured items, `<ol>` prose steps, one prominent hero `<img>`). The 6 K lines of Blogger sidebar widgets in the raw HTML were pure bloat.
+
+Total new test coverage: **+3 tests**, 11 passing in the domain-fixtures suite (was 8 before). Full server suite: 215 passed, 2 failed, 1 skipped — the 2 failures are pre-existing in `integration.test.ts` notes CRUD (unrelated to parse; verified by stashing my changes and re-running).
+
+**Follow-ups queued:**
+
+1. **Prompt-tighten the AI time extraction** — so "ready in 30 minutes" populates only `totalTime` rather than all three `prepTime` / `cookTime` / `totalTime` fields with the same value. Angie's 30-30-30 is the current fingerprint.
+2. **Joy of Baking ATS** — add `NSAllowsArbitraryLoadsInWebContent = true` (or a `joyofbaking.com` NSExceptionDomains entry) to [`Info.plist`](mobile/ios/Orzo/Info.plist) so the in-app WebView can render pages with HTTP-mixed sub-resources. Requires TestFlight Build 4.
+3. **Broke Ass Gourmet hero image** — parse succeeds via dom-ai but no image URL is extracted. Likely fixable via better `og:image` / `twitter:image` sniffing in `enrichFromDom`. Low priority; single site, non-blocking UX.
+4. **Gourmetmagazine `is-head-middle-logo` false-positive strip** — noted above. The current behavior is accidentally correct (strips body → null → error → user gets friendly "can't parse this" message). But fragile. Ideal fix: replace substring `[class*="ad-"]` strip with a whole-token regex filter, same pattern as PROTECT. Scope: tiny; risk: could surface other pages that were being correctly stripped by the loose match. Defer until we see a prod failure caused by this.
+
+---
+
 ### 2026-04-22 — Time gap-fill + DOM top-up + "derived" TimeSource
 
 Server-side fix for recipes where the source publishes prepTime + cookTime but not totalTime — JSON-LD partials on sites like savoryonline.com, where "READY IN 35 MINS" is template-computed at render time rather than serialized. Pre-change behavior persisted those recipes with `total_time_minutes = NULL` and relied on the mobile detail screen to compute `~35m total` at render time. Now the total is authoritative in the DB, rendered clean (no `~` prefix) because the source components are explicit and the sum is arithmetic — not an AI guess.

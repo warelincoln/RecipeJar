@@ -10,7 +10,7 @@
 - Photo library import (iOS picker, HEIC→JPEG conversion, full-screen preview)
 - URL import via in-app WebView browser (omnibar with Google search fallback, ad-domain blocking)
 - Clipboard URL detection (auto-prompt when URL is on clipboard)
-- 4-tier URL parsing cascade: JSON-LD → Microdata → DOM boundary extraction → GPT-5.4 AI fallback (all with quality gates)
+- 4-tier URL parsing cascade: JSON-LD → Microdata → DOM boundary extraction → GPT-5.4 AI fallback (all with quality gates). DOM boundary supports hRecipe microformat (joyofbaking.com desktop) via `[class*="hrecipe"]`; junk-strip selectors (`[class*="sidebar"]`, `[class*="review"]`, etc.) respect a `PROTECT_CLASS_PATTERN` whole-token allowlist (`recipe`, `hentry`, `post-content`, `entry-content`, etc.) so WordPress theme state classes like `has-sidebar` / `no-review` don't delete the recipe body (added 2026-04-23). Body-keyword fallback accepts pages lacking "Ingredients:" / "Directions:" headers when 3+ measurement patterns + at least one cooking verb are present (added 2026-04-23, unblocks Blogger templates like angiesrecipes.blogspot.com). When a client-supplied webview HTML parse fails, the server auto-retries via a fresh server-side fetch (`"server-fetch-fallback"`) — fixes pages where the in-app WKWebView captures a skeletal DOM.
 - Image parsing via GPT-4o Vision with structured ingredient schema (monolithic, shipped 2026-04-21 — was GPT-5.4 + GPT-4o split 2026-04-19, was monolithic GPT-5.4 before that)
 - Image optimization pipeline (sharp: auto-orient, resize ≤3072px, JPEG 85%/90%)
 - SSRF guard on all server-side URL fetches (blocks RFC 1918, loopback, link-local, CGNAT)
@@ -72,7 +72,7 @@
 **Recipe management:**
 
 - Full CRUD: create (via import save), read (list + detail), update (title, description, servings, ingredients, steps, image, collection), delete
-- Hero image upload/delete with Supabase storage (hero.jpg + thumb.jpg per recipe)
+- Hero image upload/delete with Supabase storage (hero.jpg + thumb.jpg per recipe). Remote URL fetches capped at 20 MB (raised from 5 MB on 2026-04-23 for Blogger `/s{width}/` originals); `optimizeForHero` resizes every stored image to 1200px JPEG 80% via sharp regardless. `hero_image_attach` logEvent records metadata URL + attach outcome per save for diagnostics.
 - Half-star recipe ratings (0.5–5.0, debounced persistence)
 - User notes per recipe (add/edit/delete, max 250 chars, inline modal)
 - Collections: create, rename, delete (cascade-safe), assign/move/remove recipes, auto-icon from 80+ keyword rules

@@ -158,3 +158,34 @@ message on the client.
 
 **Observed**: `https://gourmetmagazine.net/split-pea-soup-a-recipe/` (PostHog,
 2026-04-17).
+
+## iPhone in-app WebView returns skeletal DOM for some pages
+
+**Fingerprint**: `acquisitionMethod: "webview-html"` + `url_extraction` method
+`"error"` + supplied HTML under ~15 KB and missing recipe body text
+(`"ingredients"` / core ingredient keywords absent from the captured HTML).
+
+**Failure mode**: the in-app WKWebView sometimes submits a captured DOM that
+contains only the page shell (`<head>`, `<nav>`, `<footer>`) with no recipe
+content. Either capture fires before JS-hydrated content finishes rendering,
+or the page serves a different response to the WKWebView user-agent than to a
+server fetch. Observed 2026-04-23 on `chefmichaelsmith.com` — WebView capture
+was 13 KB of shell, curl with an iPhone UA from the same machine returned
+53 KB with the full recipe.
+
+**Mitigation shipped (2026-04-23)**: when `parseUrlFromHtml(suppliedHtml)`
+returns an error candidate, [`drafts.routes.ts`](../server/src/api/drafts.routes.ts)
+automatically retries via `parseUrl(url, sourcePages, "server-fetch-fallback")`
+— a fresh server-side fetch of the canonical URL. This bypasses the WebView
+capture entirely. Only fires on error; successful webview parses skip the
+retry. Logs the retry via `webview_html_retry_via_server_fetch` for
+observability.
+
+**Residual risk**: if the webview capture succeeds enough to return *partial*
+content that passes the quality gate at a structured-data tier but is
+missing steps (for example), we'd save a BLOCK-severity candidate rather
+than retrying. In practice the cascade is strict enough (JSON-LD quality gate
+requires 2+ ingredients AND 1+ step AND title > 2 chars) that this is rare.
+If it becomes a pattern we can extend the retry trigger to fire on any
+candidate whose `stepCount < 1 || ingredientCount < 2` regardless of
+extraction method.
