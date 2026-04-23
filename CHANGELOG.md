@@ -1,5 +1,56 @@
 # Orzo Changelog
 
+### 2026-04-22 — Time gap-fill + DOM top-up + "derived" TimeSource
+
+Server-side fix for recipes where the source publishes prepTime + cookTime but not totalTime — JSON-LD partials on sites like savoryonline.com, where "READY IN 35 MINS" is template-computed at render time rather than serialized. Pre-change behavior persisted those recipes with `total_time_minutes = NULL` and relied on the mobile detail screen to compute `~35m total` at render time. Now the total is authoritative in the DB, rendered clean (no `~` prefix) because the source components are explicit and the sum is arithmetic — not an AI guess.
+
+Railway auto-deploy on master merge. Mobile needed **zero changes** — existing strict `=== "inferred"` checks naturally skip the new `"derived"` value. No TestFlight Build 3 needed for this specific change.
+
+**PR shipped — [PR #10](https://github.com/warelincoln/RecipeJar/pull/10) ([`09ef6b1`](https://github.com/warelincoln/RecipeJar/commit/09ef6b1)):**
+
+#### Server-side gap-fill at save — `6a53e2a`
+
+`POST /drafts/:id/save` in [`drafts.routes.ts`](server/src/api/drafts.routes.ts) now derives total = prep + cook and persists it when the parse omitted total, so long as both prep and cook are non-null AND the user didn't explicitly override `totalTimeMinutes` via the TimesReviewBanner (including clearing to null — user intent wins over derivation). Stricter than the client render-time fallback at [`RecipeDetailScreen.tsx:343-358`](mobile/src/screens/RecipeDetailScreen.tsx) which treats a missing half as 0; the server version requires both components. Client fallback stays for pre-change legacy rows.
+
+Introduces **`"derived"`** as a 4th [`TimeSource`](shared/src/types/recipe.types.ts) value, distinct from `"inferred"` (AI estimate) so the UI can render arithmetic sums clean. The save-path `resolveTime` helper's return type widened via the shared `TimeSource` import; the `recipesRepository.save` input type widened the same way. New `any_derived_time_final` PostHog field on the `server_recipe_saved` event for observability of when the gap-fill fires vs. the DOM top-up catches it first.
+
+5 integration tests in [`integration.test.ts`](server/tests/integration.test.ts) cover: happy path derive (prep 15 + cook 30 → total 45 tagged `"derived"`), strict rule (only prep present → no derive), explicit total wins (no gap-fill), user-cleared total via banner wins (`totalTimeMinutes: null` in edited), user-confirmed total wins.
+
+#### DOM top-up for totalTime — `66dbe91`
+
+[`enrichFromDom`](server/src/parsing/url/url-dom-enrichment.ts) now populates `metadata.totalTime` tagged `"explicit"` when JSON-LD/Microdata omitted it but recipe-scoped DOM text has a labeled duration: `"READY IN 35 MINS"`, `"Total: 45 min"`, `"Total time: 1 hour 15 min"`. New `TOTAL_TIME_LABEL` regex anchors on `total time | ready in | total` + optional separator, then `DURATION_PATTERN` matches `X hr Y min` / `45 mins` / `2 hours` / `1h 30m`. Retry loop skips leading false matches like `"Total fat: 20g"` and finds the real total later in the same element. Recipe-scope-only, **no full-body fallback** — the word "total" appears too often in nutrition panels, comments, and marketing prose to scan unbounded text safely.
+
+`enrichedTotalTime` flag added to all 5 extraction log sites (sync JSON-LD, sync Microdata, async JSON-LD, async Microdata, async DOM-AI) in [`url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts) for PostHog observability.
+
+8 new tests in [`parsing.test.ts`](server/tests/parsing.test.ts) `describe("total-time top-up")` cover: "Ready in X" extraction, combined hour+min, hour-only, "Cook time" NOT matching as total, no-overwrite of existing JSON-LD value, false-match recovery past "Total fat: 15g", and explicit body-scope exclusion so marketing copy like "Ready in 5 min — our quickest site!" doesn't leak through.
+
+**How the two paths stack:**
+
+| Stage | What it catches | Tagged as |
+|---|---|---|
+| JSON-LD / Microdata `totalTime` | `totalTime: "PT35M"` in structured data | `"explicit"` |
+| DOM top-up (new) | "Ready in 35 mins" / "Total: 35 min" in recipe-scoped HTML | `"explicit"` |
+| Save-time gap-fill (new) | Prep + cook both present, total still absent | `"derived"` |
+| TimesReviewBanner edit/accept | User interacted with the preview | `"user_confirmed"` |
+| Vision / URL-AI prompt | Model estimated when source didn't state | `"inferred"` |
+| None of the above | — | `null` |
+
+**Measured results on live dev import (savoryonline "Creamy Pasta Primavera"):**
+
+Pre-change: detail chip showed `15m prep · 20m cook · ~35m total` via client render-time derivation, DB value `total_time_minutes = NULL`.
+
+Post-change: DOM top-up picks up "READY IN 35 MINS" from their recipe card markup, tagged `"explicit"`, persisted. Detail chip reads `15m prep · 20m cook · 35m total` — no `~` prefix. User verified end-to-end on physical iPhone. Railway `/health` confirmed post-deploy.
+
+**Follow-ups queued (all lower priority):**
+
+1. **Backfill legacy `total_time_source='inferred'` rows** where both prep and cook are `'explicit'` and `total = prep + cook` exactly — flip to `'derived'` to drop the `~` prefix on recipes imported earlier today under the original gap-fill design. User opted to let them age out naturally; skipping for now. One-liner SQL in STATUS.md when wanted.
+
+2. **Extend DOM top-up to prep + cook labels** — current scope is total-only. Expanding to `"Prep: X"` / `"Cook: X"` would catch sites that visually label both but don't JSON-LD them. Risk: misreading sidebar/metadata that look like time but aren't recipe times. Would need more test cases. Defer until we hit a real site that needs it.
+
+3. **Consider dropping the `~` prefix on the client render-time fallback** at `RecipeDetailScreen.tsx:343-358` for pre-change legacy rows. The fallback fires only when `totalTimeMinutes == null`, which now rarely happens for newly-saved recipes. Current behavior ships `~` unconditionally for the legacy path, which is defensible (truly unknown provenance) but arguably pessimistic when prep+cook sources are both `"explicit"`. Low priority.
+
+---
+
 ### 2026-04-21 — Parse UX polish (10 bugs/improvements) + camera WYSIWYG + image-parse cost reduction (-42%)
 
 Six-hour session, nine PRs merged to master. Three distinct work streams: (a) a batch of 5 UX polish bugs the user reported from TestFlight Build 2 testing, which expanded to 5 more adjacent fixes once in the code, (b) a silent but high-impact camera-preview fix that was making every captured image wider than the user expected (OCR quality drag we never measured), (c) a full eval-driven cost trade study of the image parse architecture that replaced the 2026-04-19 split-call design with a single gpt-4o call — -42% per-recipe cost with identical accuracy and unchanged latency.

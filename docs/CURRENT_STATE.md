@@ -44,14 +44,16 @@
 **Recipe times & source provenance (shipped 2026-04-16, PR A):**
 
 - `prep_time_minutes`, `cook_time_minutes`, `total_time_minutes` (nullable integers) on `recipes` (migration 0013)
-- `prep_time_source`, `cook_time_source`, `total_time_source` (nullable text) on `recipes` (migration 0014; values `"explicit" | "inferred" | "user_confirmed" | null`)
+- `prep_time_source`, `cook_time_source`, `total_time_source` (nullable text) on `recipes` (migration 0014; values `"explicit" | "derived" | "inferred" | "user_confirmed" | null` — `"derived"` added 2026-04-22, see below)
 - `description_summary` on `recipes` and `summary_text` on `recipe_steps` (migration 0013) — schema-only, Feature 5 (AI summarization) groundwork
 - JSON-LD + Microdata extractors in `url-structured.adapter.ts` tag extracted times as `"explicit"`
 - Vision prompt (`image-parse.adapter.ts`) + URL-AI prompt (`url-ai.adapter.ts`) produce `"inferred"` estimates when the source doesn't state a time
 - `isoDurationToMinutes` helper in `server/src/parsing/time.ts` (10-test Vitest suite) converts ISO 8601 durations to integer minutes at save time
 - Import preview's **TimesReviewBanner** (in `PreviewEditView.tsx`) renders when any time was inferred; user can edit or "Accept estimates" to flip source to `"user_confirmed"`
-- Detail screen time chip row renders italic with `~` prefix for unconfirmed inferred values, clean for explicit / user-confirmed
-- Derived total fallback: when stored total is null but prep+cook are set, detail renders `~Xm total` client-side
+- Detail screen time chip row renders italic with `~` prefix for `"inferred"` values only, clean for `"explicit"` / `"derived"` / `"user_confirmed"`
+- **DOM top-up for totalTime (shipped 2026-04-22):** `enrichFromDom` scans recipe-scoped HTML for `"READY IN X"` / `"Total: X"` / `"Total time: X"` labels and populates `metadata.totalTime` tagged `"explicit"` when structured data omitted it. Recipe-scope only (no body-scan) to avoid false positives from nutrition panels / comments / marketing copy.
+- **Server-side gap-fill at save (shipped 2026-04-22):** `POST /drafts/:id/save` derives `total = prep + cook` and persists it when both are non-null but total is absent and the user didn't override via the TimesReviewBanner. Tagged new `"derived"` source — distinct from `"inferred"` so arithmetic sums render clean on the detail chip. Mobile needed zero changes.
+- Client render-time fallback at `RecipeDetailScreen.tsx:343-358` still derives `~Xm total` when stored total is null — kept for backwards compatibility with legacy rows saved before the 2026-04-22 gap-fill.
 - Post-save edit (`RecipeEditScreen`) has auto-sum prep+cook→total (manual total wins; `totalIsAutoFilled` flag tracks state)
 - **Source provenance chip** on `RecipeDetailScreen`: URL imports show hostname chip (tap → Safari); photo imports show horizontal thumbnail strip that opens source pages in `FullScreenImageViewer`. Server's `enrichRecipeResponse` wrapper constructs the `sourceContext` object and resolves signed URLs for the `recipe-pages` bucket
 
