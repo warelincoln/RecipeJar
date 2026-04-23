@@ -3,7 +3,13 @@ import { getSupabase } from "./supabase.js";
 
 export const RECIPE_IMAGES_BUCKET = "recipe-images";
 export const RECIPE_PAGES_BUCKET = "recipe-pages";
-const REMOTE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+// Raised from 5 MB on 2026-04-23: Blogger (and some other CDNs) serve the
+// original upload at /s{width}/ with no downscale, which regularly produces
+// 6-10 MB JPEGs for reasonable hero images. Sharp's optimizeForHero resizes
+// every stored image to 1200px regardless of the download size, so the
+// remaining value of this cap is defense-in-depth against obviously huge
+// payloads (e.g. a malicious /s10000/ tarball).
+const REMOTE_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 let _imagesBucketReady = false;
 
 function heroPathFor(userId: string, recipeId: string): string {

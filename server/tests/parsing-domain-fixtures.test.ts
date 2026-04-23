@@ -195,3 +195,62 @@ describe("gourmetmagazine.net (paywalled, known limitation)", () => {
     expect(aiSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("chefmichaelsmith.com — strip protection regression", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The recipe container div carries both state classes (has-sidebar, no-review,
+  // no-related) AND the content marker `recipe`. The original substring strip
+  // matched `[class*="sidebar"]` against `has-sidebar` and deleted the recipe
+  // body. Protection must keep content-marked elements even when they carry
+  // junk-style state classes.
+  it("extractDomBoundary keeps the .recipe container despite has-sidebar / no-review state classes", () => {
+    const html = load("chefmichaelsmith-chicken-stew.html");
+    const boundary = extractDomBoundary(html);
+    expect(boundary).not.toBeNull();
+    expect(boundary!.length).toBeGreaterThan(500);
+    expect(boundary).toContain("Classic Chicken Stew");
+  });
+});
+
+describe("angiesrecipes.blogspot.com — measurement-density fallback", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Blogger template with no schema.org markup, no <main>/<article>, no recipe
+  // class wrappers, and no literal "Ingredients:" / "Instructions:" headers.
+  // The recipe is a bare <ul> of measured items followed by an <ol> of steps.
+  // hasRecipeKeywords must accept this via the measurement + cooking-verb signal.
+  it("extractDomBoundary falls through to body and accepts a recipe without explicit section headers", () => {
+    const html = load("angiesrecipes-paprika-chicken.html");
+    const boundary = extractDomBoundary(html);
+    expect(boundary).not.toBeNull();
+    expect(boundary!.length).toBeGreaterThan(500);
+    expect(boundary).toContain("Paprika Chicken");
+    // The measurement / verb signals the fallback relies on.
+    expect(boundary).toMatch(/\b\d+\s*tbsp\b/i);
+    expect(boundary).toMatch(/\b(heat|simmer|fry)\b/i);
+  });
+});
+
+describe("www.joyofbaking.com — hRecipe microformat support", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Desktop joyofbaking.com uses the hRecipe microformat (pre-schema.org):
+  // `<div class="hrecipe">` wrapping `<.fn>` and `<.ingredient>` elements,
+  // with unlabeled free-text instructions. Without an `[class*="hrecipe"]`
+  // selector the DOM boundary used to fall through to a body-fallback that
+  // failed because the page has no "Instructions:" header.
+  it("extractDomBoundary picks up the .hrecipe wrapper on desktop joyofbaking.com", () => {
+    const html = load("joyofbaking-desktop-chocolate-chunk.html");
+    const boundary = extractDomBoundary(html);
+    expect(boundary).not.toBeNull();
+    expect(boundary!.length).toBeGreaterThan(500);
+    expect(boundary).toContain("Chocolate Chunk Cookies");
+  });
+});

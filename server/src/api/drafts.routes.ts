@@ -321,6 +321,30 @@ async function runParseInBackground(
               sourcePages,
               "webview-html",
             );
+            // Webview capture occasionally returns a skeletal DOM that's
+            // missing the recipe body — observed on chefmichaelsmith.com
+            // where the in-app WebKit capture had title/nav/footer but no
+            // recipe content, while a fresh server fetch gets the full
+            // page. Retry via server fetch when the webview path errors.
+            if (candidate.extractionMethod === "error") {
+              logEvent("webview_html_retry_via_server_fetch", {
+                draftId,
+                url: draft.originalUrl,
+                suppliedBytes: Buffer.byteLength(suppliedHtml, "utf8"),
+              });
+              try {
+                const retry = await parseUrl(
+                  draft.originalUrl,
+                  sourcePages,
+                  "server-fetch-fallback",
+                );
+                if (retry.extractionMethod !== "error") {
+                  candidate = retry;
+                }
+              } catch {
+                // Keep the original error candidate if the fallback throws.
+              }
+            }
           } else if (preFetchedHtml) {
             // Sync fast-path already fetched the HTML but structured data
             // didn't pass the quality gate — reuse the HTML instead of paying
@@ -1202,6 +1226,18 @@ export async function draftsRoutes(app: FastifyInstance) {
         if (!heroErrorMessage) {
           heroErrorMessage = err instanceof Error ? err.message : String(err);
         }
+      }
+
+      if (draft.sourceType === "url") {
+        logEvent("hero_image_attach", {
+          draftId,
+          recipeId: recipe.id,
+          url: draft.originalUrl ?? null,
+          attached: heroImageAttached,
+          metadataImageUrl,
+          reason: heroFailureReason,
+          errorMessage: heroErrorMessage,
+        });
       }
 
       if (draft.sourceType === "url" && !heroImageAttached) {

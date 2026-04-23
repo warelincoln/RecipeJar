@@ -23,7 +23,17 @@ export type EventType =
   // Per-call token/cost breakdown from the image-parse adapter. Mirrors
   // the `server_parse_tokens` PostHog event so grep-server-logs triage
   // can see the same data without the analytics roundtrip.
-  | "parse_tokens";
+  | "parse_tokens"
+  // Hero image attach outcome on URL-sourced recipes: logs the metadata
+  // URL we extracted and whether the remote fetch + Supabase upload
+  // succeeded. Complements the `server_hero_image_missing` PostHog event
+  // with the raw URL so we can diagnose per-domain download failures.
+  | "hero_image_attach"
+  // Webview-captured HTML failed to parse; we're falling back to a fresh
+  // server-side fetch. Observed when an in-app WebKit capture returns a
+  // skeletal DOM (missing recipe body) even though the server can fetch
+  // the full page.
+  | "webview_html_retry_via_server_fetch";
 
 export interface EventAttributes {
   draftId?: string;
