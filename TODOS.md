@@ -91,6 +91,22 @@ For implementation plans, see [`.claude/plans/`](/Users/lincolnware/.claude/plan
 
 ---
 
+## Preview title field: typewriter animation restarts on every keystroke
+
+**What.** On the import preview screen (`PreviewEditView`), the recipe title field appears to re-run a typewriter / cascading-text animation on every character the user types. The text visually "restarts" mid-edit, forcing the displayed characters to repopulate after each keystroke. Observed 2026-04-23 evening while editing a brightfarms.com recipe title on iPhone.
+
+**Why.** Interrupts editing. Makes the field feel laggy and unresponsive. If the user types fast, they may see incomplete text while the animation re-runs.
+
+**Likely root cause.** The animation's `key` prop is probably bound to the text content itself (or a derived state like `parsedCandidate.title`). Every keystroke invalidates the key, re-mounting the animated component. Should be bound to a stable identifier (draft id or a "reveal-once" flag that sets to true after the first reveal).
+
+**Context.** Only observed on the title field. Ingredient and step fields don't have the same issue (need to verify). The animation was added as a "reveal" effect when a parse completes and populates the preview.
+
+**Depends on / blocked by.** None. Pure mobile fix.
+
+**Where to start.** [`mobile/src/features/import/PreviewEditView.tsx`](mobile/src/features/import/PreviewEditView.tsx) — find the animated title component, change its `key` to something stable (draft id, or a useRef + useEffect that sets a "first reveal done" flag).
+
+---
+
 ## Joy of Baking NSAppTransportSecurity mixed-content fix
 
 **What.** Add `NSAllowsArbitraryLoadsInWebContent = true` (or a `joyofbaking.com` entry in `NSExceptionDomains`) to [`mobile/ios/Orzo/Info.plist`](mobile/ios/Orzo/Info.plist) so the in-app WKWebView can render HTTPS pages with HTTP sub-resources.

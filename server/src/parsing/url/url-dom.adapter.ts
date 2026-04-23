@@ -288,11 +288,48 @@ function extractHeadingAnchored($: cheerio.CheerioAPI): string | null {
   // Steps must read like steps.
   if (!COOKING_VERB_PATTERN.test(stepText)) return null;
 
-  const title = $("h1").first().text().trim();
+  const title = findRecipeTitle($, ingHeading);
   const parts: string[] = [];
   if (title) parts.push(title);
   parts.push("Ingredients:", ingText, "Instructions:", stepText);
   return parts.join("\n\n");
+}
+
+/**
+ * Find the most plausible recipe title: the nearest preceding h1-h4
+ * before the ingredient heading, in document order. Falls back to the
+ * page's first h1 if nothing earlier is found.
+ *
+ * Observed 2026-04-23: brightfarms.com has `<h1>BrightFarms Recipes</h1>`
+ * as the site header and `<h3>LGBTQ+ Pride Salad</h3>` as the real
+ * recipe title inside a sibling div; taking just `$("h1").first()`
+ * produced "BrightFarms Recipes" as the recipe title. Walking back
+ * from the ingredient heading and picking the closest h1-h4 picks
+ * the h3 correctly.
+ */
+function findRecipeTitle(
+  $: cheerio.CheerioAPI,
+  ingredientHeading: cheerio.Cheerio<AnyNode>,
+): string {
+  // Mark the ingredient heading with a unique attribute so we can locate
+  // it inside a combined selector that preserves document order.
+  ingredientHeading.attr("data-orzo-ing-marker", "1");
+  let lastBefore = "";
+  try {
+    $("h1, h2, h3, h4, [data-orzo-ing-marker]").each((_, el) => {
+      if ($(el).attr("data-orzo-ing-marker") === "1") {
+        return false; // stop iteration — we've hit the ingredient heading
+      }
+      const text = $(el).text().trim();
+      if (text.length > 0 && text.length <= 200) {
+        lastBefore = text;
+      }
+      return undefined;
+    });
+  } finally {
+    ingredientHeading.removeAttr("data-orzo-ing-marker");
+  }
+  return lastBefore || $("h1").first().text().trim();
 }
 
 function collectSectionSiblings(

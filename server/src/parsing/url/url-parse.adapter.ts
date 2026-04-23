@@ -1,3 +1,4 @@
+import * as cheerio from "cheerio";
 import type { SourcePage, ParsedRecipeCandidate } from "@orzo/shared";
 import { fetchUrl, detectBotBlock, BotBlockError } from "./url-fetch.service.js";
 import { extractStructuredData, extractMicrodata } from "./url-structured.adapter.js";
@@ -9,6 +10,29 @@ import {
   buildErrorCandidate,
   type RawExtractionResult,
 } from "../normalize.js";
+
+const RESCUE_BODY_MAX_CHARS = 20_000;
+
+/**
+ * Strip scripts/styles/navigation and return body text. Used as a
+ * last-resort AI context when extractDomBoundary returned null but we
+ * know there's a recipe on the page (microdata ingredients were found).
+ * Capped at 20 KB to bound AI token cost.
+ */
+function extractBodyTextForRescue(html: string): string | null {
+  try {
+    const $ = cheerio.load(html);
+    $("script, style, nav, footer, header, aside, iframe, noscript").remove();
+    const text = $("body").text().replace(/\s+/g, " ").trim();
+    if (text.length < 200) return null;
+    if (text.length > RESCUE_BODY_MAX_CHARS) {
+      return text.slice(0, RESCUE_BODY_MAX_CHARS);
+    }
+    return text;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * When the HTML came from an in-app WebView capture and the enrichment
@@ -114,18 +138,24 @@ export async function parseUrlStructuredOnly(
   const structured = extractStructuredData(html);
   if (structured && passesQualityGate(structured)) {
     const enriched = enrichFromDom(html, structured, url);
+    // Also run the image-fallback here: jamieoliver.com hits this fast
+    // path (JSON-LD passes quality gate) but the iPhone WebView capture
+    // sometimes strips the image fields from the JSON-LD. If webview-
+    // captured and we still don't have an image, fetch fresh HTML and
+    // retry image enrichment. (Same behavior parseUrlFromHtml already had.)
+    const final = await ensureImageFromFreshFetch(enriched, url, acquisitionMethod);
     logExtraction("json-ld", url, {
       acquisitionMethod,
-      ingredients: enriched.ingredients?.length,
-      steps: enriched.steps?.length,
+      ingredients: final.ingredients?.length,
+      steps: final.steps?.length,
       enrichedImage:
-        !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
-      enrichedServings: !structured.servings && !!enriched.servings,
+        !structured.metadata?.imageUrl && !!final.metadata?.imageUrl,
+      enrichedServings: !structured.servings && !!final.servings,
       enrichedTotalTime:
-        !structured.metadata?.totalTime && !!enriched.metadata?.totalTime,
+        !structured.metadata?.totalTime && !!final.metadata?.totalTime,
       fastPath: true,
     });
-    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    const candidate = normalizeToCandidate(final, "url", sourcePages);
     candidate.extractionMethod = "json-ld";
     return candidate;
   }
@@ -133,18 +163,19 @@ export async function parseUrlStructuredOnly(
   const microdata = extractMicrodata(html);
   if (microdata && passesQualityGate(microdata)) {
     const enriched = enrichFromDom(html, microdata, url);
+    const final = await ensureImageFromFreshFetch(enriched, url, acquisitionMethod);
     logExtraction("microdata", url, {
       acquisitionMethod,
-      ingredients: enriched.ingredients?.length,
-      steps: enriched.steps?.length,
+      ingredients: final.ingredients?.length,
+      steps: final.steps?.length,
       enrichedImage:
-        !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
-      enrichedServings: !microdata.servings && !!enriched.servings,
+        !microdata.metadata?.imageUrl && !!final.metadata?.imageUrl,
+      enrichedServings: !microdata.servings && !!final.servings,
       enrichedTotalTime:
-        !microdata.metadata?.totalTime && !!enriched.metadata?.totalTime,
+        !microdata.metadata?.totalTime && !!final.metadata?.totalTime,
       fastPath: true,
     });
-    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    const candidate = normalizeToCandidate(final, "url", sourcePages);
     candidate.extractionMethod = "microdata";
     return candidate;
   }
@@ -306,7 +337,34 @@ export async function parseUrlFromHtml(
     });
   }
 
-  const boundaryText = extractDomBoundary(html);
+  let boundaryText = extractDomBoundary(html);
+
+  // Microdata-ingredients rescue: when a page has itemprop="recipeIngredient"
+  // but no itemprop="recipeInstructions" AND none of our structural-boundary
+  // heuristics find a recipe region (no recipe-class wrapper, no itemprop
+  // fallback because only ingredients are tagged, no heading-anchored match
+  // because the page uses inline <strong>Beef layer</strong> instead of
+  // proper Directions headings) — extractDomBoundary returns null, AI never
+  // runs, and we lose a recipe whose ingredients we already have in hand.
+  //
+  // Observed on notquitenigella.com 2010 blog posts. Fall back to the full
+  // body text so AI can find the steps; the fallbackIngredients merge
+  // below still replaces AI's re-extraction with the higher-fidelity
+  // microdata ingredients.
+  if (
+    !boundaryText &&
+    fallbackIngredients &&
+    fallbackIngredients.length >= 2
+  ) {
+    boundaryText = extractBodyTextForRescue(html);
+    if (boundaryText) {
+      logExtraction("microdata-partial-merged", url, {
+        acquisitionMethod,
+        reason: "boundary_null_body_rescue",
+        fallbackIngredientCount: fallbackIngredients.length,
+      });
+    }
+  }
 
   if (boundaryText) {
     const aiResult = await parseWithAI(boundaryText, url);
