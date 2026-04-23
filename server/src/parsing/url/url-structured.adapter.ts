@@ -78,7 +78,15 @@ export function extractMicrodata(
     }
   });
 
-  if (!title || ingredients.length === 0 || steps.length === 0) {
+  // Loosened 2026-04-23: return a partial result when microdata marks
+  // ingredients but not recipeInstructions. Observed on notquitenigella.com
+  // blog posts that tag `<li itemprop="recipeIngredient">` but leave the
+  // directions as bare `<p><strong>Beef layer</strong></p>` subsections.
+  // `passesQualityGate` in url-parse.adapter.ts still requires steps.length
+  // >= 1, so a partial result correctly falls through to the DOM-AI tier —
+  // but the caller captures the ingredients as `fallbackIngredients` and
+  // prefers them over the AI's re-extraction after AI runs.
+  if (!title || ingredients.length < 2) {
     return null;
   }
 

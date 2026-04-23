@@ -159,6 +159,24 @@ message on the client.
 **Observed**: `https://gourmetmagazine.net/split-pea-soup-a-recipe/` (PostHog,
 2026-04-17).
 
+## Bot-block interstitials (cooks.com, Cloudflare challenges) — detected, friendly-error follow-up queued
+
+**Fingerprint** (one of):
+- `<title>` contains "Are you Human?" (cooks.com)
+- `<title>` contains "Just a moment" + body contains `cf-mitigated` / `challenge-form` / `__cf_chl_jschl_tk__` / `cf-browser-verification` (Cloudflare)
+- `<title>` contains "Access Denied" / "Access Restricted" + body < 4 KB
+
+**Failure mode**: the site serves an interstitial page instead of the recipe to any non-browser request. The HTML has no recipe markup — the cascade would previously cascade all the way to `"error"` with a generic "couldn't parse" surface.
+
+**Mitigation shipped (2026-04-23 evening)**: [`detectBotBlock`](../server/src/parsing/url/url-fetch.service.ts) inspects response bodies after fetch AND at the top of `parseUrlFromHtml` (for webview-captured interstitials). Returns a short label (`"bot_interstitial_are_you_human"` / `"cloudflare_challenge"` / `"access_denied"`) or null.
+
+- Inside `fetchUrl`: throws a new `BotBlockError` when positive. `parseUrl` catches and emits the `bot-blocked` log tag with the label.
+- Top of `parseUrlFromHtml`: catches when the iPhone in-app WebView captured and submitted the interstitial page as its HTML. Returns a clean error candidate with `source: "webview_html"` on the log.
+
+**Residual gap — user UX**: today the user still sees the generic "couldn't parse this recipe" message. The bot-block signal is log-only (server_url_bot_blocked PostHog event). A follow-up in [TODOS.md](../TODOS.md) tracks surfacing a friendly validation error like "This site requires a real browser — try taking a screenshot instead." Re-evaluate when PostHog rate exceeds 1/day sustained.
+
+**Observed**: cooks.com/recipe/uq4665nf/road-kill-stew.html (4 attempts in 14 days, PostHog 2026-04-23).
+
 ## iPhone in-app WebView returns skeletal DOM for some pages
 
 **Fingerprint**: `acquisitionMethod: "webview-html"` + `url_extraction` method

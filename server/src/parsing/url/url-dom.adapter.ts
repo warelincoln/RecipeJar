@@ -160,6 +160,11 @@ export function extractDomBoundary(html: string): string | null {
     }
   }
 
+  const headingAnchored = extractHeadingAnchored($);
+  if (headingAnchored && headingAnchored.length > 100) {
+    return cleanText(headingAnchored);
+  }
+
   const mainContent =
     extractStructuredText($, $("main")) ||
     extractStructuredText($, $("article")) ||
@@ -182,17 +187,21 @@ export function extractDomBoundary(html: string): string | null {
   return null;
 }
 
-const INGREDIENT_MARKER = /\b(ingredients?)\s*:?/i;
-const INSTRUCTION_MARKER = /\b(instructions?|directions?|method|preparation|steps)\s*:?/i;
+// Exported so the heading-anchored DOM strategy (extractHeadingAnchored)
+// can reuse the same text patterns. Keeping one source of truth for what
+// counts as a recipe signal means the body-fallback keyword gate and the
+// heading-anchor guard move in lockstep if we ever tune them.
+export const INGREDIENT_MARKER = /\b(ingredients?)\s*:?/i;
+export const INSTRUCTION_MARKER = /\b(instructions?|directions?|method|preparation|steps)\s*:?/i;
 
 // Measurement patterns like "1 cup", "1/2 tbsp", "100 g". Several of these
 // within the body is a strong recipe signal even when the page has no
 // "Ingredients:" header — e.g. Blogger posts that lay out ingredients as a
 // plain <ul> of measured items followed by an <ol> of steps.
-const MEASUREMENT_PATTERN =
+export const MEASUREMENT_PATTERN =
   /\b\d+\s*(?:\/\s*\d+)?\s*(?:cups?|tbsps?|tablespoons?|tsps?|teaspoons?|ounces?|oz|pounds?|lbs?|grams?|g|kg|kilograms?|ml|milliliters?|l(?:itres?|iters?)?|quarts?|qt|pints?|pt)\b/gi;
 
-const COOKING_VERB_PATTERN =
+export const COOKING_VERB_PATTERN =
   /\b(heat|cook|bake|simmer|boil|stir|whisk|fry|roast|saut[eé]|mix|combine|add|pour|preheat|melt|season|sprinkle|drizzle|serve|garnish|marinate|chop|slice|dice|mince|blend|fold)\b/i;
 
 function hasRecipeKeywords(text: string): boolean {
@@ -210,6 +219,102 @@ function hasRecipeKeywords(text: string): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Heading-anchored extraction strategy (Tier 2C, 2026-04-23).
+ *
+ * Targets WordPress / Squarespace / custom-CMS recipe pages that lack
+ * JSON-LD, Microdata, and recipe-class wrappers but use `<h2>Ingredients</h2>`
+ * + `<h2>Directions</h2>` (or similar) as the only structural signal.
+ * Observed on brightfarms.com, livingtheeveryday.com.
+ *
+ * Algorithm:
+ *   1. Walk `<h1>-<h4>` in document order.
+ *   2. First heading whose text matches INGREDIENT_MARKER becomes the
+ *      ingredient anchor; first matching INSTRUCTION_MARKER becomes the
+ *      direction anchor. Both must exist.
+ *   3. For each anchor, capture following siblings until a heading of
+ *      the same or higher rank. Preserves sub-headings
+ *      (`<h3>For the sauce</h3>`) as inline labels.
+ *   4. Guard against false positives: the ingredient block must have
+ *      either 3+ measurement patterns OR 5+ `<li>` elements. The
+ *      direction block must contain at least one cooking verb. If
+ *      either guard fails, return null and fall through the cascade.
+ *
+ * Returns the formatted boundary text (`title\n\nIngredients:\n{ing}\n\nInstructions:\n{steps}`)
+ * or null when no valid anchors are found.
+ */
+function extractHeadingAnchored($: cheerio.CheerioAPI): string | null {
+  let ingHeading: cheerio.Cheerio<AnyNode> | undefined;
+  let stepHeading: cheerio.Cheerio<AnyNode> | undefined;
+  // h1-h6 (not just h1-h4) — observed brightfarms.com uses <h5> for both
+  // Ingredients and Recipe Preparation inside a post template.
+  $("h1, h2, h3, h4, h5, h6").each((_, el) => {
+    const text = $(el).text().trim();
+    if (!text) return;
+    if (!ingHeading && INGREDIENT_MARKER.test(text)) {
+      ingHeading = $(el);
+    }
+    if (!stepHeading && INSTRUCTION_MARKER.test(text)) {
+      stepHeading = $(el);
+    }
+  });
+  if (!ingHeading || !stepHeading) return null;
+
+  const ingBlock = collectSectionSiblings($, ingHeading);
+  const stepBlock = collectSectionSiblings($, stepHeading);
+  if (ingBlock.length === 0 || stepBlock.length === 0) return null;
+
+  const ingText = ingBlock
+    .map((_, el) => extractStructuredText($, $(el)))
+    .get()
+    .filter((s) => s.length > 0)
+    .join("\n");
+  const stepText = stepBlock
+    .map((_, el) => extractStructuredText($, $(el)))
+    .get()
+    .filter((s) => s.length > 0)
+    .join("\n");
+
+  // False-positive guard: ingredient block must have real recipe signals.
+  const measurementMatches = ingText.match(MEASUREMENT_PATTERN);
+  const measurementOk =
+    measurementMatches !== null && measurementMatches.length >= 3;
+  const listItemCount = ingBlock.find("li").length;
+  const listItemOk = listItemCount >= 5;
+  if (!measurementOk && !listItemOk) return null;
+
+  // Steps must read like steps.
+  if (!COOKING_VERB_PATTERN.test(stepText)) return null;
+
+  const title = $("h1").first().text().trim();
+  const parts: string[] = [];
+  if (title) parts.push(title);
+  parts.push("Ingredients:", ingText, "Instructions:", stepText);
+  return parts.join("\n\n");
+}
+
+function collectSectionSiblings(
+  $: cheerio.CheerioAPI,
+  heading: cheerio.Cheerio<AnyNode>,
+): cheerio.Cheerio<AnyNode> {
+  const tagName = (heading[0] as { tagName?: string }).tagName?.toLowerCase() ?? "";
+  const levelMatch = /^h([1-6])$/.exec(tagName);
+  const ourLevel = levelMatch ? parseInt(levelMatch[1], 10) : 7;
+  const collected: AnyNode[] = [];
+  let next = heading.next();
+  while (next.length > 0) {
+    const nextTag = (next[0] as { tagName?: string }).tagName?.toLowerCase() ?? "";
+    const nextLevelMatch = /^h([1-6])$/.exec(nextTag);
+    if (nextLevelMatch) {
+      const nextLevel = parseInt(nextLevelMatch[1], 10);
+      if (nextLevel <= ourLevel) break;
+    }
+    collected.push(next[0]);
+    next = next.next();
+  }
+  return $(collected);
 }
 
 /**

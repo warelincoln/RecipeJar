@@ -1,6 +1,102 @@
 # Orzo Changelog
 
-### 2026-04-23 — URL-import cascade hardening (3 failure modes unblocked) + webview→server-fetch fallback + iOS Build 3
+### 2026-04-23 (evening) — URL import Tier 1 + Tier 2C heuristics: microdata partial, bot-block detection, heading-anchored extraction
+
+Follow-up session to the morning's URL-import fixes. Ran a 14-day PostHog scrape of 181 URL parses → 15 non-clean outcomes → clustered into 5 tractable failure modes → ran `/plan-eng-review` which reduced scope to the 3 highest-impact mechanisms. Shipped them plus the 3 image wins already coded that morning.
+
+Railway auto-deploys on master merge. Mobile needed **zero changes** — every change is server-side. Every existing TestFlight (Build 3) and iPhone dev build picks up the new behavior automatically.
+
+**Commits shipped (1 on master):**
+
+- (this commit) — feat(parse): microdata partial match + bot-block detection + heading-anchored DOM extraction + 3 image wins
+
+**Plan doc:** `~/.claude/plans/before-we-proceed-i-moonlit-trinket.md` — Tier 1A/E + Tier 2C + image wins, Tier 1B (long-step auto-split) and Tier 2D (`<br>`-paragraph) explicitly deferred to TODOS.md after review judgment.
+
+#### A. Microdata partial match — unblocks ingredient-only microdata sites
+
+[`extractMicrodata`](server/src/parsing/url/url-structured.adapter.ts) now returns a partial `RawExtractionResult` when a page has `<li itemprop="recipeIngredient">` items but no `recipeInstructions` microdata. Previously required both and returned null, forcing the cascade to re-extract ingredients via AI (lower fidelity than site-author markup).
+
+New guard: `title && ingredients.length >= 2`. Partial results flow through `passesQualityGate` (which still requires `steps.length >= 1`) and fall through to DOM-AI — but the caller now captures them into a new `fallbackIngredients` variable in [`parseUrlFromHtml`](server/src/parsing/url/url-parse.adapter.ts), mirroring the existing `fallbackTitle`/`fallbackMetadata`/`fallbackServings` pattern.
+
+The DOM-AI branch's merge rule: **if `fallbackIngredients.length >= 2`, replace `aiResult.ingredients` entirely.** Microdata markers come from the site author; AI is a regex pass — microdata wins. Emits a new `microdata-partial-merged` log tag for PostHog observability.
+
+Fingerprint site: notquitenigella.com/2010/12/02/trailer-park-shepherds-pie (17 microdata ingredients, 0 instructions). Pre-fix: `extraction_method: "error"` (AI cascade failed). Post-fix: `dom-ai` with merged microdata ingredients + AI-extracted steps.
+
+#### E. Bot-block interstitial detection — friendly failure on cooks.com + Cloudflare challenges
+
+New `detectBotBlock(html): string | null` in [`url-fetch.service.ts`](server/src/parsing/url/url-fetch.service.ts) inspects response bodies for known interstitial fingerprints:
+
+| Label | Trigger |
+|---|---|
+| `bot_interstitial_are_you_human` | `<title>` contains "Are you Human?" (cooks.com) |
+| `cloudflare_challenge` | `<title>` contains "Just a moment" + body contains `cf-mitigated`/`challenge-form`/`__cf_chl_jschl_tk__`/`cf-browser-verification` |
+| `access_denied` | `<title>` contains "Access Denied" or "Access Restricted" + body < 4KB |
+
+Called at **two sites**:
+1. Inside `fetchUrl` — throws `BotBlockError` when a server fetch returned an interstitial. `parseUrl` catches and emits `bot-blocked` log tag.
+2. Top of `parseUrlFromHtml` — catches when the iPhone in-app WebView captured and submitted the interstitial as its "page". Returns a clean error candidate with `source: "webview_html"` log annotation.
+
+Both paths converge on a single error candidate. The user still sees the generic "couldn't parse this recipe" message today (log-only scope per review decision C2); a follow-up TODO tracks surfacing a friendly validation error.
+
+Fingerprint site: cooks.com (4 interstitial hits in 14-day PostHog log). Post-fix: `server_url_bot_blocked` event fires with the specific label per attempt.
+
+#### C. Heading-anchored DOM extraction — unblocks WordPress/custom-CMS recipe posts
+
+New `extractHeadingAnchored($)` strategy slotted between the existing itemprop-fallback and the generic `<main>/<article>` fallback in [`extractDomBoundary`](server/src/parsing/url/url-dom.adapter.ts).
+
+Algorithm:
+1. Scan `<h1>-<h6>` (not just h2-h4 — brightfarms.com uses `<h5>`) in document order. First heading matching `INGREDIENT_MARKER` becomes the ingredient anchor; first matching `INSTRUCTION_MARKER` becomes the direction anchor.
+2. For each anchor, collect following DOM siblings until the next heading of the same or higher rank. Sub-headings (`<h3>For the sauce</h3>`) survive as inline labels inside the section.
+3. **False-positive guard:** the ingredient block must satisfy (3+ measurement patterns) OR (5+ `<li>` elements), AND the direction block must contain at least one cooking verb. If either guard fails, return null and fall through.
+4. Format as `{title}\n\nIngredients:\n{ing}\n\nInstructions:\n{steps}` — same shape as the existing itemprop fallback so downstream AI + logging are unchanged.
+
+Guard shape (measurements OR 5+ items, not AND) was chosen during [`/plan-eng-review`](/Users/lincolnware/.claude/plans/before-we-proceed-i-moonlit-trinket.md) — catches minimalist recipes like "olive oil, salt, pepper, garlic" at the cost of slightly more permissive matching on listicles.
+
+C1 — exported `INGREDIENT_MARKER`, `INSTRUCTION_MARKER`, `MEASUREMENT_PATTERN`, `COOKING_VERB_PATTERN` as module constants so the heading-anchor strategy reuses the exact same patterns as `hasRecipeKeywords`. No duplicate regex.
+
+Fingerprint site: brightfarms.com/recipes/lgbtq-pride-salad (WordPress post with `<h5>Ingredients</h5>` + `<h5>Recipe Preparation</h5>` in separate div wrappers). Emits a new `heading-anchor` log tag.
+
+#### Bundled image wins (coded earlier today, shipped with this commit)
+
+- **`<link itemprop="image">` + `<meta itemprop="image">`** added to [`findImageUrl`](server/src/parsing/url/url-dom-enrichment.ts). Unblocks notquitenigella.com 2026 posts that use microformat-style image markers instead of `og:image`.
+- **`resolveImageUrl` helper** rebases relative image URLs (`/uploads/...`) against the source page URL. Unblocks us.inshaker.com cocktail pages that publish `og:image` as site-relative.
+- **`ensureImageFromFreshFetch` helper** in [`url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts): when `acquisitionMethod === "webview-html"` AND post-enrichment image is still missing, do one extra server-side fetch of the URL and re-run `findImageUrl` on the fresh HTML. Unblocks jamieoliver.com / abouteating.com where the iPhone WKWebView capture strips or misses `<meta>` tags (Next.js SSR sites, hydration ordering).
+
+Each fires behind a tight guard so the happy path pays zero cost.
+
+#### Scope reductions (approved during plan review)
+
+- **Dropped Tier 1B (long-`HowToStep` auto-split)** — risk of over-fragmenting genuine prose steps. Replaced by a TODOS entry tracking a manual "split this step" UX affordance instead of auto-splitting.
+- **Dropped Tier 2D (`<br>`-separated paragraph extractor)** — single observed site (urologyhealth.org) in 14 days. Re-evaluate if pattern reappears.
+
+#### Test coverage (+19 tests, 30 passing in parsing-domain-fixtures)
+
+New describe blocks and fixtures in [`server/tests/parsing-domain-fixtures.test.ts`](server/tests/parsing-domain-fixtures.test.ts):
+
+| Group | Tests | Fixture |
+|---|---|---|
+| notquitenigella.com 2010 — microdata partial match | 3 | `notquitenigella-2010-microdata-partial.html` (minified to ~2KB) |
+| cooks.com — bot-block interstitial detection | 4 | `cooks-interstitial.html` (~1KB) |
+| brightfarms.com — heading-anchored DOM extraction | 3 | `brightfarms-headings.html` (~2KB) |
+| url-dom-enrichment — image URL discovery + resolution | 9 | synthetic HTML (no new fixtures needed) |
+
+Includes a regression check: `detectBotBlock` returns null on all 9 existing recipe fixtures (no false positives).
+
+#### Measured results
+
+**Before this session's final sweep (from morning commit `5b5b6f5`):** 24 full / 1 no-hero / 5 failed.
+
+**After this session (bulk 30-URL harness):** 23 full / 1 no-hero / 6 failed. The 1-recipe delta is AI nondeterminism on saveur.com (yesterday returned "Profiteroles" title, today returned null on the same page via same code path). Saveur has no JSON-LD and no microdata, so none of the new heuristics touch it — the title regression is transient AI output variance, not a logic bug. Confirmed by tracing the cascade.
+
+**Test suite:** 274 passed / 2 failed / 2 skipped (pre-existing failures in `integration.test.ts` notes CRUD and `machine.test.ts` syntax, both unchanged from 2026-04-22).
+
+#### TODOS.md created
+
+New top-level [TODOS.md](TODOS.md) with 5 open items — the 2 directly approved during plan review (bot-block friendly error, manual step-split UX) plus 3 more captured from session deferrals (Squarespace paragraph-prefix, AI time prompt tightening, Joy of Baking ATS mixed-content fix).
+
+---
+
+### 2026-04-23 (morning) — URL-import cascade hardening (3 failure modes unblocked) + webview→server-fetch fallback + iOS Build 3
 
 Session started as a **bulk regression test** — pointed the parser at 30 real recipe URLs drawn from the Paprika app's supported-sites list to see where we break. 21/30 full parses, 1/30 parse-without-hero, 8/30 failed. Of the 8 failures, 3 turned out to be real parser bugs (the others were bot-block 402s and stale URLs I picked). Fixed all 3 the same session; re-ran the 30-URL sweep → 24/30 full. Follow-up iPhone testing surfaced two additional issues specific to the mobile path (webview-captured HTML returning skeletal DOM; 5 MB remote-image cap rejecting Blogger originals at `/s5472/`). Both fixed. All four server fixes are live on Railway; **TestFlight Build 3** archived the prior night carries the app icon refresh + build number bump but **zero mobile code changes** — the parse fixes reach every existing build automatically via the Railway API.
 

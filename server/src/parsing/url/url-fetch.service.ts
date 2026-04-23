@@ -1,5 +1,52 @@
 import { assertUrlSafeForSsrf } from "./url-ssrf-guard.js";
 
+/**
+ * Thrown by `fetchUrl` when the response body looks like a bot-challenge
+ * or access-denied interstitial rather than a real page. Caught by the
+ * parse cascade and translated into a clean error candidate; also fired
+ * from `parseUrlFromHtml` when the iPhone WebView captured and submitted
+ * an interstitial as its "page".
+ */
+export class BotBlockError extends Error {
+  readonly label: string;
+  constructor(label: string, message?: string) {
+    super(message ?? `bot-block detected: ${label}`);
+    this.name = "BotBlockError";
+    this.label = label;
+  }
+}
+
+/**
+ * Inspect an HTML response body for known interstitial patterns. Cheap
+ * regex check that runs before any cheerio parse. Returns a short label
+ * identifying the interstitial family, or null for real content.
+ *
+ * Detection targets observed in prod (PostHog 2026-04-23):
+ * - cooks.com returns `<title>Are you Human? | Cooks.com</title>` + a
+ *   single link back to the recipe; no recipe markup present.
+ * - Cloudflare "Just a moment..." challenge pages.
+ * - Generic "Access Denied" / "Access Restricted" short bodies.
+ */
+export function detectBotBlock(html: string): string | null {
+  if (typeof html !== "string" || html.length < 100) return null;
+  if (/<title[^>]*>[^<]*Are you Human\??[^<]*<\/title>/i.test(html)) {
+    return "bot_interstitial_are_you_human";
+  }
+  if (
+    /<title[^>]*>[^<]*Just a moment[^<]*<\/title>/i.test(html) &&
+    /(cf-mitigated|challenge-form|__cf_chl_jschl_tk__|cf-browser-verification)/i.test(html)
+  ) {
+    return "cloudflare_challenge";
+  }
+  if (
+    /<title[^>]*>[^<]*Access (?:Denied|Restricted)[^<]*<\/title>/i.test(html) &&
+    html.length < 4000
+  ) {
+    return "access_denied";
+  }
+  return null;
+}
+
 const BOT_UA =
   "Mozilla/5.0 (compatible; Orzo/1.0; +https://getorzo.com)";
 
@@ -139,6 +186,11 @@ export async function fetchUrl(url: string): Promise<string> {
       throw new Error(`Response too large: ${contentLength} bytes`);
     }
 
-    return await response.text();
+    const body = await response.text();
+    const botLabel = detectBotBlock(body);
+    if (botLabel) {
+      throw new BotBlockError(botLabel);
+    }
+    return body;
   }
 }

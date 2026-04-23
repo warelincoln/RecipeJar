@@ -8,10 +8,16 @@ import type { RawExtractionResult } from "../normalize.js";
  * omits `image` or `recipeYield` — the values are present on the page,
  * just in meta tags or plugin-specific selectors. This fills those gaps
  * without overwriting anything the structured data already provided.
+ *
+ * `sourceUrl`, when supplied, is used to resolve relative image URLs
+ * (e.g. inshaker.com publishes `og:image` as `/uploads/...`) to absolute
+ * URLs. Without it we keep the original string so the download path can
+ * reject cleanly instead of silently producing a broken URL.
  */
 export function enrichFromDom(
   html: string,
   result: RawExtractionResult,
+  sourceUrl?: string,
 ): RawExtractionResult {
   const hasImage =
     typeof result.metadata?.imageUrl === "string" &&
@@ -24,14 +30,25 @@ export function enrichFromDom(
     typeof result.metadata?.totalTime === "string" &&
     result.metadata.totalTime.length > 0;
 
-  if (hasImage && hasServings && hasTotalTime) return result;
-
   const $ = cheerio.load(html);
 
   const enriched: RawExtractionResult = { ...result };
 
+  // Rebase an image URL the structured-data extractor already produced —
+  // JSON-LD on inshaker.com returns `/uploads/cocktail/...` as a site-
+  // relative path, which neither the download helper nor the mobile
+  // preview banner can resolve on its own.
+  if (hasImage && sourceUrl) {
+    const absolute = resolveImageUrl(result.metadata!.imageUrl!, sourceUrl);
+    if (absolute && absolute !== result.metadata!.imageUrl) {
+      enriched.metadata = { ...(enriched.metadata ?? {}), imageUrl: absolute };
+    }
+  }
+
+  if (hasImage && hasServings && hasTotalTime) return enriched;
+
   if (!hasImage) {
-    const imageUrl = findImageUrl($);
+    const imageUrl = findImageUrl($, sourceUrl);
     if (imageUrl) {
       enriched.metadata = { ...(enriched.metadata ?? {}), imageUrl };
     }
@@ -67,18 +84,68 @@ export function enrichFromDom(
   return enriched;
 }
 
-function findImageUrl($: cheerio.CheerioAPI): string | null {
+/**
+ * Resolve a hero-image URL against the source page URL. Handles:
+ *   - Absolute URLs → passthrough
+ *   - Protocol-relative (`//cdn.foo.com/...`) → prepend scheme
+ *   - Site-relative (`/uploads/foo.jpg`) → rebase onto origin
+ *   - Bare path (`img/foo.jpg` relative to the page) → rebase onto page
+ *
+ * Returns null if resolution fails. With no `baseUrl`, a relative path
+ * is returned as-is (preserves prior behavior).
+ */
+function resolveImageUrl(
+  rawImageUrl: string,
+  baseUrl?: string,
+): string | null {
+  if (!rawImageUrl) return null;
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed) return null;
+  // Already absolute http/https
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // Protocol-relative
+  if (trimmed.startsWith("//")) {
+    if (!baseUrl) return `https:${trimmed}`;
+    try {
+      const base = new URL(baseUrl);
+      return `${base.protocol}${trimmed}`;
+    } catch {
+      return `https:${trimmed}`;
+    }
+  }
+  // Site-relative or bare path — needs a base to resolve
+  if (!baseUrl) return trimmed;
+  try {
+    return new URL(trimmed, baseUrl).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+export { resolveImageUrl as _testResolveImageUrl };
+
+function findImageUrl(
+  $: cheerio.CheerioAPI,
+  baseUrl?: string,
+): string | null {
   const candidates = [
     $('meta[property="og:image"]').attr("content"),
     $('meta[property="og:image:url"]').attr("content"),
     $('meta[name="twitter:image"]').attr("content"),
     $('meta[name="twitter:image:src"]').attr("content"),
     $('link[rel="image_src"]').attr("href"),
+    // hRecipe microformat + custom CMSes that mark the hero via itemprop
+    // rather than Open Graph. Observed on notquitenigella.com
+    // (`<link itemprop="image" href="...">`).
+    $('link[itemprop="image"]').attr("href"),
+    $('meta[itemprop="image"]').attr("content"),
   ];
   for (const c of candidates) {
     if (typeof c === "string") {
       const trimmed = c.trim();
-      if (trimmed.length > 0) return trimmed;
+      if (trimmed.length > 0) {
+        return resolveImageUrl(trimmed, baseUrl) ?? trimmed;
+      }
     }
   }
   return null;

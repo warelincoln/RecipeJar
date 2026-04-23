@@ -1,5 +1,5 @@
 import type { SourcePage, ParsedRecipeCandidate } from "@orzo/shared";
-import { fetchUrl } from "./url-fetch.service.js";
+import { fetchUrl, detectBotBlock, BotBlockError } from "./url-fetch.service.js";
 import { extractStructuredData, extractMicrodata } from "./url-structured.adapter.js";
 import { extractDomBoundary } from "./url-dom.adapter.js";
 import { enrichFromDom } from "./url-dom-enrichment.js";
@@ -10,7 +10,58 @@ import {
   type RawExtractionResult,
 } from "../normalize.js";
 
-type ExtractionMethod = "json-ld" | "microdata" | "dom-ai" | "error";
+/**
+ * When the HTML came from an in-app WebView capture and the enrichment
+ * step couldn't find a hero image, the capture probably stripped the
+ * meta tags or fired before a JS-injected JSON-LD arrived. Server-fetch
+ * the URL once, reuse `enrichFromDom` to pull `og:image` / `twitter:image`
+ * / `link[itemprop=image]` from the fresh HTML, and graft the result.
+ *
+ * Observed 2026-04-23: jamieoliver.com and abouteating.com returned
+ * clean recipes via webview-html extraction but with `imageUrl: null`,
+ * while a server fetch of the same URL produced a valid og:image.
+ */
+async function ensureImageFromFreshFetch(
+  result: RawExtractionResult,
+  url: string,
+  acquisitionMethod: UrlAcquisitionMethod,
+): Promise<RawExtractionResult> {
+  const hasImage =
+    typeof result.metadata?.imageUrl === "string" &&
+    result.metadata.imageUrl.length > 0;
+  if (hasImage) return result;
+  if (acquisitionMethod !== "webview-html") return result;
+  try {
+    const freshHtml = await fetchUrl(url);
+    const reEnriched = enrichFromDom(freshHtml, result, url);
+    const freshImageFound =
+      typeof reEnriched.metadata?.imageUrl === "string" &&
+      reEnriched.metadata.imageUrl.length > 0;
+    if (freshImageFound) {
+      console.log(
+        JSON.stringify({
+          timestamp: new Date().toISOString(),
+          event: "image_fallback_fresh_fetch",
+          url,
+          recovered: true,
+        }),
+      );
+      return reEnriched;
+    }
+  } catch {
+    // fall through; leave result unchanged
+  }
+  return result;
+}
+
+type ExtractionMethod =
+  | "json-ld"
+  | "microdata"
+  | "microdata-partial-merged"
+  | "dom-ai"
+  | "heading-anchor"
+  | "bot-blocked"
+  | "error";
 export type UrlAcquisitionMethod =
   | "server-fetch"
   | "webview-html"
@@ -62,7 +113,7 @@ export async function parseUrlStructuredOnly(
 
   const structured = extractStructuredData(html);
   if (structured && passesQualityGate(structured)) {
-    const enriched = enrichFromDom(html, structured);
+    const enriched = enrichFromDom(html, structured, url);
     logExtraction("json-ld", url, {
       acquisitionMethod,
       ingredients: enriched.ingredients?.length,
@@ -81,7 +132,7 @@ export async function parseUrlStructuredOnly(
 
   const microdata = extractMicrodata(html);
   if (microdata && passesQualityGate(microdata)) {
-    const enriched = enrichFromDom(html, microdata);
+    const enriched = enrichFromDom(html, microdata, url);
     logExtraction("microdata", url, {
       acquisitionMethod,
       ingredients: enriched.ingredients?.length,
@@ -117,10 +168,18 @@ export async function parseUrl(
   try {
     html = await fetchUrl(url);
   } catch (err) {
-    logExtraction("error", url, {
-      acquisitionMethod,
-      reason: err instanceof Error ? err.message : "fetch failed",
-    });
+    if (err instanceof BotBlockError) {
+      logExtraction("bot-blocked", url, {
+        acquisitionMethod,
+        label: err.label,
+        source: "fetch",
+      });
+    } else {
+      logExtraction("error", url, {
+        acquisitionMethod,
+        reason: err instanceof Error ? err.message : "fetch failed",
+      });
+    }
     return buildErrorCandidate("url", sourcePages);
   }
 
@@ -141,24 +200,44 @@ export async function parseUrlFromHtml(
     return buildErrorCandidate("url", sourcePages);
   }
 
+  // Catch iPhone WebView captures that are themselves an interstitial — the
+  // user tapped Save while looking at the bot-challenge page. `fetchUrl`
+  // already catches server-fetched interstitials one layer up.
+  const webviewBotLabel = detectBotBlock(html);
+  if (webviewBotLabel) {
+    logExtraction("bot-blocked", url, {
+      acquisitionMethod,
+      label: webviewBotLabel,
+      source: "webview_html",
+    });
+    return buildErrorCandidate("url", sourcePages);
+  }
+
   const structured = extractStructuredData(html);
   let fallbackTitle: string | null = null;
   let fallbackMetadata: RawExtractionResult["metadata"] | undefined;
   let fallbackServings: RawExtractionResult["servings"] | undefined;
+  // Captured from rejected microdata (ingredients-only pages like
+  // notquitenigella.com 2010). When AI later fills steps via the DOM-AI
+  // tier, we replace the AI's re-extracted ingredients with these —
+  // microdata markers come from the site author and are higher-fidelity
+  // than an AI regex pass.
+  let fallbackIngredients: RawExtractionResult["ingredients"] | undefined;
 
   if (structured && passesQualityGate(structured)) {
-    const enriched = enrichFromDom(html, structured);
+    const enriched = enrichFromDom(html, structured, url);
+    const final = await ensureImageFromFreshFetch(enriched, url, acquisitionMethod);
     logExtraction("json-ld", url, {
       acquisitionMethod,
-      ingredients: enriched.ingredients?.length,
-      steps: enriched.steps?.length,
+      ingredients: final.ingredients?.length,
+      steps: final.steps?.length,
       enrichedImage:
-        !structured.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
-      enrichedServings: !structured.servings && !!enriched.servings,
+        !structured.metadata?.imageUrl && !!final.metadata?.imageUrl,
+      enrichedServings: !structured.servings && !!final.servings,
       enrichedTotalTime:
-        !structured.metadata?.totalTime && !!enriched.metadata?.totalTime,
+        !structured.metadata?.totalTime && !!final.metadata?.totalTime,
     });
-    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    const candidate = normalizeToCandidate(final, "url", sourcePages);
     candidate.extractionMethod = "json-ld";
     return candidate;
   }
@@ -185,20 +264,46 @@ export async function parseUrlFromHtml(
 
   const microdata = extractMicrodata(html);
   if (microdata && passesQualityGate(microdata)) {
-    const enriched = enrichFromDom(html, microdata);
+    const enriched = enrichFromDom(html, microdata, url);
+    const final = await ensureImageFromFreshFetch(enriched, url, acquisitionMethod);
     logExtraction("microdata", url, {
       acquisitionMethod,
-      ingredients: enriched.ingredients?.length,
-      steps: enriched.steps?.length,
+      ingredients: final.ingredients?.length,
+      steps: final.steps?.length,
       enrichedImage:
-        !microdata.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
-      enrichedServings: !microdata.servings && !!enriched.servings,
+        !microdata.metadata?.imageUrl && !!final.metadata?.imageUrl,
+      enrichedServings: !microdata.servings && !!final.servings,
       enrichedTotalTime:
-        !microdata.metadata?.totalTime && !!enriched.metadata?.totalTime,
+        !microdata.metadata?.totalTime && !!final.metadata?.totalTime,
     });
-    const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+    const candidate = normalizeToCandidate(final, "url", sourcePages);
     candidate.extractionMethod = "microdata";
     return candidate;
+  }
+  if (microdata) {
+    // Microdata returned but failed the quality gate (typically:
+    // ingredients-only, no recipeInstructions microdata). Capture what
+    // we have so the DOM-AI tier below can reuse it.
+    if (microdata.ingredients && microdata.ingredients.length >= 2) {
+      fallbackIngredients = microdata.ingredients;
+    }
+    if (!fallbackTitle && typeof microdata.title === "string" && microdata.title.length > 0) {
+      fallbackTitle = microdata.title;
+    }
+    if (!fallbackMetadata && microdata.metadata) {
+      fallbackMetadata = microdata.metadata;
+    }
+    if (!fallbackServings && microdata.servings) {
+      fallbackServings = microdata.servings;
+    }
+    logExtraction("microdata", url, {
+      acquisitionMethod,
+      rejected: true,
+      reason: "quality_gate_failed",
+      ingredients: microdata.ingredients?.length,
+      steps: microdata.steps?.length,
+      savedFallbackIngredients: !!fallbackIngredients,
+    });
   }
 
   const boundaryText = extractDomBoundary(html);
@@ -215,19 +320,37 @@ export async function parseUrlFromHtml(
       if (!aiResult.servings && fallbackServings) {
         aiResult.servings = fallbackServings;
       }
-      const enriched = enrichFromDom(html, aiResult);
+      // Microdata ingredients (when present) override AI re-extraction.
+      // Site authors control the itemprop markers; AI is a regex pass.
+      // Only fires when the DOM-AI tier runs — happy-path microdata with
+      // both ingredients + steps has already returned above.
+      const usedMicrodataIngredients =
+        !!fallbackIngredients && fallbackIngredients.length >= 2;
+      if (usedMicrodataIngredients) {
+        aiResult.ingredients = fallbackIngredients!;
+      }
+      const enriched = enrichFromDom(html, aiResult, url);
+      const final = await ensureImageFromFreshFetch(enriched, url, acquisitionMethod);
       logExtraction("dom-ai", url, {
         acquisitionMethod,
-        ingredients: enriched.ingredients?.length,
-        steps: enriched.steps?.length,
-        titleFromFallback: !!(fallbackTitle && enriched.title === fallbackTitle),
+        ingredients: final.ingredients?.length,
+        steps: final.steps?.length,
+        titleFromFallback: !!(fallbackTitle && final.title === fallbackTitle),
         enrichedImage:
-          !aiResult.metadata?.imageUrl && !!enriched.metadata?.imageUrl,
-        enrichedServings: !aiResult.servings && !!enriched.servings,
+          !aiResult.metadata?.imageUrl && !!final.metadata?.imageUrl,
+        enrichedServings: !aiResult.servings && !!final.servings,
         enrichedTotalTime:
-          !aiResult.metadata?.totalTime && !!enriched.metadata?.totalTime,
+          !aiResult.metadata?.totalTime && !!final.metadata?.totalTime,
+        usedMicrodataIngredients,
       });
-      const candidate = normalizeToCandidate(enriched, "url", sourcePages);
+      if (usedMicrodataIngredients) {
+        logExtraction("microdata-partial-merged", url, {
+          acquisitionMethod,
+          ingredientCount: fallbackIngredients!.length,
+          stepCount: aiResult.steps?.length ?? 0,
+        });
+      }
+      const candidate = normalizeToCandidate(final, "url", sourcePages);
       candidate.extractionMethod = "dom-ai";
       return candidate;
     }
