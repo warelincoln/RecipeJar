@@ -23,6 +23,7 @@ export type {
 } from "./types/parsed-candidate.types.js";
 
 export type {
+  TimeSource,
   RecipeIngredientEntry,
   RecipeStepEntry,
   RecipeSourcePage,

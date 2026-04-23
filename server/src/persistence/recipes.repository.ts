@@ -9,7 +9,7 @@ import {
   recipeNotes,
   collections,
 } from "./schema.js";
-import type { SaveDecision } from "@orzo/shared";
+import type { SaveDecision, TimeSource } from "@orzo/shared";
 import { parseIngredientLine } from "../parsing/ingredient-parser.js";
 
 function mapRating(halfSteps: number | null): number | null {
@@ -26,11 +26,11 @@ export interface SaveRecipeInput {
   imageUrl?: string | null;
   baselineServings: number | null;
   prepTimeMinutes?: number | null;
-  prepTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
+  prepTimeSource?: TimeSource | null;
   cookTimeMinutes?: number | null;
-  cookTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
+  cookTimeSource?: TimeSource | null;
   totalTimeMinutes?: number | null;
-  totalTimeSource?: "explicit" | "inferred" | "user_confirmed" | null;
+  totalTimeSource?: TimeSource | null;
   saveDecision: SaveDecision;
   ingredients: {
     text: string;

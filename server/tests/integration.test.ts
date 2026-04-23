@@ -767,6 +767,165 @@ describe("API Integration", () => {
       expect(ing.name).toBe("water");
     });
 
+    // Regression guard (2026-04-22): when the parse supplied prep + cook
+    // but no total (common JSON-LD partial, e.g. savoryonline), the save
+    // path derives total = prep + cook and tags it "inferred". User
+    // overrides via the TimesReviewBanner still win (including clearing
+    // to null). Mirrors the client render-time fallback at
+    // mobile/src/screens/RecipeDetailScreen.tsx but makes the stored
+    // value authoritative.
+    describe("time gap-fill on save", () => {
+      type SaveCallArgs = {
+        prepTimeMinutes: number | null;
+        prepTimeSource: string | null;
+        cookTimeMinutes: number | null;
+        cookTimeSource: string | null;
+        totalTimeMinutes: number | null;
+        totalTimeSource: string | null;
+      };
+
+      function buildDraft(
+        metadata: Record<string, unknown>,
+        editedTimes: Record<string, unknown> = {},
+      ) {
+        return {
+          id: "d1",
+          status: "PARSED",
+          sourceType: "url",
+          originalUrl: "https://example.com/recipe",
+          validationResultJson: {
+            issues: [],
+            saveState: "SAVE_CLEAN",
+            hasWarnings: false,
+            hasBlockingIssues: false,
+            requiresRetake: false,
+          },
+          editedCandidateJson: {
+            title: "Recipe",
+            ingredients: [{ text: "1 cup flour", orderIndex: 0, isHeader: false }],
+            steps: [{ text: "Mix.", orderIndex: 0, isHeader: false }],
+            description: null,
+            servings: 2,
+            ...editedTimes,
+          },
+          parsedCandidateJson: {
+            metadata,
+          },
+        } as never;
+      }
+
+      function mockSuccess() {
+        draftRepo.getWarningStates.mockResolvedValue([] as never);
+        draftRepo.getPages.mockResolvedValue([] as never);
+        draftRepo.markSaved.mockResolvedValue({} as never);
+        recipeRepo.save.mockResolvedValue({ id: "r1", title: "Recipe" } as never);
+      }
+
+      it("derives total = prep + cook and tags 'derived' when total is missing", async () => {
+        draftRepo.findById.mockResolvedValue(
+          buildDraft({
+            prepTime: "PT15M",
+            prepTimeSource: "explicit",
+            cookTime: "PT30M",
+            cookTimeSource: "explicit",
+          }),
+        );
+        mockSuccess();
+
+        await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+        const args = (recipeRepo.save.mock.calls[0] as unknown[])[0] as SaveCallArgs;
+        expect(args.prepTimeMinutes).toBe(15);
+        expect(args.prepTimeSource).toBe("explicit");
+        expect(args.cookTimeMinutes).toBe(30);
+        expect(args.cookTimeSource).toBe("explicit");
+        expect(args.totalTimeMinutes).toBe(45);
+        // "derived" (not "inferred") — the sum is arithmetic from explicit
+        // components, not an AI guess. Client renders this clean, no "~".
+        expect(args.totalTimeSource).toBe("derived");
+      });
+
+      it("does NOT derive total when only prep is present (strict rule: needs both)", async () => {
+        draftRepo.findById.mockResolvedValue(
+          buildDraft({
+            prepTime: "PT15M",
+            prepTimeSource: "explicit",
+          }),
+        );
+        mockSuccess();
+
+        await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+        const args = (recipeRepo.save.mock.calls[0] as unknown[])[0] as SaveCallArgs;
+        expect(args.prepTimeMinutes).toBe(15);
+        expect(args.cookTimeMinutes).toBeNull();
+        expect(args.totalTimeMinutes).toBeNull();
+        expect(args.totalTimeSource).toBeNull();
+      });
+
+      it("does NOT derive when total is already explicit on the source", async () => {
+        draftRepo.findById.mockResolvedValue(
+          buildDraft({
+            prepTime: "PT15M",
+            prepTimeSource: "explicit",
+            cookTime: "PT30M",
+            cookTimeSource: "explicit",
+            totalTime: "PT50M",
+            totalTimeSource: "explicit",
+          }),
+        );
+        mockSuccess();
+
+        await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+        const args = (recipeRepo.save.mock.calls[0] as unknown[])[0] as SaveCallArgs;
+        expect(args.totalTimeMinutes).toBe(50);
+        expect(args.totalTimeSource).toBe("explicit");
+      });
+
+      it("does NOT derive when the user explicitly cleared total via the banner", async () => {
+        draftRepo.findById.mockResolvedValue(
+          buildDraft(
+            {
+              prepTime: "PT15M",
+              prepTimeSource: "explicit",
+              cookTime: "PT30M",
+              cookTimeSource: "explicit",
+            },
+            { totalTimeMinutes: null },
+          ),
+        );
+        mockSuccess();
+
+        await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+        const args = (recipeRepo.save.mock.calls[0] as unknown[])[0] as SaveCallArgs;
+        expect(args.totalTimeMinutes).toBeNull();
+        expect(args.totalTimeSource).toBeNull();
+      });
+
+      it("honors a user-confirmed total override (no gap-fill)", async () => {
+        draftRepo.findById.mockResolvedValue(
+          buildDraft(
+            {
+              prepTime: "PT15M",
+              prepTimeSource: "explicit",
+              cookTime: "PT30M",
+              cookTimeSource: "explicit",
+            },
+            { totalTimeMinutes: 60 },
+          ),
+        );
+        mockSuccess();
+
+        await app.inject({ method: "POST", url: "/drafts/d1/save" });
+
+        const args = (recipeRepo.save.mock.calls[0] as unknown[])[0] as SaveCallArgs;
+        expect(args.totalTimeMinutes).toBe(60);
+        expect(args.totalTimeSource).toBe("user_confirmed");
+      });
+    });
+
     it("saves as SAVE_USER_VERIFIED when FLAG warnings are dismissed", async () => {
       draftRepo.findById.mockResolvedValue({
         id: "d1",
