@@ -46,6 +46,8 @@ export function displayMessageForIssue(issue: ValidationIssue): string {
       return "We may have picked up more than one recipe—make sure what's below matches what you want.";
     case "SERVINGS_MISSING":
       return "How many does this recipe serve? Add it now or skip — you can save either way.";
+    case "URL_BOT_BLOCKED":
+      return "This site requires a real browser to view recipes. Try taking a screenshot of the page instead.";
     default:
       return issue.message;
   }

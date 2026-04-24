@@ -106,6 +106,7 @@ export function extractMicrodata(
     signals: {
       structureSeparable: true,
       descriptionDetected: description !== null,
+      stepLongPrimaryText: computeStepLongPrimaryText(steps),
     },
     ingredientSignals: [],
     stepSignals: [],
@@ -170,6 +171,7 @@ function findRecipeInLdJson(data: unknown): RawExtractionResult | null {
     signals: {
       structureSeparable: true,
       descriptionDetected: description !== null,
+      stepLongPrimaryText: computeStepLongPrimaryText(steps),
     },
     ingredientSignals: [],
     stepSignals: [],
@@ -297,6 +299,19 @@ function extractStringArray(value: unknown): string[] {
 interface StepEntry {
   text: string;
   isHeader: boolean;
+}
+
+/**
+ * Detects the "one big paragraph" JSON-LD pattern: ≤2 non-header HowToSteps
+ * where at least one exceeds ~400 chars. Observed on BigOven, TasteOfHome,
+ * eatingwell, southernliving — authors concatenated the whole method.
+ */
+function computeStepLongPrimaryText(
+  steps: { text: string; isHeader?: boolean }[],
+): boolean {
+  const nonHeader = steps.filter((s) => !s.isHeader);
+  if (nonHeader.length === 0 || nonHeader.length > 2) return false;
+  return nonHeader.some((s) => (s.text?.length ?? 0) > 400);
 }
 
 function extractInstructions(value: unknown): StepEntry[] {

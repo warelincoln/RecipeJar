@@ -1,5 +1,98 @@
 # Orzo Changelog
 
+### 2026-04-23 (late-late) — 4 TODOS bundle: typewriter fix, prompt time guardrail, URL_BOT_BLOCKED UX, step-long parse signal
+
+Single plan-eng-reviewed session tackling four TODOS.md items together. Plan doc: `~/.claude/plans/familiarize-yourself-with-the-abundant-ullman.md`. All four items bundled because each is atomic and splitting into 4 PRs would just multiply CLAUDE.md restart overhead.
+
+**Files changed (13):** 12 modified + 1 new (`rules.extraction-error.ts`). 9 new Vitest cases. Zero regressions: 64/64 pass in the two touched test files; 3 pre-existing failures in `integration.test.ts` / `machine.test.ts` confirmed on master baseline (notesRepo undefined-arg drift + machine.test.ts syntax — unrelated to this work).
+
+#### 1. Typewriter reveal restarts on every title keystroke — fixed
+
+**Symptom.** On the import preview screen, typing in the Title field made the word-by-word reveal animation (~6000 WPM) restart every keystroke. The field visually "reset" and the user lost TextInput focus.
+
+**Root cause.** [`useRecipeParseReveal.ts:25, 57`](mobile/src/features/import/useRecipeParseReveal.ts) — the `useMemo` for `plan` was keyed on the candidate content `fingerprint`, and the interval effect's dep array included `fingerprint` directly. Every `onEdit({...candidate, title: text})` in [`PreviewEditView.tsx:325`](mobile/src/features/import/PreviewEditView.tsx) mutated the fingerprint, rebuilt the plan, restarted the interval from `revealed = 0`, flipped `isRevealing` back to `true`, and swapped the field from `TextInput` to the static reveal `Text` at line 501.
+
+**Fix.** One reveal epoch per `parseRevealToken`:
+- Changed `useMemo` deps from `[fingerprint]` to `[parseRevealToken]` so the plan is latched at reveal start and does not rebuild on content edits.
+- Dropped `fingerprint` from the interval effect's dep array. The effect now only re-fires when a new parse completes (not on every keystroke).
+- Removed the now-unused `candidateContentFingerprint` helper from [`recipeParseReveal.ts`](mobile/src/features/import/recipeParseReveal.ts).
+
+**Verified live:** iPhone Orzo Dev, 2026-04-23 late. Mid-reveal title typing no longer resets.
+
+#### 2. AI prompt over-populated all three time fields on aggregate-only sources — fixed
+
+**Symptom.** On sites that state only "ready in 30 minutes" (no separate prep/cook), gpt-5.4 returned `prepTime=PT30M, cookTime=PT30M, totalTime=PT30M` — impossible math (prep + cook ≤ total).
+
+**Fix.** One-line guardrail added to [`url-ai.adapter.ts`](server/src/parsing/url/url-ai.adapter.ts) PROMPT, rule 3:
+
+> If the source states only an aggregate time (e.g. "ready in X minutes", "total time: X"), populate totalTime only — leave prepTime and cookTime null unless stated separately. Do not split or duplicate an aggregate across the three fields.
+
+**Verified live:** iPhone Orzo Dev, 2026-04-23 late. angiesrecipes.blogspot.com smarties-cookies post now returns coherent times (not 30/30/30).
+
+#### 3. URL_BOT_BLOCKED validation code — friendly UX for cooks.com / Cloudflare interstitials
+
+**What changed.** The 2026-04-23 evening cycle shipped `detectBotBlock` as a log-only signal; the user still saw generic "couldn't parse" messaging. This session closes that residual gap end-to-end.
+
+**Plumbing (server + mobile):**
+- [`shared/src/types/parsed-candidate.types.ts`](shared/src/types/parsed-candidate.types.ts) — added `"url_bot_blocked"` to the existing `extractionError` union (reusing the pattern the repo already uses for `steps_failed`).
+- [`shared/src/types/validation.types.ts`](shared/src/types/validation.types.ts) — added `"URL_BOT_BLOCKED"` to `ValidationIssueCode`.
+- [`server/src/parsing/normalize.ts`](server/src/parsing/normalize.ts) — `buildErrorCandidate` now takes an optional third arg (`extractionError`) and sets it on the returned candidate. All 7 existing call sites (3 image, 4 url) unaffected (arg defaults to undefined).
+- [`server/src/parsing/url/url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts) — both bot-block call sites (fetchUrl `BotBlockError` catch at :202, webview-html branch at :244) now pass `"url_bot_blocked"` through.
+- [`server/src/domain/validation/rules.extraction-error.ts`](server/src/domain/validation/rules.extraction-error.ts) **(new)** — emits `URL_BOT_BLOCKED` BLOCK issue when `candidate.extractionError === "url_bot_blocked"`. Terse server message ("URL blocked by bot detection."). Client overrides with friendly copy per the existing `displayMessageForIssue` override pattern.
+- [`server/src/domain/validation/validation.engine.ts`](server/src/domain/validation/validation.engine.ts) — centralized short-circuit: when `URL_BOT_BLOCKED` fires, the engine does NOT run `evaluateRequiredFields` / `evaluateIngredients` / `evaluateSteps` / `evaluateServings` / etc. The user sees one actionable message, not a stack of `TITLE_MISSING` + `INGREDIENTS_MISSING` + `STEPS_MISSING` noise on an empty candidate.
+- [`mobile/src/features/import/issueDisplayMessage.ts`](mobile/src/features/import/issueDisplayMessage.ts) — friendly copy: "This site requires a real browser to view recipes. Try taking a screenshot of the page instead."
+
+**Severity choice.** `BLOCK`, not `RETAKE`. The XState machine at [`machine.ts:574`](mobile/src/features/import/machine.ts) routes `NEEDS_RETAKE` only on RETAKE-severity issues, which would dump the user on the photo-oriented `RetakeRequiredView` — wrong affordance for a URL. `BLOCK` keeps the user on `PreviewEditView` with a red banner and save disabled. With the engine short-circuit, that banner carries only the bot-block message.
+
+**Copy discipline.** Server message is terse; the client owns the user-facing friendly copy. This preserves the property that changing UX copy only requires a mobile ship, not a server redeploy + re-parse of persisted drafts. Mirrors the existing [`rules.servings.ts:16`](server/src/domain/validation/rules.servings.ts) vs [`issueDisplayMessage.ts:47`](mobile/src/features/import/issueDisplayMessage.ts) pattern.
+
+**Tests:** 2 new cases in [`validation.engine.test.ts`](server/tests/validation.engine.test.ts) (short-circuit assertion; non-fire case) + 1 end-to-end integration case in [`parsing-domain-fixtures.test.ts`](server/tests/parsing-domain-fixtures.test.ts) (cooks-interstitial.html fixture → `parseUrlFromHtml` → `extractionError === "url_bot_blocked"` → `validateRecipe` emits exactly `["URL_BOT_BLOCKED"]`, `saveState === "NO_SAVE"`).
+
+**Verified live status.** Cooks.com did NOT serve the interstitial during the device smoke test — the page fetched cleanly and imported with title/ingredients/steps via the DOM-AI path (`url_extraction` event at 04:23:34 UTC, `method: "dom-ai"`). Vitest fixture test covers the plumbing end-to-end; real-world trigger is intermittent and will verify organically the next time cooks.com or a Cloudflare site serves a challenge.
+
+#### 4. `stepLongPrimaryText` parse signal — server-side emission only
+
+**What.** JSON-LD + microdata extractors now emit `parseSignals.stepLongPrimaryText: true` when a recipe has `≤ 2` non-header HowToSteps and at least one step exceeds 400 chars. Future mobile step-split affordance (see [TODOS.md](TODOS.md)) keys off this flag without re-touching the server.
+
+**Changes:**
+- [`shared/src/types/parsed-candidate.types.ts`](shared/src/types/parsed-candidate.types.ts) — added `stepLongPrimaryText?: boolean` to `parseSignals` (optional, no back-compat break on existing fixtures).
+- [`server/src/parsing/normalize.ts`](server/src/parsing/normalize.ts) — propagates the flag from `RawExtractionResult.signals` onto the candidate's `parseSignals`, only when true (omitted otherwise).
+- [`server/src/parsing/url/url-structured.adapter.ts`](server/src/parsing/url/url-structured.adapter.ts) — new `computeStepLongPrimaryText(steps)` helper. Called in both `findRecipeInLdJson` and `extractMicrodata` return paths. Rule: `nonHeader.length > 0 && nonHeader.length <= 2 && nonHeader.some(s => s.text.length > 400)` — strict `>` on the length boundary (400 chars exactly = false).
+
+**Tests:** 4 new boundary cases in [`parsing-domain-fixtures.test.ts`](server/tests/parsing-domain-fixtures.test.ts): 1-step > 400 → true, 2-steps one over → true, 3+ steps → false regardless of length, exactly 400 chars → false.
+
+**Verified live.** iPhone imported bigoven.com "Beef Tortilla Kebabs" (draft `fa2c3636-a5cb-4441-81f2-c849a66b5f7e`). Direct dev Supabase query confirmed:
+
+```json
+"parse_signals": {
+  "structureSeparable": true,
+  "descriptionDetected": true,
+  "stepLongPrimaryText": true,
+  ...
+},
+"extraction_method": "json-ld",
+"step_count": 1
+```
+
+No UI consumer exists yet (intentional) — the user sees the pre-existing 1-step recipe. Downstream step-split UX remains queued.
+
+#### Plan review + verification
+
+- `/plan-eng-review` ran during planning (session log: [~/.claude/plans/familiarize-yourself-with-the-abundant-ullman.md](~/.claude/plans/familiarize-yourself-with-the-abundant-ullman.md)). 4 architectural decisions locked interactively: short-circuit in engine (centralized, not per-rule), `BLOCK` severity (not `RETAKE`), rule-first ordering so `URL_BOT_BLOCKED` appears first in issues, server-terse + client-friendly copy discipline.
+- Server restart ritual ran per CLAUDE.md hard rule. `/health` returned 200, fresh tsx PID stamped 21:19 local.
+- Mobile typecheck: one pre-existing `AccountScreen.tsx:97` TS2367 unrelated to this session — confirmed on master baseline before any changes.
+- Device verification (iPhone Orzo Dev, 2026-04-23 late, local): items 1, 2, 4 all confirmed on-device. Item 3 UX path cannot be trigger-verified without an active interstitial but is covered by the Vitest integration fixture.
+
+#### TODOS.md updates
+
+- Removed: "Surface bot-block as a user-friendly validation error" (shipped this session).
+- Removed: "Preview title field: typewriter animation restarts on every keystroke" (fixed this session).
+- Removed: "AI prompt tightening for time extraction" (shipped this session).
+- Updated: "Manual step-split UX for long-`HowToStep` sites" — rescoped to mobile UI only since the server `stepLongPrimaryText` emission is now live. Pointer to the bigoven dev DB row included for future implementers to verify against a real signal.
+- Unchanged: Squarespace "combine:" DOM strategy (still low-volume; waiting for a second fingerprint site). Joy of Baking NSAppTransportSecurity plist (still pending a TestFlight Build 4 archive).
+
+---
+
 ### 2026-04-23 (late evening) — iPhone smoke-test follow-ups: body-rescue, title heuristic, fast-path image
 
 Three bugs surfaced in the first iPhone smoke test of the Tier 1+2C cycle. Same-session fix-and-verify. All three confirmed working live on Orzo Dev within 20 minutes of the first failed import. Committed as [`56c1f58`](https://github.com/warelincoln/RecipeJar/commit/56c1f58).

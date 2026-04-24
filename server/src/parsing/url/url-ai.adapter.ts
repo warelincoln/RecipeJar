@@ -17,7 +17,8 @@ Rules:
 - Extract prep time, cook time, and total time with a two-tier strategy:
   1. If a time is EXPLICITLY stated in the content (e.g. "Prep time: 15 minutes"), return it with source "explicit".
   2. If a time is NOT explicitly stated, you MAY estimate it from recipe content — number of ingredients, cooking methods (simmering, baking, roasting), and any durations inside steps ("simmer 20 minutes"). If you estimate, return it with source "inferred". If you cannot reasonably estimate, return null and omit the source.
-  3. Users see a review banner for inferred times and will correct or accept them — be honest about which is which.
+  3. If the source states only an aggregate time (e.g. "ready in X minutes", "total time: X"), populate totalTime only — leave prepTime and cookTime null unless stated separately. Do not split or duplicate an aggregate across the three fields.
+  4. Users see a review banner for inferred times and will correct or accept them — be honest about which is which.
   Use ISO 8601 duration strings ("PT15M", "PT1H30M", "PT2H").
 
 Return ONLY valid JSON:

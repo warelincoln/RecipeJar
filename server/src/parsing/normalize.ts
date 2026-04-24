@@ -40,6 +40,7 @@ export interface RawExtractionResult {
     confirmedOmission?: boolean;
     suspectedOmission?: boolean;
     descriptionDetected?: boolean;
+    stepLongPrimaryText?: boolean;
   };
 
   ingredientSignals?: RawIngredientSignal[];
@@ -213,6 +214,9 @@ export function normalizeToCandidate(
       suspectedOmission:
         signals.suspectedOmission === true || hasMissingContent,
       descriptionDetected: signals.descriptionDetected === true,
+      ...(signals.stepLongPrimaryText === true
+        ? { stepLongPrimaryText: true }
+        : {}),
     },
     ingredientSignals,
     stepSignals,
@@ -223,10 +227,19 @@ export function normalizeToCandidate(
 /**
  * Builds a fully-errored candidate for when extraction completely fails.
  * The validation engine will produce RETAKE or BLOCK from these signals.
+ *
+ * `extractionError` is optional. Pass a discriminator (e.g. "url_bot_blocked")
+ * when the caller knows the specific failure mode so downstream rules can
+ * short-circuit generic MISSING-field noise and render a targeted message.
  */
 export function buildErrorCandidate(
   sourceType: "image" | "url",
   sourcePages: SourcePage[],
+  extractionError?:
+    | "steps_failed"
+    | "ingredients_failed"
+    | "url_bot_blocked"
+    | null,
 ): ParsedRecipeCandidate {
   return {
     title: null,
@@ -248,5 +261,6 @@ export function buildErrorCandidate(
     ingredientSignals: [],
     stepSignals: [],
     extractionMethod: "error",
+    ...(extractionError ? { extractionError } : {}),
   };
 }

@@ -205,12 +205,12 @@ export async function parseUrl(
         label: err.label,
         source: "fetch",
       });
-    } else {
-      logExtraction("error", url, {
-        acquisitionMethod,
-        reason: err instanceof Error ? err.message : "fetch failed",
-      });
+      return buildErrorCandidate("url", sourcePages, "url_bot_blocked");
     }
+    logExtraction("error", url, {
+      acquisitionMethod,
+      reason: err instanceof Error ? err.message : "fetch failed",
+    });
     return buildErrorCandidate("url", sourcePages);
   }
 
@@ -241,7 +241,7 @@ export async function parseUrlFromHtml(
       label: webviewBotLabel,
       source: "webview_html",
     });
-    return buildErrorCandidate("url", sourcePages);
+    return buildErrorCandidate("url", sourcePages, "url_bot_blocked");
   }
 
   const structured = extractStructuredData(html);

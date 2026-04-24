@@ -37,31 +37,32 @@ At scale the 42% cost reduction is the biggest win: 10k parses/mo goes from ~$48
 
 ## Validation Engine
 
-Located in `server/src/domain/validation/`. Runs 8 rule modules in this exact order:
+Located in `server/src/domain/validation/`. Runs rule modules in this exact order:
 
 ```
-1. rules.structure       → STRUCTURE_NOT_SEPARABLE (FLAG, dismissible)
-2. rules.integrity       → CONFIRMED_OMISSION (FLAG, dismissible), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, dismissible)
-3. rules.required-fields → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (FLAG, dismissible), STEPS_MISSING (FLAG)
-4. rules.servings        → SERVINGS_MISSING (FLAG)
-5. rules.ingredients     → INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
-6. rules.steps           → OCR artifacts (FLAG)
-7. rules.retake          → LOW_CONFIDENCE_STRUCTURE (FLAG, dismissible), POOR_IMAGE_QUALITY (RETAKE; FLAG dismissible if limit hit)
+1. rules.extraction-error → URL_BOT_BLOCKED (BLOCK, non-dismissible)     [short-circuits the rest]
+2. rules.structure        → STRUCTURE_NOT_SEPARABLE (FLAG, dismissible)
+3. rules.integrity        → CONFIRMED_OMISSION (FLAG, dismissible), SUSPECTED_OMISSION (FLAG), MULTI_RECIPE_DETECTED (FLAG, dismissible)
+4. rules.required-fields  → TITLE_MISSING (FLAG), INGREDIENTS_MISSING (FLAG, dismissible), STEPS_MISSING (FLAG)
+5. rules.servings         → SERVINGS_MISSING (FLAG)
+6. rules.ingredients      → INGREDIENT_NAME_MISSING (FLAG), OCR artifacts (FLAG)
+7. rules.steps            → OCR artifacts (FLAG)
+8. rules.retake           → LOW_CONFIDENCE_STRUCTURE (FLAG, dismissible), POOR_IMAGE_QUALITY (RETAKE; FLAG dismissible if limit hit)
 ```
 
-**Severity consolidation 2026-04-21:** every former BLOCK was downgraded to a dismissible FLAG. The user owns their data and can always save — we surface context, we don't gate. Matches the STEPS_MISSING decision from 2026-04-19 (ingredient-only recipes are legitimate).
+**Centralized short-circuit (shipped 2026-04-23 late)**: when `rules.extraction-error` emits `URL_BOT_BLOCKED`, the engine **skips every downstream rule**. The user sees exactly one actionable banner ("This site requires a real browser…") instead of a stack of `TITLE_MISSING` + `INGREDIENTS_MISSING` + `STEPS_MISSING` noise on an empty candidate. Logic lives in `validateRecipe` at the top of [`validation.engine.ts`](../server/src/domain/validation/validation.engine.ts); the guard reads `candidate.extractionError === "url_bot_blocked"` (same union the [`STEPS_EXTRACTION_FAILED`](../server/src/domain/validation/rules.steps.ts) path already uses via `steps_failed`).
+
+**Severity consolidation 2026-04-21:** every former image-parse BLOCK was downgraded to a dismissible FLAG. The user owns their data and can always save — we surface context, we don't gate. Matches the STEPS_MISSING decision from 2026-04-19 (ingredient-only recipes are legitimate). `URL_BOT_BLOCKED` (2026-04-23 late) is the first BLOCK to come back — not a save-policy reversal, but an acknowledgement that there's literally no candidate to save when the site blocks automation.
 
 **Retake follow-up same day:** `LOW_CONFIDENCE_STRUCTURE` also downgraded from RETAKE to FLAG. The signal fires when the vision model considers a page structurally uncertain — which includes legitimate ingredient-only screenshots (no steps visible). Retaking a clear screenshot doesn't change anything; the signal is about content, not the photo. `POOR_IMAGE_QUALITY` stays as RETAKE because that IS about photo readability and retaking legitimately helps (e.g. better lighting on a cookbook page).
 
 Note: `rules.description.ts` exists but is **not wired into** `validation.engine.ts`. The `DESCRIPTION_DETECTED` and `INGREDIENT_QTY_OR_UNIT_MISSING` checks were intentionally removed from the validation pipeline. `INGREDIENT_MERGED` was removed 2026-04-21 (every hit was a legitimate compound ingredient like "salt and pepper to taste").
 
-There are only 2 save-gating severities now. FLAG is the default surface.
-
 | Severity | Effect on save | User action |
 |---|---|---|
 | `FLAG` | Does NOT block save | Confirm/dismiss inline, or just save |
 | `RETAKE` | Blocks save | Retake photo; after limit, downgrades to dismissible FLAG |
-| `BLOCK` | (Reserved, no current rule emits this) | — |
+| `BLOCK` | Blocks save, non-dismissible | Only `URL_BOT_BLOCKED` today. User has to leave the app and screenshot the page instead. |
 
 FLAGs represent observations, not errors. A missing quantity ("salt" with no amount) is valid — many recipes write it that way. The system surfaces these so the user is aware, but never prevents saving based on them.
 

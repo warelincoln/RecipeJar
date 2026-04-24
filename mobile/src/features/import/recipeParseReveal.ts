@@ -71,14 +71,6 @@ export function sliceWordsToText(words: string[], visibleCount: number): string 
   return words.slice(0, Math.max(0, visibleCount)).join(" ");
 }
 
-export function candidateContentFingerprint(candidate: EditedRecipeCandidate): string {
-  return JSON.stringify({
-    t: candidate.title,
-    i: candidate.ingredients.map((x) => ({ x: x.text, h: x.isHeader })),
-    s: candidate.steps.map((x) => ({ x: x.text, h: x.isHeader })),
-  });
-}
-
 export function blockIndexForField(
   plan: RevealPlan,
   kind: RevealBlockKind,

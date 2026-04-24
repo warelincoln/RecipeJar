@@ -384,6 +384,67 @@ describe("cooks.com — bot-block interstitial detection", () => {
     expect(result.steps).toEqual([]);
     expect(aiSpy).not.toHaveBeenCalled();
   });
+
+  it("parseUrlFromHtml tags candidate.extractionError='url_bot_blocked' and validation emits only URL_BOT_BLOCKED", async () => {
+    const { validateRecipe } = await import(
+      "../src/domain/validation/validation.engine.js"
+    );
+    const html = load("cooks-interstitial.html");
+    const result = await parseUrlFromHtml(
+      "https://www.cooks.com/recipe/uq4665nf/road-kill-stew.html",
+      html,
+      [],
+      "webview-html",
+    );
+    expect(result.extractionError).toBe("url_bot_blocked");
+
+    const validation = validateRecipe(result);
+    const codes = validation.issues.map((i) => i.code);
+    expect(codes).toEqual(["URL_BOT_BLOCKED"]);
+    expect(validation.saveState).toBe("NO_SAVE");
+    expect(validation.hasBlockingIssues).toBe(true);
+  });
+});
+
+describe("stepLongPrimaryText — JSON-LD 'one big paragraph' signal", () => {
+  function ldJsonHtml(steps: { text: string }[]): string {
+    const json = {
+      "@context": "https://schema.org",
+      "@type": "Recipe",
+      name: "Test",
+      recipeIngredient: ["1 cup flour", "2 eggs"],
+      recipeInstructions: steps,
+    };
+    return `<html><head><script type="application/ld+json">${JSON.stringify(json)}</script></head><body></body></html>`;
+  }
+
+  it("1 step with text.length > 400 -> stepLongPrimaryText=true", () => {
+    const long = "a".repeat(500);
+    const out = extractStructuredData(ldJsonHtml([{ text: long }]));
+    expect(out?.signals?.stepLongPrimaryText).toBe(true);
+  });
+
+  it("2 steps, one over 400 chars -> stepLongPrimaryText=true", () => {
+    const long = "x".repeat(450);
+    const out = extractStructuredData(
+      ldJsonHtml([{ text: "short" }, { text: long }]),
+    );
+    expect(out?.signals?.stepLongPrimaryText).toBe(true);
+  });
+
+  it("3+ steps -> stepLongPrimaryText=false regardless of length", () => {
+    const long = "y".repeat(900);
+    const out = extractStructuredData(
+      ldJsonHtml([{ text: long }, { text: "b" }, { text: "c" }]),
+    );
+    expect(out?.signals?.stepLongPrimaryText).toBe(false);
+  });
+
+  it("boundary: step text.length === 400 -> stepLongPrimaryText=false (strict >)", () => {
+    const exactly400 = "z".repeat(400);
+    const out = extractStructuredData(ldJsonHtml([{ text: exactly400 }]));
+    expect(out?.signals?.stepLongPrimaryText).toBe(false);
+  });
 });
 
 describe("brightfarms.com — heading-anchored DOM extraction", () => {

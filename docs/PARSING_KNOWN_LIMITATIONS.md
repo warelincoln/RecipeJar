@@ -159,7 +159,7 @@ message on the client.
 **Observed**: `https://gourmetmagazine.net/split-pea-soup-a-recipe/` (PostHog,
 2026-04-17).
 
-## Bot-block interstitials (cooks.com, Cloudflare challenges) — detected, friendly-error follow-up queued
+## Bot-block interstitials (cooks.com, Cloudflare challenges) — detected and surfaced as friendly UX
 
 **Fingerprint** (one of):
 - `<title>` contains "Are you Human?" (cooks.com)
@@ -168,14 +168,26 @@ message on the client.
 
 **Failure mode**: the site serves an interstitial page instead of the recipe to any non-browser request. The HTML has no recipe markup — the cascade would previously cascade all the way to `"error"` with a generic "couldn't parse" surface.
 
-**Mitigation shipped (2026-04-23 evening)**: [`detectBotBlock`](../server/src/parsing/url/url-fetch.service.ts) inspects response bodies after fetch AND at the top of `parseUrlFromHtml` (for webview-captured interstitials). Returns a short label (`"bot_interstitial_are_you_human"` / `"cloudflare_challenge"` / `"access_denied"`) or null.
+**Detection (shipped 2026-04-23 evening)**: [`detectBotBlock`](../server/src/parsing/url/url-fetch.service.ts) inspects response bodies after fetch AND at the top of `parseUrlFromHtml` (for webview-captured interstitials). Returns a short label (`"bot_interstitial_are_you_human"` / `"cloudflare_challenge"` / `"access_denied"`) or null.
 
 - Inside `fetchUrl`: throws a new `BotBlockError` when positive. `parseUrl` catches and emits the `bot-blocked` log tag with the label.
-- Top of `parseUrlFromHtml`: catches when the iPhone in-app WebView captured and submitted the interstitial page as its HTML. Returns a clean error candidate with `source: "webview_html"` on the log.
+- Top of `parseUrlFromHtml`: catches when the iPhone in-app WebView captured and submitted the interstitial page as its HTML.
 
-**Residual gap — user UX**: today the user still sees the generic "couldn't parse this recipe" message. The bot-block signal is log-only (server_url_bot_blocked PostHog event). A follow-up in [TODOS.md](../TODOS.md) tracks surfacing a friendly validation error like "This site requires a real browser — try taking a screenshot instead." Re-evaluate when PostHog rate exceeds 1/day sustained.
+**User-facing UX (shipped 2026-04-23 late)**: both bot-block call sites in [`url-parse.adapter.ts`](../server/src/parsing/url/url-parse.adapter.ts) now call `buildErrorCandidate("url", pages, "url_bot_blocked")`. The candidate carries `extractionError: "url_bot_blocked"`. The new [`rules.extraction-error.ts`](../server/src/domain/validation/rules.extraction-error.ts) rule emits a `URL_BOT_BLOCKED` BLOCK-severity issue. [`validation.engine.ts`](../server/src/domain/validation/validation.engine.ts) centrally short-circuits the MISSING-field rules (`evaluateRequiredFields` / `evaluateIngredients` / `evaluateSteps` / `evaluateServings`) so the user sees exactly one actionable banner, not a stack of `TITLE_MISSING` + `INGREDIENTS_MISSING` + `STEPS_MISSING` noise on an empty candidate. Client copy in [`issueDisplayMessage.ts`](../mobile/src/features/import/issueDisplayMessage.ts): *"This site requires a real browser to view recipes. Try taking a screenshot of the page instead."* — the server message stays terse so UX copy changes don't require server redeploy.
 
-**Observed**: cooks.com/recipe/uq4665nf/road-kill-stew.html (4 attempts in 14 days, PostHog 2026-04-23).
+**Severity choice**: `BLOCK`, not `RETAKE`. The XState machine routes `NEEDS_RETAKE` only on RETAKE-severity issues, which would dump the user on the photo-oriented `RetakeRequiredView` — wrong affordance for a URL. `BLOCK` keeps the user on `PreviewEditView` with a red banner, save disabled, and the one useful message. Issue is non-dismissible and non-resolvable because there's nothing the user can do inside the app — they have to leave and screenshot the page.
+
+**Observed**: cooks.com/recipe/uq4665nf/road-kill-stew.html (4 attempts in 14 days, PostHog 2026-04-23). Real-world UX verification pending the next interstitial hit — the 2026-04-23 late smoke test saw cooks.com serve a real recipe page instead. Vitest integration test in [`parsing-domain-fixtures.test.ts`](../server/tests/parsing-domain-fixtures.test.ts) covers the end-to-end plumbing against the saved `cooks-interstitial.html` fixture.
+
+## AI prompt duplicated aggregate times across all three fields — fixed
+
+**Failure mode**: sites that state only an aggregate time (e.g. "ready in 30 minutes", "total time: 30 min" with no separate prep/cook) caused the URL AI adapter's gpt-5.4 extraction to fill all three fields with 30 — impossible math (prep + cook ≤ total).
+
+**Fix shipped (2026-04-23 late)**: rule 3 added to [`url-ai.adapter.ts`](../server/src/parsing/url/url-ai.adapter.ts) PROMPT: *"If the source states only an aggregate time (e.g. 'ready in X minutes', 'total time: X'), populate totalTime only — leave prepTime and cookTime null unless stated separately. Do not split or duplicate an aggregate across the three fields."*
+
+**Observed fingerprint site**: angiesrecipes.blogspot.com smarties-cookies post. Verified post-fix on iPhone Orzo Dev — times are coherent, no 30/30/30.
+
+**Residual monitoring**: prompt tightening can have second-order effects. Watch PostHog `*TimeSource` distribution after this lands in production. If `"inferred"` rate spikes or `"explicit"` drops on sites that genuinely publish separate prep/cook times, re-tune.
 
 ## iPhone in-app WebView returns skeletal DOM for some pages
 

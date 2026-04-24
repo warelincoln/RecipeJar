@@ -38,6 +38,14 @@ export interface ParsedRecipeCandidate {
     confirmedOmission: boolean;
     suspectedOmission: boolean;
     descriptionDetected: boolean;
+    /**
+     * Set when structured extraction returned only 1–2 HowToSteps and at least
+     * one step exceeds ~400 characters — i.e. the author concatenated the
+     * whole method into one or two big paragraphs (BigOven, TasteOfHome,
+     * southernliving pattern). Emission-only today; future mobile UI may
+     * offer a manual step-split affordance keyed on this flag.
+     */
+    stepLongPrimaryText?: boolean;
   };
 
   ingredientSignals: IngredientSignal[];
@@ -59,7 +67,11 @@ export interface ParsedRecipeCandidate {
    * without ingredients), so "ingredients_failed" is reserved for future use
    * but not surfaced today.
    */
-  extractionError?: "steps_failed" | "ingredients_failed" | null;
+  extractionError?:
+    | "steps_failed"
+    | "ingredients_failed"
+    | "url_bot_blocked"
+    | null;
 
   metadata?: {
     yield?: string;

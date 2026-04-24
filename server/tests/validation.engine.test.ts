@@ -666,4 +666,61 @@ describe("validateRecipe — URL and image use same downstream logic", () => {
     expect(imageResult.hasBlockingIssues).toBe(urlResult.hasBlockingIssues);
     expect(imageResult.issues.length).toBe(urlResult.issues.length);
   });
+
+  it("extractionError 'url_bot_blocked' on empty candidate -> URL_BOT_BLOCKED BLOCK, short-circuits MISSING-field rules", () => {
+    const result = validateRecipe(
+      makeCandidate({
+        title: null,
+        ingredients: [],
+        steps: [],
+        servings: null,
+        sourceType: "url",
+        sourcePages: [
+          {
+            id: "u1",
+            orderIndex: 0,
+            sourceType: "url",
+            imageUri: null,
+            extractedText: "",
+          },
+        ],
+        ingredientSignals: [],
+        stepSignals: [],
+        extractionError: "url_bot_blocked",
+      }),
+    );
+
+    const codes = result.issues.map((i) => i.code);
+    expect(codes).toEqual(["URL_BOT_BLOCKED"]);
+    expect(codes).not.toContain("TITLE_MISSING");
+    expect(codes).not.toContain("INGREDIENTS_MISSING");
+    expect(codes).not.toContain("STEPS_MISSING");
+    expect(codes).not.toContain("SERVINGS_MISSING");
+
+    const botBlock = result.issues.find((i) => i.code === "URL_BOT_BLOCKED")!;
+    expect(botBlock.severity).toBe("BLOCK");
+    expect(botBlock.userDismissible).toBe(false);
+    expect(botBlock.userResolvable).toBe(false);
+
+    expect(result.hasBlockingIssues).toBe(true);
+    expect(result.saveState).toBe("NO_SAVE");
+  });
+
+  it("extractionError undefined -> URL_BOT_BLOCKED not emitted, other rules run normally", () => {
+    const result = validateRecipe(
+      makeCandidate({
+        title: null,
+        ingredients: [],
+        steps: [],
+        ingredientSignals: [],
+        stepSignals: [],
+      }),
+    );
+    expect(
+      result.issues.find((i) => i.code === "URL_BOT_BLOCKED"),
+    ).toBeUndefined();
+    expect(
+      result.issues.find((i) => i.code === "TITLE_MISSING"),
+    ).toBeDefined();
+  });
 });

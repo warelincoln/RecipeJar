@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AccessibilityInfo } from "react-native";
 import type { EditedRecipeCandidate } from "@orzo/shared";
-import {
-  buildRevealPlan,
-  candidateContentFingerprint,
-  type RevealPlan,
-} from "./recipeParseReveal";
+import { buildRevealPlan, type RevealPlan } from "./recipeParseReveal";
 
 /** Delay between each revealed word (~6000 WPM: 60000 ms ÷ 6000 words). */
 const MS_PER_WORD = 60000 / 6000;
@@ -18,11 +14,16 @@ export function useRecipeParseReveal(
   revealedWordCount: number;
   isRevealing: boolean;
 } {
-  const fingerprint = useMemo(
-    () => candidateContentFingerprint(candidate),
-    [candidate],
+  // Plan is latched per reveal epoch (`parseRevealToken`). Keying the memo
+  // on the candidate fingerprint caused a nasty regression: every keystroke
+  // in the title field mutated the candidate, rebuilt the plan with new
+  // totalWords, restarted the interval from revealed=0, and visibly
+  // "reset" the field. Bug was reported 2026-04-23 (brightfarms.com edit).
+  const plan = useMemo(
+    () => buildRevealPlan(candidate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [parseRevealToken],
   );
-  const plan = useMemo(() => buildRevealPlan(candidate), [fingerprint]);
 
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
@@ -54,7 +55,7 @@ export function useRecipeParseReveal(
       }
     }, MS_PER_WORD);
     return () => clearInterval(id);
-  }, [shouldAnimate, parseRevealToken, plan.totalWords, fingerprint]);
+  }, [shouldAnimate, parseRevealToken, plan.totalWords]);
 
   const revealedWordCount = shouldAnimate ? revealed : plan.totalWords;
   const isRevealing = shouldAnimate && revealed < plan.totalWords;

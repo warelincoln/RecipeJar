@@ -21,7 +21,8 @@ export type ValidationIssueCode =
   | "DESCRIPTION_DETECTED"
   | "MULTI_RECIPE_DETECTED"
   | "SERVINGS_MISSING"
-  | "STEPS_EXTRACTION_FAILED";
+  | "STEPS_EXTRACTION_FAILED"
+  | "URL_BOT_BLOCKED";
 
 export interface ValidationIssue {
   issueId: string;
