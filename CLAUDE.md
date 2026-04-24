@@ -91,3 +91,11 @@ Key runtime docs:
 - **Never reset shared credentials.** DB password is shared with Railway. Ask the user for the current value.
 - **Don't type into dashboards via the Chrome extension.** Give the user instructions instead.
 - **Minimize back-and-forth.** Trace the full dependency chain before making changes; verify every link before reporting fixed.
+- **Schema migrations touching `.returning()` or reads: apply to prod BEFORE pushing the code that references the column.** Railway auto-deploys on push to `master`, and Drizzle's `db.query.*.findFirst` + `.returning()` on insert both auto-SELECT every column defined in the current `schema.ts`. The instant the new deploy lands, every insert/read against a table with a new-schema column that doesn't exist on the prod DB → Postgres "column X does not exist" → user sees "Import didn't finish" on every URL/image import. **Dev and prod use SEPARATE Supabase projects** (`nrdomcszbvqnfinrjvuz` vs `ttpgamwmjtrdnsfmdkec`); applying to dev does nothing for prod. Correct sequence:
+  1. Apply migration to PROD DB (via `DATABASE_URL='<prod>' npx tsx server/scripts/apply-XXXX.ts`)
+  2. Verify column present on prod
+  3. `git push` → Railway deploys
+  4. Apply migration to DEV DB (via `server/.env` pointing at dev + `npx tsx server/scripts/apply-XXXX.ts`)
+  5. Restart local dev
+
+  Observed 2026-04-24: migration 0015 (`drafts.resolved_url`) was applied to dev only; push → Railway deployed code that reads the column → prod drafts INSERT `.returning()` failed → all TestFlight URL/image imports broken until prod migration applied. Fix takes ~5s once prod DATABASE_URL is in hand — additive `ADD COLUMN IF NOT EXISTS` is safe to apply under live traffic.
