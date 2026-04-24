@@ -64,21 +64,32 @@ export const draftsRepository = {
     status: string,
     guardStatus?: string,
   ) {
+    // Pick up the URL-fallback cascade's resolved URL (set by
+    // `tryUrlFallback` in url-parse.adapter.ts) so later retries of
+    // POST /drafts/:id/parse can skip link discovery entirely. When
+    // the fallback didn't fire, candidate.fallbackResolvedUrl is
+    // undefined and we leave resolved_url alone (NULL on first parse,
+    // preserved on re-parses).
+    const setFields: Record<string, unknown> = {
+      parsedCandidateJson: candidate as unknown as Record<string, unknown>,
+      validationResultJson: validationResult as unknown as Record<string, unknown>,
+      editedCandidateJson: {
+        title: candidate.title ?? "",
+        ingredients: candidate.ingredients,
+        steps: candidate.steps,
+        description: candidate.description ?? null,
+        servings: candidate.servings ?? null,
+      } as unknown as Record<string, unknown>,
+      status,
+      updatedAt: new Date(),
+    };
+    if (typeof candidate.fallbackResolvedUrl === "string") {
+      setFields.resolvedUrl = candidate.fallbackResolvedUrl;
+    }
+
     const [updated] = await db
       .update(drafts)
-      .set({
-        parsedCandidateJson: candidate as unknown as Record<string, unknown>,
-        validationResultJson: validationResult as unknown as Record<string, unknown>,
-        editedCandidateJson: {
-          title: candidate.title ?? "",
-          ingredients: candidate.ingredients,
-          steps: candidate.steps,
-          description: candidate.description ?? null,
-          servings: candidate.servings ?? null,
-        } as unknown as Record<string, unknown>,
-        status,
-        updatedAt: new Date(),
-      })
+      .set(setFields)
       .where(
         guardStatus
           ? sql`${drafts.id} = ${id} AND ${drafts.status} = ${guardStatus}`

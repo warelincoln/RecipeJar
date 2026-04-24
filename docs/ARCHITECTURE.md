@@ -35,6 +35,51 @@ Single-call architecture (shipped 2026-04-21 after the cost trade study at `~/.c
 
 At scale the 42% cost reduction is the biggest win: 10k parses/mo goes from ~$481 to ~$278, 100k from ~$4,810 to ~$2,780.
 
+## URL Parse
+
+The URL parse pipeline lives in [`server/src/parsing/url/`](../server/src/parsing/url/). It runs a tiered extraction cascade, and as of 2026-04-24 also a two-layer post-cascade rescue when the primary tiers all fail.
+
+### Primary extraction cascade (in `parseUrlFromHtml`)
+
+1. **JSON-LD structured data** — scans `<script type="application/ld+json">` for `@type: Recipe` nodes (including `@graph` nesting). Quality gate: `≥2 ingredients`, `≥1 step`, `title.length > 2`.
+2. **Microdata** (`itemprop="recipeIngredient"` / `recipeInstructions`) — same quality gate. Partial microdata (ingredients-only, no instructions) is captured as `fallbackIngredients` and later merged into the DOM-AI tier's output so the higher-fidelity site-author markers win over AI re-extraction.
+3. **DOM boundary + GPT-5.4 AI** — strips navs/footers/ads (respecting a `PROTECT_CLASS_PATTERN` allowlist for `recipe`/`hentry`/`post-content`/`entry-content` tokens), hunts for recipe-wrapper classes, falls back to heading-anchored extraction (h1-h6 matching `Ingredients?|Directions?|Instructions?|Method|Preparation|Steps` with measurement-density + cooking-verb guards), then `<main>`/`<article>`, then body-text rescue. The boundary text is fed to GPT-5.4 for extraction.
+
+Each tier emits a `url_extraction` log event (and a PostHog `server_parse_*` event) with `method`, `acquisitionMethod`, `ingredients`, `steps`, `enriched*` fields.
+
+### URL fallback cascade (shipped 2026-04-24)
+
+When all primary tiers return an error candidate, `parseUrlFromHtml` calls `tryUrlFallback` **once** per parse (hard-capped by `FALLBACK_MAX_DEPTH = 1` to prevent A→B→A oscillation). Two layers:
+
+**Layer 1 — Canonical short-circuit.** Reads `<link rel="canonical">`. If present and, after `normalizeUrlForCompare` (strip fragment + trailing slash + credentials, lowercase host), differs from the current URL, retries `parseUrl(canonical, ...)` directly. Critical guard: the normalization-equality check prevents self-referential canonicals (e.g. `<link rel="canonical" href="{self}">` — common for SEO duplicate-content defense) from infinite-recursing.
+
+**Layer 2 — Scored link-fallback.** `findCandidateRecipeLinks(html, baseUrl)` collects all anchors + JSON-LD `@graph` Recipe URLs, de-dupes by normalized URL, and scores each:
+
+| Signal | Points |
+|---|---|
+| JSON-LD `@graph` Recipe node with `url` | +15 |
+| href path matches `/recipe(s)?/` | +5 |
+| anchor text matches `view/see/jump to/get/read (the) recipe` | +3 |
+| inside `[itemtype*="schema.org/Recipe"]` | +2 |
+| inside `<article>` / `<main>` / `entry-content` / `post-content` | +2 |
+| inside `<nav>` / `<footer>` / `<aside>` / `<header>` | −5 |
+| `/print-recipe/` variant of same page | −3 |
+| AMP variant | −3 |
+| cross-domain (different eTLD+1, via `sameRegisteredDomain`) | −2 |
+| same-domain | +1 |
+
+Hard-filtered before scoring: self-fragments (`#foo`), `javascript:` / `mailto:` / `tel:` / `file:` / `data:` schemes, PDFs (can't parse as HTML), anchors whose normalized URL equals the current URL.
+
+**Layer 3 — Ambiguity decline.** If the top candidate scores `< LINK_FALLBACK_MIN_SCORE` (5) OR `≥ LINK_FALLBACK_AMBIGUITY_COUNT` (8) candidates cluster within `LINK_FALLBACK_AMBIGUITY_WINDOW` (2 points) of the top, decline the fallback. Prevents roundup posts ("30 best cookie recipes") from silently grabbing an arbitrary link.
+
+Both layers log `canonical-short-circuit` / `link-fallback` (with `declined`, `reason`, `topScore`, `candidateCount`, `clusterCount`, `resolvedUrl`) for telemetry.
+
+### `resolved_url` persistence (drafts row)
+
+When the fallback picks a URL, `setParsedCandidate` writes it to the new `drafts.resolved_url` column (migration 0015). On retry of `POST /drafts/:id/parse`, the route reads `draft.resolved_url ?? draft.original_url` and routes directly to the resolved URL — link discovery runs exactly once per draft. Sync fast-path and background-parse path both honor this. When hitting the resolved URL on retry, the route re-stamps `fallbackFromUrl` / `fallbackResolvedUrl` on the candidate so the mobile banner persists across draft re-open.
+
+**Mobile surfacing.** `ParsedRecipeCandidate.fallbackFromUrl` and `fallbackResolvedUrl` (shared types) carry the original user URL + the server's resolved URL into the review screen. `PreviewEditView` renders a disclosure banner above the tab row — *"We followed a recipe link — the page you imported wasn't a recipe, but we found a link to {host}. Does this look right?"* — with an inline "Not the right page? Back to browser →" link that cancels the draft and re-opens the WebView at the original URL.
+
 ## Validation Engine
 
 Located in `server/src/domain/validation/`. Runs rule modules in this exact order:
@@ -141,3 +186,33 @@ The `guidedCorrection` and `finalWarningGate` states were removed. FLAG issues a
 - **Race-safe status updates**: `setParsedCandidate()` uses `WHERE status = 'PARSING'` so a cancelled draft isn't overwritten by a completing parse.
 - **Startup cleanup**: resets zombie `PARSING` drafts (stuck >10 min) and deletes `CANCELLED` drafts older than 24 hours.
 - **Postgres pool**: increased to `max: 20` to handle concurrent background parses.
+
+## Import-Review Screen (PreviewEditView)
+
+Post-parse, every import (URL or image) lands on [`PreviewEditView`](../mobile/src/features/import/PreviewEditView.tsx) for user review before save. Screen structure:
+
+```
+┌─────────────────────────────────────────┐
+│ [URL fallback banner — if applicable]   │   ← "we followed a link to {host}" +
+├─────────────────────────────────────────┤     inline "Back to browser" link
+│ [ Imported  │  Source ]                 │   ← segmented tab row
+├─────────────────────────────────────────┤
+│ Cancel            ← Back to browser     │   ← URL-import-only second button
+├─────────────────────────────────────────┤
+│ [active tab pane: display:none toggle]  │
+│                                          │
+│   Imported: ScrollView (hero + fields)  │
+│   Source:   WebView (URL) or photo list │
+│                                          │
+└─────────────────────────────────────────┘
+```
+
+**Sibling-render tabs** (shipped 2026-04-24). Both the Imported ScrollView and the `SourceTabView` mount once on screen mount; the inactive pane is hidden via `display: none`. WebView retains scroll/cookie/login state across tab switches; the Imported pane retains keyboard focus and cursor position. Lazy-mount was rejected because the "did the WebView reload? do I need to wait again?" confusion cost outweighed the transient memory savings (WebView unmounts with the screen on save/cancel anyway).
+
+**SourceTabView behavior.**
+- **URL imports** — WebView loads `sourceUrl` (prefers server-resolved URL over user-pasted URL when the fallback cascade fired). On `onError`, falls back to an "Open in browser" button via `Linking.openURL`. HTTP 4xx responses are ignored (many sites 4xx a fresh WebView but render fine after redirect).
+- **Image imports** — vertical ScrollView of captured pages with tap-to-zoom via `FullScreenImageViewer` (the same component used by `RecipeDetailScreen`'s source strip).
+
+**Back-to-browser affordance** (URL imports only, shipped 2026-04-24). Screen-level pill next to Cancel + inline link inside the fallback banner. Tap → fires `api.drafts.cancel` (best-effort), clears the hub queue entry if present, then `navigation.navigate("WebRecipeImport", { initialUrl: state.context.url })`. Takes the user back to the exact URL they were viewing before they tapped Save, so a mis-picked fallback or any "wrong page" review can recover without losing their place. No confirm dialog — the label is explicit.
+
+**Peach-tint gating** (shipped 2026-04-24). The "Peach-tinted amounts are AI estimates — double-check fractions before cooking" note + per-row `inputFractional` background tint render only when `sourceType === "image"`. URL imports read structured markup and aren't subject to the LLM vision fraction-glyph misread failure mode the tint warns about. See [`mobile/src/utils/fractions.ts`](../mobile/src/utils/fractions.ts) header comment for the original rationale.

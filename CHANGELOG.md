@@ -1,5 +1,115 @@
 # Orzo Changelog
 
+### 2026-04-24 — Import-review UX bundle: Source tab, URL-fallback cascade, inline paste banner, Recipe header, peach-tint gating
+
+Single plan-eng-reviewed session rolling together five UX wins + three device-test polish passes. Plan doc: `~/.claude/plans/familiarize-yourself-with-the-hazy-canyon.md`. Eng review logged CLEAR with 1 critical failure mode flagged (canonical self-loop — addressed). Shipped 11 files modified / 3 new files / 1 file deleted / 1 DB migration. All 26 new Vitest cases pass; full server suite stable at 2 pre-existing failures (notesRepo + machine.test.ts transpile — same as master baseline).
+
+#### 1. Import-review two-tab UI (Imported ↔ Source)
+
+**What.** Users can now flip between the parsed recipe and the source material at any point during review, without losing edits or scroll position.
+
+- **URL imports** — the Source tab loads the originally-parsed URL in a `WebView` so users can cross-check extracted ingredients against the actual page. On bot-block / load error, falls back to an "Open in browser" action via `Linking.openURL`.
+- **Image imports** — the Source tab renders a vertical stack of captured pages with tap-to-zoom via the existing `FullScreenImageViewer`.
+- **Sibling-render architecture.** Both panes mount once when `PreviewEditView` mounts; the inactive one toggles `display: none` in a `tabPane` View. Keeping the WebView mounted-but-hidden preserves scroll position, cookies, and login state across tab switches — lazy-mount was considered and rejected per the eng review's "did it reload? do I wait again?" UX concern.
+- **Extraction.** Source pane lives in its own file [`mobile/src/features/import/SourceTabView.tsx`](mobile/src/features/import/SourceTabView.tsx) (props: `sourceType`, `sourceUrl`, `sourcePageUris`, `active`) rather than inlining another 200 lines into the already ~980-line `PreviewEditView.tsx`.
+- **Prop plumbing.** 5 new props on `PreviewEditView` — `sourceType`, `sourceUrl`, `sourcePageUris`, `fallbackFromUrl`, `fallbackResolvedUrl` — wired from XState context in `ImportFlowScreen`. For URL imports, `sourceUrl` prefers `parsedCandidate.fallbackResolvedUrl` over `state.context.url` so the WebView points at the page whose recipe actually got extracted (matters when the fallback cascade rescued a non-recipe URL, see §4 below).
+
+**Files:** [`PreviewEditView.tsx`](mobile/src/features/import/PreviewEditView.tsx), [`SourceTabView.tsx`](mobile/src/features/import/SourceTabView.tsx) (new), [`ImportFlowScreen.tsx`](mobile/src/screens/ImportFlowScreen.tsx).
+
+**Verified live:** iPhone device, 2026-04-24. URL import → Source tab → WebView renders page; image import → Source tab → thumbnails + tap-to-zoom; tab switch during edit preserves title/ingredient/step changes.
+
+#### 2. Clipboard paste banner — re-fire fix + inline-banner redesign + permission-deferred paste
+
+**Symptom (original).** The old `ClipboardRecipePrompt` bottom-sheet fired on every Home focus, even after the user had just pasted the URL. On iOS it also triggered the "{App} pasted from {OtherApp}" system prompt on every focus.
+
+**Iteration 1 — comparison gating + inline banner (AM).**
+- Replaced the bottom-sheet modal with a compact inline banner at the top of Home ([`ClipboardRecipeBanner.tsx`](mobile/src/components/ClipboardRecipeBanner.tsx), new). Non-blocking, pinned below the search row.
+- Added AsyncStorage helper `@orzo/clipboard-last-seen-url` that tracked the last clipboard value the user had either pasted or dismissed; banner stayed hidden until clipboard content changed.
+- Wired logout clear to drop the stored value on sign-out.
+
+**Iteration 2 — defer iOS paste permission prompt (PM).** Users reported the iOS paste permission modal was firing on every Home focus (because `Clipboard.getString()` triggers it). Shifted the whole design to a no-read presence check:
+- On focus / background→active: `Clipboard.hasURL()` on iOS / `hasString()` on Android. Neither triggers the paste prompt — they're pure boolean presence checks backed by `UIPasteboard.hasURLs`.
+- Banner copy no longer shows the host preview (can't read without triggering the prompt); shows generic "From your clipboard" subtitle.
+- The URL read (`Clipboard.getString()`) now happens only in the paste-tap handler, exactly when iOS wants to surface the prompt (user explicitly asked to paste).
+- Session-scoped dedup via `clipboardBannerActedThisSessionRef` (a ref, resets on background→active). Banner can reappear on a fresh foreground if the clipboard still has a URL — acceptable trade-off for eliminating the system prompt.
+- Dropped the AsyncStorage helper and logout-clear wiring (no longer useful without URL comparison).
+
+**Files:** [`HomeScreen.tsx`](mobile/src/screens/HomeScreen.tsx), [`ClipboardRecipeBanner.tsx`](mobile/src/components/ClipboardRecipeBanner.tsx) (new), deleted `ClipboardRecipePrompt.tsx` + `features/home/clipboardLastSeen.ts`, [`auth.store.ts`](mobile/src/stores/auth.store.ts).
+
+**Verified live:** iPhone device, 2026-04-24. Copy URL → open app → banner appears, **no iOS prompt**; tap Paste → iOS prompt fires, user confirms → WebView opens; dismiss (X) → banner hidden; background + return → banner reappears if URL still copied.
+
+#### 3. "Recipe" header text removed from recipe detail
+
+**What.** [`mobile/App.tsx:88`](mobile/App.tsx) — `title: "Recipe"` → `title: ""`. Native header bar + system back chevron stay; just the redundant label is gone. Full header removal (edge-to-edge hero + floating chevron) filed as a follow-up TODO since the minimal fix looked clean enough for ship.
+
+**Verified live:** iPhone device, 2026-04-24.
+
+#### 4. URL-fallback cascade — rescue non-recipe pages that link to recipes
+
+**What.** When `parseUrlFromHtml` exhausts all extraction tiers (JSON-LD → microdata → DOM-AI) on the user-pasted URL, a two-layer fallback kicks in instead of returning an error candidate. Rescues the common "user pasted an article that *links* to a recipe" case.
+
+**Layer 1 — `canonicalShortCircuit`.** Reads `<link rel="canonical">`; if present and post-normalization differs from the current URL, retries `parseUrl(canonical, ...)` directly. **Critical self-loop guard** (flagged by eng review as P1 failure mode): `normalizeUrlForCompare` strips fragment + trailing slash + username/password before comparison, so pages with `<link rel="canonical" href="{self}">` don't infinite-recurse.
+
+**Layer 2 — `findCandidateRecipeLinks`.** Deterministic scoring over all page anchors + JSON-LD `@graph` Recipe nodes:
+
+| Signal | Points |
+|---|---|
+| JSON-LD `@graph` Recipe node with `url` | +15 |
+| href path matches `/recipe(s)?/` | +5 |
+| anchor text matches `view/see/jump to/get/read (the) recipe` | +3 |
+| inside `[itemtype*="schema.org/Recipe"]` | +2 |
+| inside `<article>` / `<main>` / `entry-content` / `post-content` | +2 |
+| inside `<nav>` / `<footer>` / `<aside>` / `<header>` | −5 |
+| `/print-recipe/` variant of same page | −3 |
+| AMP variant | −3 |
+| cross-domain | −2 |
+| same-domain | +1 |
+
+Hard-filtered (never scored): self-fragments (`#foo`), `javascript:` / `mailto:` / `tel:` / `file:` / `data:` schemes, PDFs (can't parse), anchors resolving to the current URL after normalization (self-loop).
+
+**Layer 3 — ambiguity decline.** If top score < 5 OR ≥8 candidates cluster within 2 points of the top (roundup-post detection), decline the fallback and return the original error. Prevents the "30 best cookie recipes" case from silently picking an arbitrary link the user didn't mean to save.
+
+**Depth cap.** `FALLBACK_MAX_DEPTH = 1` — recursive `parseUrl()` calls don't re-enter the fallback. Prevents A→B→A oscillation.
+
+**Persistence.** New `drafts.resolved_url` column (migration 0015) records the URL the server actually parsed when fallback fired. Retries of `POST /drafts/:id/parse` use `resolved_url ?? original_url` so link discovery runs exactly once per draft.
+
+**Telemetry.** Two new `logExtraction` events: `canonical-short-circuit` and `link-fallback` (with `score`, `candidateCount`, `clusterCount`, `resolvedUrl`). PostHog pipeline consumes via existing `url_extraction` channel.
+
+**Mobile surfacing.** New `fallbackFromUrl` + `fallbackResolvedUrl` on `ParsedRecipeCandidate` (shared type). When set, the review screen renders a banner above the tab row: *"We followed a recipe link — the page you imported wasn't a recipe, but we found a link to {host}. Does this look right?"*. Clicking an inline *"Not the right page? Back to browser →"* link cancels the draft and re-opens the WebView at the original user URL.
+
+**Files (server):** [`server/src/parsing/url/url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts) (added `canonicalShortCircuit`, `findCandidateRecipeLinks`, `tryUrlFallback`, `normalizeUrlForCompare`, `sameRegisteredDomain`, +~500 LOC), [`server/src/persistence/schema.ts`](server/src/persistence/schema.ts) + [`drafts.repository.ts`](server/src/persistence/drafts.repository.ts), [`server/src/api/drafts.routes.ts`](server/src/api/drafts.routes.ts) (routes both sync-fast-path and background-parse through `resolved_url`), [`server/drizzle/0015_drafts_resolved_url.sql`](server/drizzle/0015_drafts_resolved_url.sql) (new), [`server/scripts/apply-0015.ts`](server/scripts/apply-0015.ts) (new, one-off applier to avoid re-running the whole migration suite on the shared Supabase DB).
+
+**Files (shared):** [`shared/src/types/parsed-candidate.types.ts`](shared/src/types/parsed-candidate.types.ts) — `fallbackFromUrl?: string | null` + `fallbackResolvedUrl?: string | null`.
+
+**Tests:** 26 new cases in [`server/tests/url-fallback.test.ts`](server/tests/url-fallback.test.ts) (new). Covers:
+- `canonicalShortCircuit`: differs/resolves-relative/missing/self-loop/trailing-slash-self/non-http/malformed.
+- `findCandidateRecipeLinks`: JSON-LD priority, path ranking, base-URL resolution, self-fragment + scheme filters, print-recipe/AMP/PDF handling, cross-domain/subdomain scoring, sort order, empty HTML.
+- `parseUrlFromHtml` fallback wiring: canonical-rescues-article, link-fallback-rescues, roundup-declines, low-score-declines, depth-cap-prevents-reentry, **critical regression** (JSON-LD happy path still takes fast path with zero extra fetches), fallback-retry-also-fails preserves original error.
+
+**Migration audit (shared DB, Railway prod uses same Supabase).** Before applying: verified the migration is additive (`ADD COLUMN IF NOT EXISTS`), nullable, no backfill, no RLS impact (existing `drafts_*` policies are `user_id`-scoped, don't enumerate columns), no views/triggers/functions reference drafts columns, and current-deployed prod code has no `resolvedUrl` in its Drizzle schema → prod reads/writes ignore the new column entirely. Ran in isolation via `apply-0015.ts` instead of the full migration runner to avoid re-exercising 14 older non-idempotent migrations.
+
+**Verified live:** iPhone device, 2026-04-24. Fallback banner renders with correct destination host on rescued pages; inline "Back to browser" link navigates to the original URL with the draft cancelled.
+
+#### 5. Peach-tint "AI estimates on fractions" — image imports only
+
+**What.** The peach-tinted ingredient rows + "Peach-tinted amounts are AI estimates — double-check fractions before cooking" note now render only when `sourceType === "image"`. URL imports read structured markup (JSON-LD / microdata / DOM-AI over author text) and aren't subject to the LLM vision fraction-glyph misread failure mode the tint warns about.
+
+**Files:** [`PreviewEditView.tsx`](mobile/src/features/import/PreviewEditView.tsx) — `hasAnyFractionalIngredient` + per-row `isFractional` both gated on `sourceType === "image"`.
+
+**Verified live:** iPhone device, 2026-04-24. URL import with fractional amounts → no tint, no banner. Image import with fractional amounts → tint + banner still present (regression preserved).
+
+#### 6. Device-test polish follow-ups
+
+After the first verification pass on the phone, three quick improvements:
+
+- **SourceTabView swipe hint** — the single-page image import hint used to read "Tap the photo to zoom. Swipe left to return to Imported." But swipe-to-tab isn't actually wired (users tap the tab). Copy trimmed to "Tap the photo to zoom."
+- **Cancel button color** — the review screen's Cancel text was `TEXT_SECONDARY` gray, easy to miss against the sectionTitle row. Recolored to `PRIMARY` (terracotta) with `fontWeight: 600`. Destructive enough that users should find it quickly; the confirm `Alert` still guards accidental taps.
+- **Back-to-browser affordance for URL imports** — added a screen-level `← Back to browser` pill next to Cancel on the review screen (URL imports only), plus an inline link inside the fallback banner ("Not the right page? Back to browser →"). Tapping cancels the draft (best-effort, fire-and-forget) and re-opens `WebRecipeImport` with `initialUrl = state.context.url` — the URL the user was viewing before they tapped Save, not the fallback-resolved one. New `import_back_to_browser` PostHog event tracks usage frequency.
+
+**Files:** [`SourceTabView.tsx`](mobile/src/features/import/SourceTabView.tsx), [`PreviewEditView.tsx`](mobile/src/features/import/PreviewEditView.tsx), [`ImportFlowScreen.tsx`](mobile/src/screens/ImportFlowScreen.tsx), [`services/analytics.ts`](mobile/src/services/analytics.ts).
+
+**Verified live:** iPhone device, 2026-04-24. "Back to browser" from a roundup-post fallback review returns the user to the exact article page they came from.
+
 ### 2026-04-23 (late-late) — 4 TODOS bundle: typewriter fix, prompt time guardrail, URL_BOT_BLOCKED UX, step-long parse signal
 
 Single plan-eng-reviewed session tackling four TODOS.md items together. Plan doc: `~/.claude/plans/familiarize-yourself-with-the-abundant-ullman.md`. All four items bundled because each is atomic and splitting into 4 PRs would just multiply CLAUDE.md restart overhead.

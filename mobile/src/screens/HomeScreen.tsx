@@ -13,6 +13,7 @@ import {
   AppState,
   Linking,
   Image,
+  Platform,
 } from "react-native";
 import { launchImageLibrary } from "react-native-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -42,7 +43,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import Clipboard from "@react-native-clipboard/clipboard";
-import { ClipboardRecipePrompt } from "../components/ClipboardRecipePrompt";
+import { ClipboardRecipeBanner } from "../components/ClipboardRecipeBanner";
+import { parseClipboardForHttpsUrl } from "../features/import/webImportUrl";
 import { CollectionPickerSheet } from "../components/CollectionPickerSheet";
 import {
   RecipeQuickActionsSheet,
@@ -73,11 +75,6 @@ import {
 } from "../theme/colors";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
-
-// Module-level so it survives Home screen unmount/remount during navigation.
-// Reset only when the app returns from genuine background (user switched apps
-// and may have copied a new URL), NOT from inactive (iOS system dialogs).
-let clipboardPasteUsedThisSession = false;
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const HORIZONTAL_PADDING = 24;
@@ -190,7 +187,13 @@ export function HomeScreen({ navigation, route }: Props) {
   const canImportMore = useImportQueueStore((s) => s.canImportMore);
   const [jarOpen, setJarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [clipboardPromptVisible, setClipboardPromptVisible] = useState(false);
+  // Whether the banner should be shown right now. The banner appears iff
+  // (a) iOS/Android reports a URL on the pasteboard via a NO-READ check
+  // (hasURL/hasString never triggers iOS's paste permission prompt) AND
+  // (b) the user hasn't already paused or dismissed it this foreground
+  // session. Reading the actual URL happens only when the user taps Paste,
+  // which is the correct time for iOS to ask for paste permission.
+  const [clipboardBannerVisible, setClipboardBannerVisible] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{
     uri: string;
     type?: string;
@@ -219,70 +222,104 @@ export function HomeScreen({ navigation, route }: Props) {
     name: string;
     count: number;
   } | null>(null);
-  const suppressClipboardPromptRef = useRef(false);
   const fanAnim = useRef(new Animated.Value(0)).current;
   const toastRef = useRef<ToastQueueHandle>(null);
+
+  // Session-scoped dedup. Once the user pastes or dismisses in the current
+  // foreground session, keep the banner hidden until they background the
+  // app and return. Persisting this across backgrounds would require URL
+  // comparison (AsyncStorage of the last-seen URL) which we can't do
+  // without reading the clipboard — and reading is exactly what triggers
+  // iOS's paste permission prompt, which we're trying to avoid.
+  const clipboardBannerActedThisSessionRef = useRef(false);
+
+  /**
+   * Check clipboard PRESENCE without reading content. iOS exposes
+   * `Clipboard.hasURL()` (backed by UIPasteboard.hasURLs) which returns a
+   * boolean without triggering the paste permission prompt. Android falls
+   * back to `hasString()` (library handles URL detection client-side on
+   * the paste tap). Fires on first focus and on background→active.
+   */
+  const refreshClipboardBanner = useCallback(async () => {
+    if (clipboardBannerActedThisSessionRef.current) {
+      setClipboardBannerVisible(false);
+      return;
+    }
+    try {
+      const present =
+        Platform.OS === "ios"
+          ? await Clipboard.hasURL()
+          : await Clipboard.hasString();
+      setClipboardBannerVisible(!!present);
+    } catch {
+      setClipboardBannerVisible(false);
+    }
+  }, []);
 
   useEffect(() => {
     let prev = AppState.currentState;
     const sub = AppState.addEventListener("change", (next) => {
       if (prev === "background" && next === "active") {
-        suppressClipboardPromptRef.current = false;
-        clipboardPasteUsedThisSession = false;
-
+        // Fresh foreground = fresh session. Re-check the pasteboard and
+        // let the banner reappear if the user has a URL copied.
+        clipboardBannerActedThisSessionRef.current = false;
         if (navigation.isFocused()) {
-          setTimeout(async () => {
-            if (
-              suppressClipboardPromptRef.current ||
-              clipboardPasteUsedThisSession
-            )
-              return;
-            try {
-              const has = await Clipboard.hasString();
-              if (has) setClipboardPromptVisible(true);
-            } catch {
-              /* ignore */
-            }
+          setTimeout(() => {
+            void refreshClipboardBanner();
           }, 600);
         }
       }
       prev = next;
     });
     return () => sub.remove();
-  }, [navigation]);
+  }, [navigation, refreshClipboardBanner]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      const timer = setTimeout(async () => {
-        if (
-          cancelled ||
-          suppressClipboardPromptRef.current ||
-          clipboardPasteUsedThisSession
-        )
-          return;
-        try {
-          const has = await Clipboard.hasString();
-          if (!cancelled && has) {
-            setClipboardPromptVisible(true);
-          }
-        } catch {
-          /* ignore */
-        }
+      const timer = setTimeout(() => {
+        if (cancelled) return;
+        void refreshClipboardBanner();
       }, 600);
       return () => {
         cancelled = true;
         clearTimeout(timer);
-        setClipboardPromptVisible(false);
       };
-    }, []),
+    }, [refreshClipboardBanner]),
   );
 
-  const closeClipboardPrompt = useCallback(() => {
-    suppressClipboardPromptRef.current = true;
-    clipboardPasteUsedThisSession = true;
-    setClipboardPromptVisible(false);
+  const dismissClipboardBanner = useCallback(() => {
+    clipboardBannerActedThisSessionRef.current = true;
+    setClipboardBannerVisible(false);
   }, []);
+
+  /**
+   * Paste-tap handler. This is the FIRST moment we read the clipboard —
+   * iOS will surface its "{App} pasted from {OtherApp}" permission prompt
+   * (or the paste banner on older iOS) here, which is the right UX because
+   * the user explicitly asked to paste by tapping the pill. If no URL is
+   * actually on the clipboard (e.g. user copied plain text after
+   * hasURL()/hasString() returned true), we surface a polite error instead
+   * of navigating to a broken state.
+   */
+  const handlePasteClipboardTap = useCallback(async () => {
+    clipboardBannerActedThisSessionRef.current = true;
+    setClipboardBannerVisible(false);
+    try {
+      const text = await Clipboard.getString();
+      const url = parseClipboardForHttpsUrl(text);
+      if (!url) {
+        Alert.alert(
+          "No recipe link found",
+          "Copy a recipe URL (https://…) to the clipboard, then tap Paste.",
+        );
+        return;
+      }
+      navigation.navigate("WebRecipeImport", { initialUrl: url });
+    } catch {
+      Alert.alert("Clipboard", "Could not read the clipboard.");
+    }
+  }, [navigation]);
 
   useEffect(() => {
     if (route.params?.openFab && !jarOpen) {
@@ -581,6 +618,13 @@ export function HomeScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             )}
           </View>
+
+          {clipboardBannerVisible && (
+            <ClipboardRecipeBanner
+              onPasteTap={handlePasteClipboardTap}
+              onDismiss={dismissClipboardBanner}
+            />
+          )}
         </>
       )}
 
@@ -816,14 +860,6 @@ export function HomeScreen({ navigation, route }: Props) {
       )}
 
       <ToastQueue ref={toastRef} />
-
-      <ClipboardRecipePrompt
-        visible={clipboardPromptVisible}
-        onClose={closeClipboardPrompt}
-        onPasteUrl={(url) =>
-          navigation.navigate("WebRecipeImport", { initialUrl: url })
-        }
-      />
 
       <CreateCollectionSheet
         visible={createCollectionSheetVisible}

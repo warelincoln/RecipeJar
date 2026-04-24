@@ -80,3 +80,35 @@ For implementation plans, see [`.claude/plans/`](/Users/lincolnware/.claude/plan
   </dict>
 </dict>
 ```
+
+---
+
+## RecipeDetail header polish — floating back chevron + edge-to-edge hero
+
+**What.** Drop the native React Navigation header on `RecipeDetail` (`headerShown: false`) and overlay a floating back chevron on the hero image. Matches the rest of the app (`ImportHub`, `Account`, `WebRecipeImport` all use `headerShown: false`).
+
+**Why.** The 2026-04-24 bundle blanked the header title (`title: ""`) as a minimal fix. The empty gray bar looks vestigial. Going fully header-less lets the hero photo go edge-to-edge to the status bar, matching the detail-page pattern users already know from native iOS apps (Photos, Apple Health, Instagram).
+
+**Pros.** Cleaner visual. One fewer system-styled surface. Consistent with the rest of the app's screen hierarchy.
+
+**Cons.** Chevron needs a semi-transparent pill background to stay visible on light hero photos. ~30 min work incl. dark/light testing.
+
+**Depends on / blocked by.** None. Can land any time after the 2026-04-24 bundle.
+
+**Where to start.** [`mobile/App.tsx:88`](mobile/App.tsx) — change `{ headerShown: true, title: "" }` → `{ headerShown: false }`. Add a floating `TouchableOpacity` with chevron-left icon at the top-left of the hero in [`mobile/src/screens/RecipeDetailScreen.tsx:206-234`](mobile/src/screens/RecipeDetailScreen.tsx). Background: `rgba(0,0,0,0.35)` pill, 36×36, `top: insets.top + 8, left: 12`. `onPress`: `navigation.goBack()`.
+
+---
+
+## URL-fallback candidate picker for ambiguous roundup posts
+
+**What.** When the 2026-04-24 URL-fallback cascade declines due to ≥8 similar candidates (roundup-post detection), we currently surface an error. Build a picker UI that lets the user choose one of the detected recipe links instead.
+
+**Why.** "30 best cookie recipes" pages are a real use case — user wants to save one of them, not the article. Current behavior sends them back to the browser to re-paste a specific recipe URL. A picker would let them complete the save in-app.
+
+**Pros.** Recovers roundup-post imports. Unlocks a class of content we can't currently parse.
+
+**Cons.** New UI surface. Needs a way to sort/label candidates (score is a poor UX signal). Risk of picker bloat if we show all 8-30 candidates; probably need to show top-N with scroll.
+
+**Depends on / blocked by.** None technically. Re-evaluate after seeing how often users hit the roundup-decline path in PostHog `url_extraction` events with `reason: "ambiguous_roundup"`.
+
+**Where to start.** `findCandidateRecipeLinks` in [`server/src/parsing/url/url-parse.adapter.ts`](server/src/parsing/url/url-parse.adapter.ts) already returns a sorted list of candidates with scores. Extend the "declined" response path to include the top-N candidates in the draft row (new JSON column or on `parseErrorMessage`). Mobile renders a picker sheet when `extractionError === "ambiguous_roundup"` and `draft.candidateLinks` is present. Each row shows the anchor text + host. Picking one calls `POST /drafts/:id/parse` with an override URL param.

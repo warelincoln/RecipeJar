@@ -314,7 +314,25 @@ async function runParseInBackground(
         let candidate: ParsedRecipeCandidate;
 
         if (draft.sourceType === "url" && draft.originalUrl) {
-          if (suppliedHtml) {
+          // If a previous parse of this draft already resolved a recipe URL
+          // via the fallback cascade, skip link discovery and parse against
+          // the resolved URL directly. We also force a fresh server fetch
+          // here — any suppliedHtml / preFetchedHtml on this retry is HTML
+          // for the ORIGINAL URL (the user's paste), not the resolved one,
+          // so reusing it would point cheerio at the wrong page.
+          if (draft.resolvedUrl && draft.resolvedUrl !== draft.originalUrl) {
+            candidate = await parseUrl(
+              draft.resolvedUrl,
+              sourcePages,
+              "server-fetch-fallback",
+            );
+            // Preserve the original URL on the candidate so mobile still
+            // renders the "we followed a link to …" banner on re-review.
+            if (candidate.extractionMethod !== "error") {
+              candidate.fallbackFromUrl = draft.originalUrl;
+              candidate.fallbackResolvedUrl = draft.resolvedUrl;
+            }
+          } else if (suppliedHtml) {
             candidate = await parseUrlFromHtml(
               draft.originalUrl,
               suppliedHtml,
@@ -754,11 +772,19 @@ export async function draftsRoutes(app: FastifyInstance) {
       //   - neither JSON-LD nor Microdata passes the quality gate
       //   - any unexpected error in the sync path
       if (draft.sourceType === "url" && draft.originalUrl) {
-        let html: string | null = suppliedHtml || null;
+        // Sync fast-path uses resolvedUrl on retries so a draft that already
+        // hit the fallback cascade can still come back through the fast path
+        // without re-running link discovery. Ignore suppliedHtml when we're
+        // re-parsing against the resolved URL — the supplied HTML is for the
+        // original page, not the resolved one.
+        const parseTargetUrl = draft.resolvedUrl ?? draft.originalUrl;
+        const isResolvedRetry =
+          draft.resolvedUrl != null && draft.resolvedUrl !== draft.originalUrl;
+        let html: string | null = isResolvedRetry ? null : (suppliedHtml || null);
         if (!html) {
           try {
             html = await fetchWithTimeout(
-              draft.originalUrl,
+              parseTargetUrl,
               SYNC_FETCH_TIMEOUT_MS,
             );
           } catch (err) {
@@ -791,16 +817,25 @@ export async function draftsRoutes(app: FastifyInstance) {
               parseBody,
             );
             const candidate = await parseUrlStructuredOnly(
-              draft.originalUrl,
+              parseTargetUrl,
               html,
               sourcePages,
               resolvedAcquisition,
             );
+            if (candidate && isResolvedRetry) {
+              // Preserve the fallback banner on retries: the structured-only
+              // fast path doesn't re-enter tryUrlFallback (correct — we're
+              // already on the resolved URL), so we have to stamp these by
+              // hand so mobile keeps showing the disclosure banner.
+              candidate.fallbackFromUrl = draft.originalUrl;
+              candidate.fallbackResolvedUrl = draft.resolvedUrl!;
+            }
             if (candidate) {
               logEvent("url_parse_source_selected", {
                 draftId,
                 acquisitionMethod: resolvedAcquisition,
                 fastPath: true,
+                isResolvedRetry,
               });
               const result = await finalizeParseResult({
                 draftId,

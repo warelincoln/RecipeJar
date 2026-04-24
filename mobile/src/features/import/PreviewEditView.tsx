@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import { Plus, Clock, Check } from "lucide-react-native";
+import { Plus, Clock, Check, Link2, ArrowLeft } from "lucide-react-native";
 import { LUCIDE } from "../../theme/lucideSizes";
 import FastImage from "react-native-fast-image";
 import type {
@@ -27,6 +27,7 @@ import { displayMessageForIssue } from "./issueDisplayMessage";
 import { isFractionalAmount } from "../../utils/fractions";
 import { ShimmerPlaceholder } from "../../components/ShimmerPlaceholder";
 import { RecipeImagePlaceholder } from "../../components/RecipeImagePlaceholder";
+import { SourceTabView } from "./SourceTabView";
 import {
   PRIMARY,
   PRIMARY_LIGHT,
@@ -121,6 +122,31 @@ interface PreviewEditViewProps {
    *  banner to show estimated prep/cook/total so the user can confirm
    *  inferred values. Null/undefined when no metadata is available. */
   parsedMetadata?: ParsedRecipeCandidate["metadata"] | null;
+  /** Import provenance — drives the Source tab pane AND gates the peach-tint
+   *  "AI estimates on fractions" affordance. The fraction-verification
+   *  warning only applies to image/camera imports (LLM vision misreads
+   *  fraction glyphs); URL imports read structured markup and aren't
+   *  subject to that failure mode. Defaults to "image" for backwards
+   *  compatibility with any caller that still hands in the pre-task-5
+   *  prop shape. */
+  sourceType?: "image" | "url";
+  /** For URL imports: the URL the parser actually hit (resolved URL when
+   *  the fallback cascade fired; original otherwise). Used by SourceTabView
+   *  to load the live page in a WebView. Null on image imports. */
+  sourceUrl?: string | null;
+  /** For image imports: local file URIs of captured pages. Used by
+   *  SourceTabView to render the photo stack with tap-to-zoom. Empty on
+   *  URL imports. */
+  sourcePageUris?: string[];
+  /** When the server's URL-fallback cascade rescued a non-recipe page by
+   *  following a recipe link, this holds the ORIGINAL URL the user pasted.
+   *  We show a disclosure banner above the tab row naming the resolved
+   *  destination host. When undefined/null, no banner renders. */
+  fallbackFromUrl?: string | null;
+  /** The URL the server resolved to after the fallback cascade — used to
+   *  surface the destination host in the banner copy. Paired with
+   *  fallbackFromUrl (both set, or neither). */
+  fallbackResolvedUrl?: string | null;
   validationResult: ValidationResult | null;
   dismissedIssueIds: Set<string>;
   heroImageUrl?: string | null;
@@ -131,6 +157,13 @@ interface PreviewEditViewProps {
   onDismissWarning: (issueId: string) => void;
   onUndismissWarning: (issueId: string) => void;
   onCancel: () => void;
+  /** URL imports only: fired when the user taps "Back to browser". The
+   *  caller should cancel the in-flight draft and re-open the in-app
+   *  WebView at the exact URL the user was looking at before they hit
+   *  Save — so after a mis-picked fallback or any "wrong page" review,
+   *  they can pick a different recipe link without losing their place.
+   *  Undefined on image imports; the affordance is hidden. */
+  onBackToBrowser?: () => void;
   otherReadyCount?: number;
   /** True while PATCH /drafts/:id/candidate is in flight (avoid save with stale validation). */
   candidateSyncPending?: boolean;
@@ -139,6 +172,11 @@ interface PreviewEditViewProps {
 export function PreviewEditView({
   candidate,
   parsedMetadata = null,
+  sourceType = "image",
+  sourceUrl = null,
+  sourcePageUris = [],
+  fallbackFromUrl = null,
+  fallbackResolvedUrl = null,
   validationResult,
   dismissedIssueIds,
   heroImageUrl = null,
@@ -148,6 +186,7 @@ export function PreviewEditView({
   onDismissWarning,
   onUndismissWarning,
   onCancel,
+  onBackToBrowser,
   otherReadyCount = 0,
   candidateSyncPending = false,
 }: PreviewEditViewProps) {
@@ -158,17 +197,41 @@ export function PreviewEditView({
   const [ingredients, setIngredients] = useState(candidate.ingredients);
   const [steps, setSteps] = useState(candidate.steps);
   const [heroLoaded, setHeroLoaded] = useState(false);
+  // Screen-level tab state. The tab row lives above the hero image and
+  // persists while the user edits — so a switch to Source to double-check
+  // a measurement and back to Imported preserves every edit in flight.
+  // "imported" is the default because that's where the save button lives
+  // and where the user came to act.
+  const [activeTab, setActiveTab] = useState<"imported" | "source">("imported");
 
-  // Persistent fraction-verification context. Always shown when ANY ingredient
-  // has a fractional amount, so the peach tint always has nearby explanation.
-  // Was previously a one-time dismissible banner (AsyncStorage gated), but
-  // dad-test 2026-04-19 surfaced the obvious gap: anyone who dismissed
-  // without reading, or anyone using the app on someone else's phone, sees
-  // the peach tint with zero context. The tip is small enough to ignore
-  // and only renders when relevant, so always-on is the right tradeoff.
-  const hasAnyFractionalIngredient = ingredients.some(
-    (ing) => !ing.isHeader && isFractionalAmount(ing.amount),
-  );
+  // Fraction-verification context is an IMAGE-ONLY affordance. The peach tint
+  // exists because LLM vision misreads fraction glyphs (½ vs ⅓, ¼ vs ¾); URL
+  // imports read structured markup (JSON-LD / microdata / DOM-AI over author
+  // text), so the visual-similarity failure mode doesn't apply. Gating here
+  // (and on the per-row `inputFractional` style below) is the single behavior
+  // change from the old "any fractional ingredient" rule.
+  const hasAnyFractionalIngredient =
+    sourceType === "image" &&
+    ingredients.some(
+      (ing) => !ing.isHeader && isFractionalAmount(ing.amount),
+    );
+
+  // Fallback banner: show above the tab row when the server rescued the
+  // parse via the URL-fallback cascade. Copy names the destination host so
+  // the user can sanity-check the swap before saving.
+  const showFallbackBanner =
+    sourceType === "url" && !!fallbackFromUrl && !!fallbackResolvedUrl;
+  let fallbackHost: string | null = null;
+  if (showFallbackBanner && fallbackResolvedUrl) {
+    try {
+      fallbackHost = new URL(fallbackResolvedUrl).hostname.replace(
+        /^www\./,
+        "",
+      );
+    } catch {
+      fallbackHost = fallbackResolvedUrl;
+    }
+  }
 
   // Times review banner state --------------------------------------------
   // Derive the banner's "seed" values from the candidate's user overrides
@@ -375,6 +438,89 @@ export function PreviewEditView({
 
   return (
     <View style={styles.outer}>
+      {showFallbackBanner && fallbackHost && (
+        <View style={styles.fallbackBanner} testID="preview-fallback-banner">
+          <View style={styles.fallbackBannerIconWrap}>
+            <Link2 size={16} color={PRIMARY} strokeWidth={2} />
+          </View>
+          <View style={styles.fallbackBannerTextWrap}>
+            <Text style={styles.fallbackBannerTitle}>
+              We followed a recipe link
+            </Text>
+            <Text style={styles.fallbackBannerBody}>
+              The page you imported wasn't a recipe, but we found a link to{" "}
+              <Text style={styles.fallbackBannerHost}>{fallbackHost}</Text>.
+              Does this look right?
+            </Text>
+            {onBackToBrowser && (
+              <TouchableOpacity
+                onPress={onBackToBrowser}
+                testID="preview-fallback-back-to-browser"
+                accessibilityRole="button"
+                accessibilityLabel="Not the right page — go back to browser"
+              >
+                <Text style={styles.fallbackBannerLink}>
+                  Not the right page? Back to browser →
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      <View style={styles.tabRow} testID="preview-tab-row">
+        <TouchableOpacity
+          style={[
+            styles.tabButton,
+            activeTab === "imported" && styles.tabButtonActive,
+          ]}
+          onPress={() => setActiveTab("imported")}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "imported" }}
+          accessibilityLabel="Imported recipe tab"
+          testID="preview-tab-imported"
+        >
+          <Text
+            style={[
+              styles.tabLabel,
+              activeTab === "imported" && styles.tabLabelActive,
+            ]}
+          >
+            Imported
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.tabButton,
+            activeTab === "source" && styles.tabButtonActive,
+          ]}
+          onPress={() => setActiveTab("source")}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeTab === "source" }}
+          accessibilityLabel="Source recipe tab"
+          testID="preview-tab-source"
+        >
+          <Text
+            style={[
+              styles.tabLabel,
+              activeTab === "source" && styles.tabLabelActive,
+            ]}
+          >
+            Source
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Sibling-rendered tabs: both mount once, the inactive one is hidden
+          via display:none so the WebView keeps its state (scroll position,
+          cookies) across switches and the Imported ScrollView keeps its
+          keyboard / cursor position when the user pops over to Source. */}
+      <View
+        style={[
+          styles.tabPane,
+          activeTab !== "imported" && styles.tabPaneHidden,
+        ]}
+      >
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -409,9 +555,23 @@ export function PreviewEditView({
           </Text>
         </View>
       )}
-      <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
-        <Text style={styles.cancelText}>Cancel</Text>
-      </TouchableOpacity>
+      <View style={styles.topActionRow}>
+        <TouchableOpacity style={styles.cancelButton} onPress={onCancel} testID="preview-cancel" accessibilityRole="button" accessibilityLabel="preview-cancel">
+          <Text style={styles.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+        {onBackToBrowser && sourceType === "url" && (
+          <TouchableOpacity
+            style={styles.backToBrowserButton}
+            onPress={onBackToBrowser}
+            testID="preview-back-to-browser"
+            accessibilityRole="button"
+            accessibilityLabel="Back to browser"
+          >
+            <ArrowLeft size={14} color={PRIMARY} strokeWidth={2} />
+            <Text style={styles.backToBrowserText}>Back to browser</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {showTimesBanner && (
         <View
@@ -558,8 +718,14 @@ export function PreviewEditView({
         </Text>
       )}
       {ingredients.map((ing, i) => {
+        // Same gating as hasAnyFractionalIngredient above — peach tint is an
+        // image-only signal. URL imports never show it, even for fractional
+        // amounts, because structured markup doesn't have the OCR failure
+        // mode the tint warns about.
         const isFractional =
-          !ing.isHeader && isFractionalAmount(ing.amount);
+          sourceType === "image" &&
+          !ing.isHeader &&
+          isFractionalAmount(ing.amount);
         return (
           <View key={ing.id}>
             {ing.isHeader ? (
@@ -765,12 +931,116 @@ export function PreviewEditView({
         </TouchableOpacity>
       </View>
       </ScrollView>
+      </View>
+
+      {/* Source pane — WebView for URL imports, photo stack for image
+          imports. Mounted always; its own container toggles display via
+          the `active` prop so the WebView retains scroll/cookie state. */}
+      <View
+        style={[
+          styles.tabPane,
+          activeTab !== "source" && styles.tabPaneHidden,
+        ]}
+      >
+        <SourceTabView
+          sourceType={sourceType}
+          sourceUrl={sourceUrl}
+          sourcePageUris={sourcePageUris}
+          active={activeTab === "source"}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: WHITE },
+  // Fallback banner sits ABOVE the tab row — it's a whole-screen disclosure
+  // about where the recipe actually came from, not an Imported-tab concern.
+  fallbackBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: LIGHT_PEACH,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: PRIMARY_LIGHT,
+  },
+  fallbackBannerIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: WHITE,
+  },
+  fallbackBannerTextWrap: {
+    flex: 1,
+  },
+  fallbackBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: TEXT_PRIMARY,
+    marginBottom: 2,
+  },
+  fallbackBannerBody: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    lineHeight: 17,
+  },
+  fallbackBannerHost: {
+    fontWeight: "700",
+    color: TEXT_PRIMARY,
+  },
+  fallbackBannerLink: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: PRIMARY,
+  },
+  tabRow: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: DIVIDER,
+    borderRadius: 10,
+    padding: 3,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  tabButtonActive: {
+    backgroundColor: WHITE,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: TEXT_SECONDARY,
+  },
+  tabLabelActive: {
+    color: TEXT_PRIMARY,
+  },
+  tabPane: {
+    flex: 1,
+  },
+  tabPaneHidden: {
+    display: "none",
+  },
   scroll: { flex: 1, backgroundColor: WHITE },
   content: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
   heroWrap: {
@@ -800,8 +1070,30 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: PRIMARY,
   },
-  cancelButton: { alignSelf: "flex-start", paddingVertical: 8 },
-  cancelText: { fontSize: 16, color: TEXT_SECONDARY },
+  topActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  cancelButton: { paddingVertical: 8 },
+  // Terracotta (PRIMARY) instead of the old muted gray — the gray blended
+  // into the sectionTitle row and users missed it. Cancel discards an
+  // in-flight import, which is destructive enough that the user should
+  // find it easily; the confirm Alert still guards accidental taps.
+  cancelText: { fontSize: 16, color: PRIMARY, fontWeight: "600" },
+  backToBrowserButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  backToBrowserText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: PRIMARY,
+  },
   timesBanner: {
     backgroundColor: LIGHT_PEACH,
     borderWidth: 1,

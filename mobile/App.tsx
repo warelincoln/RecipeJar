@@ -85,7 +85,7 @@ function AppStackScreens() {
         <AppStack.Screen
           name="RecipeDetail"
           component={RecipeDetailScreen}
-          options={{ headerShown: true, title: "Recipe" }}
+          options={{ headerShown: true, title: "" }}
         />
         <AppStack.Screen name="RecipeEdit" component={RecipeEditScreen} />
         <AppStack.Screen name="Collection" component={CollectionScreen} />

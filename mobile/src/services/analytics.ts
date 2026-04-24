@@ -18,6 +18,7 @@ type EventName =
   | "import_retake_required"
   | "import_retake_initiated"
   | "import_dismissed"
+  | "import_back_to_browser"
   | "import_save_attempted"
   | "import_saved"
   | "import_save_failed"

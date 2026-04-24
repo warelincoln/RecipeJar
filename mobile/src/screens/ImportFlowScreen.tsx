@@ -214,6 +214,40 @@ export function ImportFlowScreen({ route, navigation }: Props) {
     ]);
   }, [navigation, fromHub, state.context, state.value, hubEntry, removeEntry]);
 
+  /**
+   * URL imports only: drop the in-flight draft and re-open the in-app
+   * WebView at the URL the user was viewing before they tapped Save.
+   * Critical for the roundup-post fallback case — the auto-picked recipe
+   * might not be the one the user wanted, and sending them back to the
+   * exact source page lets them pick a different link without losing
+   * their place. For non-fallback URL imports it's still useful as a
+   * "wrong page" escape hatch.
+   *
+   * No confirm dialog — the affordance is explicitly labelled "Back to
+   * browser", so one tap = "cancel this and take me back to pick again".
+   * Cancelling the draft is best-effort; navigation still happens even
+   * if the server-side cancel errors (the draft will self-timeout).
+   */
+  const handleBackToBrowser = useCallback(() => {
+    const targetUrl = state.context.url;
+    if (!targetUrl) return;
+    analytics.track(
+      "import_back_to_browser",
+      buildImportEventProps(state.context, {
+        from: String(state.value),
+      }),
+    );
+    if (state.context.draftId) {
+      void api.drafts.cancel(state.context.draftId).catch(() => {
+        /* best-effort — server timeouts will clean up anyway */
+      });
+    }
+    if (fromHub && hubEntry) {
+      removeEntry(hubEntry.localId);
+    }
+    navigation.navigate("WebRecipeImport", { initialUrl: targetUrl });
+  }, [navigation, fromHub, state.context, state.value, hubEntry, removeEntry]);
+
   const handleEdit = useCallback(
     async (candidate: EditedRecipeCandidate) => {
       if (!state.context.draftId) return;
@@ -449,10 +483,32 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           ).length
         : 0;
 
+      // Plumb source material down for the new Source tab. For URL imports
+      // we prefer the server-resolved URL over the user-pasted one so the
+      // WebView points at the page whose recipe actually got extracted
+      // (matters when the URL-fallback cascade rescued a non-recipe page).
+      const ctxSourceType = state.context.sourceType;
+      const ctxParsedCandidate = state.context.parsedCandidate;
+      const sourceUrl =
+        ctxSourceType === "url"
+          ? (ctxParsedCandidate?.fallbackResolvedUrl ??
+              state.context.url ??
+              null)
+          : null;
+      const sourcePageUris =
+        ctxSourceType === "image"
+          ? state.context.capturedPages.map((p) => p.imageUri)
+          : [];
+
       return (
         <PreviewEditView
           candidate={state.context.editedCandidate}
           parsedMetadata={state.context.parsedCandidate?.metadata ?? null}
+          sourceType={ctxSourceType}
+          sourceUrl={sourceUrl}
+          sourcePageUris={sourcePageUris}
+          fallbackFromUrl={ctxParsedCandidate?.fallbackFromUrl ?? null}
+          fallbackResolvedUrl={ctxParsedCandidate?.fallbackResolvedUrl ?? null}
           validationResult={state.context.validationResult}
           dismissedIssueIds={dismissedIssueIds}
           heroImageUrl={
@@ -472,6 +528,11 @@ export function ImportFlowScreen({ route, navigation }: Props) {
           onDismissWarning={handleDismissWarning}
           onUndismissWarning={handleUndismissWarning}
           onCancel={handleCancel}
+          onBackToBrowser={
+            ctxSourceType === "url" && state.context.url
+              ? handleBackToBrowser
+              : undefined
+          }
           otherReadyCount={otherReadyCount}
           candidateSyncPending={candidateSyncPending}
         />

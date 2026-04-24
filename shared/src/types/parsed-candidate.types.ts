@@ -73,6 +73,28 @@ export interface ParsedRecipeCandidate {
     | "url_bot_blocked"
     | null;
 
+  /**
+   * Set when the URL parse cascade failed on the user-supplied URL but the
+   * server followed a recipe link on that page (Layer 1 canonical short-circuit,
+   * or Layer 2 scored link-fallback in `parseUrlFromHtml`) and successfully
+   * parsed the resolved URL. This field holds the ORIGINAL URL the user
+   * pasted. Mobile uses it as a boolean signal to render a disclosure banner
+   * on the import-review screen: "we couldn't find a recipe on that page, but
+   * we followed a link to {host} — does this look right?". The `{host}` is
+   * extracted from `fallbackResolvedUrl` below.
+   */
+  fallbackFromUrl?: string | null;
+
+  /**
+   * Set in tandem with `fallbackFromUrl`: the URL the server actually parsed
+   * after the fallback cascade picked a recipe link (canonical or scored).
+   * Mobile displays the host part of this in the fallback banner so the user
+   * can see the domain they're about to save. The server also persists this
+   * onto the drafts row (`resolved_url` column) so retries of `POST
+   * /drafts/:id/parse` skip link discovery.
+   */
+  fallbackResolvedUrl?: string | null;
+
   metadata?: {
     yield?: string;
     prepTime?: string;

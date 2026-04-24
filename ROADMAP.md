@@ -2,7 +2,7 @@
 
 ## Path to $20k MRR
 
-**Last updated:** 2026-04-16
+**Last updated:** 2026-04-24
 **Target:** First paying customer by Q3 2026. $20k MRR by Q1 2027.
 **Dev capacity:** Solo + AI agents (Cursor / Claude Code)
 **Pricing model:** Freemium subscription — Free tier (limited) + Pro ($4.99/mo or $39.99/yr) + Cookbook Bundle ($19.99 one-time add-on)
@@ -59,6 +59,7 @@ This file is the **navigation layer** — high-level phase overview, gating, rev
 - **Phase 0 — mostly complete.** 0.1 Auth ✅ (all 8 work streams). 0.1b Dev/Prod Isolation ✅ (Pillars 2 + 4; 1 + 3 deferred). **0.2 Ship Prep ✅ internal TestFlight LIVE** (2026-04-16; Build 1.0 (1) installed on a real tester's iPhone; Sentry + PostHog wired and verified; public App Store submission metadata deferred). 0.3 Subscriptions and 0.4 Sync not started.
 - **Phases 1–5 — not started.** See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the full feature-by-feature audit against the codebase.
 - **Off-roadmap UX work shipped 2026-04-16.** Source provenance chip, prep/cook/total time columns + AI inference + review banner, servings quick chips (½/2×/3×), and iOS-Photos-style bulk select mode on Home + Collection (delete / move, with inline "+ New folder"). Consciously ahead of TestFlight — makes App Store screenshots more compelling but pushed Phase 0.2 ~3–4 days. See [`CHANGELOG.md`](CHANGELOG.md) for the two 2026-04-16 entries and [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the full update.
+- **Import-review UX bundle shipped 2026-04-24 (TestFlight Build 4 prep).** Six-part polish pass of the URL + image import review flow. Most material pieces: (1) segmented `[ Imported | Source ]` tabs on the review screen — URL imports show the parsed page in a WebView, image imports show a photo stack; (2) URL-fallback cascade that rescues non-recipe pages by following their canonical or a scored recipe link on the page, with roundup-post ambiguity decline; (3) compact inline clipboard banner on Home with no iOS paste prompt until the user taps Paste (replaces the old bottom-sheet modal); (4) peach-tint "AI estimates on fractions" affordance now gated to image imports only; (5) "Recipe" header text removed from recipe detail; (6) `← Back to browser` affordance on URL-import review so users can recover when the fallback picked the wrong page. Adds one DB migration (0015, `drafts.resolved_url`). All four lanes shipped + verified on iPhone the same session. See the full [`CHANGELOG.md`](CHANGELOG.md) 2026-04-24 entry for mechanics and rationale.
 
 ---
 

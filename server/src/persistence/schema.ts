@@ -45,6 +45,14 @@ export const drafts = pgTable(
     status: text("status").notNull().default("CAPTURE_IN_PROGRESS"),
     sourceType: text("source_type").notNull(),
     originalUrl: text("original_url"),
+    // Set by the URL fallback cascade (see parseUrlFromHtml):
+    // when the user-pasted URL isn't a recipe but a recipe link on the page
+    // parses successfully, we persist the resolved URL here so retries of
+    // POST /drafts/:id/parse skip link discovery. originalUrl stays as the
+    // user's input (mobile uses the delta to render the disclosure banner).
+    // NULL on legacy rows + whenever fallback didn't fire — consumers must
+    // coalesce via resolvedUrl ?? originalUrl.
+    resolvedUrl: text("resolved_url"),
     parsedCandidateJson: jsonb("parsed_candidate_json"),
     editedCandidateJson: jsonb("edited_candidate_json"),
     validationResultJson: jsonb("validation_result_json"),
